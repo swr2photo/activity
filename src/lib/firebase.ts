@@ -2,45 +2,28 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 
-// ตรวจสอบว่ามี environment variables ที่จำเป็นหรือไม่
-const requiredEnvVars = [
-  'NEXT_PUBLIC_FIREBASE_API_KEY',
-  'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
-  'NEXT_PUBLIC_FIREBASE_PROJECT_ID',
-  'NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET',
-  'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
-  'NEXT_PUBLIC_FIREBASE_APP_ID'
-];
-
-// ตรวจสอบว่ามี environment variables ครบหรือไม่
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingEnvVars.length > 0 && process.env.NODE_ENV === 'production') {
-  console.error('Missing required Firebase environment variables:', missingEnvVars);
-  throw new Error(`Missing Firebase configuration: ${missingEnvVars.join(', ')}`);
-}
-
+// Firebase configuration with fallback values
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'demo-api-key',
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'demo-project.firebaseapp.com',
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'demo-project',
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'demo-project.appspot.com',
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '123456789',
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '1:123456789:web:demo-app-id'
 };
 
-// ตรวจสอบว่า Firebase config มีค่าที่ถูกต้องหรือไม่
-if (!firebaseConfig.projectId || firebaseConfig.projectId === 'demo-project') {
-  console.warn('Warning: Using demo Firebase configuration. Please set proper environment variables.');
+// แสดงคำเตือนเมื่อใช้ค่า demo
+if (firebaseConfig.projectId === 'demo-project') {
+  console.warn('⚠️ Warning: Using demo Firebase configuration. Please set proper environment variables for production.');
 }
 
 // Initialize Firebase
 let app;
 try {
   app = initializeApp(firebaseConfig);
-  console.log(`Firebase initialized successfully for project: ${firebaseConfig.projectId}`);
+  console.log(`🔥 Firebase initialized successfully for project: ${firebaseConfig.projectId}`);
 } catch (error) {
-  console.error('Failed to initialize Firebase:', error);
+  console.error('❌ Failed to initialize Firebase:', error);
   throw error;
 }
 
@@ -57,7 +40,7 @@ if (
   !emulatorsConnected
 ) {
   try {
-    console.log('Connecting to Firebase emulators...');
+    console.log('🔧 Connecting to Firebase emulators...');
     
     // Connect to Firestore emulator
     connectFirestoreEmulator(db, 'localhost', 8080);
@@ -69,8 +52,8 @@ if (
     
     emulatorsConnected = true;
   } catch (error) {
-    console.error('Failed to connect to emulators:', error);
-    console.log('Continuing with production Firebase...');
+    console.error('❌ Failed to connect to emulators:', error);
+    console.log('🔄 Continuing with production Firebase...');
   }
 }
 
@@ -79,7 +62,8 @@ export const firebaseConfigInfo = {
   projectId: firebaseConfig.projectId,
   authDomain: firebaseConfig.authDomain,
   isEmulator: process.env.NEXT_PUBLIC_USE_FIRESTORE_EMULATOR === 'true',
-  environment: process.env.NODE_ENV
+  environment: process.env.NODE_ENV,
+  isDemo: firebaseConfig.projectId === 'demo-project'
 };
 
 // Helper function สำหรับตรวจสอบสถานะการเชื่อมต่อ
