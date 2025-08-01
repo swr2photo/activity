@@ -382,7 +382,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
         setError('รหัสผู้ใช้นี้ถูกใช้งานไปแล้ว');
         return;
       }
-
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
       const url = `${baseUrl}/register?activity=${encodeURIComponent(formData.activityCode)}`;
       const qrUrl = await QRCode.toDataURL(url);
 
