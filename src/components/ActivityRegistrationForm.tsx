@@ -51,7 +51,11 @@ interface ActivityStatus {
   isActive: boolean;
   activityCode: string;
   description?: string;
-  userCode?: string; // เปลี่ยนจาก recommendationCode เป็น userCode
+  userCode?: string;
+  // เพิ่มข้อมูลตำแหน่งกิจกรรม
+  latitude?: number;
+  longitude?: number;
+  checkInRadius?: number;
 }
 
 interface ActivityRegistrationFormProps {
@@ -74,7 +78,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     exists: false,
     isActive: false,
     activityCode: '',
-    userCode: ''
+    userCode: '',
+    latitude: 0,
+    longitude: 0,
+    checkInRadius: 100
   });
 
   // เพิ่ม state สำหรับควบคุมการบังคับโหลดหน้าใหม่
@@ -87,7 +94,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     firstName: '',
     lastName: '',
     department: '',
-    userCode: '' // เปลี่ยนจาก recommendationCode เป็น userCode
+    userCode: ''
   });
 
   const steps = ['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'];
@@ -146,7 +153,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           exists: false,
           isActive: false,
           activityCode: activityCode,
-          userCode: ''
+          userCode: '',
+          latitude: 0,
+          longitude: 0,
+          checkInRadius: 100
         });
       } else {
         const activityDoc = querySnapshot.docs[0];
@@ -158,7 +168,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           isActive: data.isActive !== undefined ? data.isActive : true,
           activityCode: data.activityCode,
           description: data.description || '',
-          userCode: data.userCode || '' // เปลี่ยนจาก recommendationCode เป็น userCode
+          userCode: data.userCode || '',
+          // ข้อมูลตำแหน่งของกิจกรรม
+          latitude: data.latitude || 13.7563,
+          longitude: data.longitude || 100.5018,
+          checkInRadius: data.checkInRadius || 100
         });
 
         // ตั้งค่าเริ่มต้นของการบังคับโหลดหน้าใหม่
@@ -175,7 +189,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               ...prev,
               isActive: updatedData.isActive !== undefined ? updatedData.isActive : true,
               description: updatedData.description || '',
-              userCode: updatedData.userCode || '' // เปลี่ยนจาก recommendationCode เป็น userCode
+              userCode: updatedData.userCode || '',
+              // อัพเดทข้อมูลตำแหน่งใหม่ด้วย
+              latitude: updatedData.latitude || prev.latitude,
+              longitude: updatedData.longitude || prev.longitude,
+              checkInRadius: updatedData.checkInRadius || prev.checkInRadius
             }));
 
             // ตรวจสอบการเปลี่ยนแปลงของ forceRefresh
@@ -209,7 +227,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         exists: false,
         isActive: false,
         activityCode: activityCode,
-        userCode: ''
+        userCode: '',
+        latitude: 0,
+        longitude: 0,
+        checkInRadius: 100
       });
     } finally {
       setActivityStatusLoading(false);
@@ -480,6 +501,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     setError(errorMessage);
     setLoading(false);
     setActiveStep(0);
+  };
+
+  // สร้าง allowedLocation object จากข้อมูลกิจกรรม
+  const getActivityAllowedLocation = () => {
+    return {
+      latitude: activityStatus.latitude || 13.7563,
+      longitude: activityStatus.longitude || 100.5018,
+      radius: activityStatus.checkInRadius || 100
+    };
   };
 
   // แสดง Loading เมื่อกำลังโหลดหน้าใหม่
@@ -897,6 +927,29 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                 กรุณาใช้รหัสนี้ในช่อง "รหัสผู้ใช้" ด้านล่าง
               </Typography>
             </Paper>
+
+            {/* แสดงข้อมูลตำแหน่งกิจกรรม */}
+            <Paper sx={{ 
+              p: 3, 
+              bgcolor: 'info.50', 
+              border: '2px solid', 
+              borderColor: 'info.200', 
+              mb: 3,
+              borderRadius: 3
+            }}>
+              <Typography variant="h6" color="info.main" fontWeight="bold" gutterBottom>
+                📍 ข้อมูลตำแหน่งเช็คอิน
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                พิกัด: {activityStatus.latitude?.toFixed(6)}, {activityStatus.longitude?.toFixed(6)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                รัศมีการเช็คอิน: <strong>{activityStatus.checkInRadius} เมตร</strong>
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                ระบบจะตรวจสอบตำแหน่งของคุณเมื่อลงทะเบียน
+              </Typography>
+            </Paper>
           </Box>
 
           <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
@@ -1126,11 +1179,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   กรุณาอนุญาตการเข้าถึงตำแหน่งในเบราว์เซอร์
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-                  ระบบจะตรวจสอบว่าคุณอยู่ในรัศมี <strong>{adminSettings.allowedLocation.radius}</strong> เมตร
+                  ระบบจะตรวจสอบว่าคุณอยู่ในรัศมี <strong>{activityStatus.checkInRadius}</strong> เมตร
                 </Typography>
                 
                 <LocationChecker
-                  allowedLocation={adminSettings.allowedLocation}
+                  allowedLocation={getActivityAllowedLocation()}
                   onLocationVerified={handleLocationVerified}
                   onLocationError={handleLocationError}
                 />
