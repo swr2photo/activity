@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getStorage } from 'firebase/storage'; 
+
 
 // Firebase configuration with fallback values
 const firebaseConfig = {
@@ -29,6 +31,8 @@ try {
 
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
+
 
 // Emulator connection (เฉพาะใน development mode)
 let emulatorsConnected = false;
