@@ -17,7 +17,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Paper
+  Paper,
+  Stepper,
+  Step,
+  StepLabel
 } from '@mui/material';
 import {
   AccessTime as TimeIcon,
@@ -26,12 +29,16 @@ import {
   Info as InfoIcon,
   Person as PersonIcon,
   Map as MapIcon,
-  MyLocation as MyLocationIcon
+  MyLocation as MyLocationIcon,
+  CheckCircle as CheckIcon,
+  Security as SecurityIcon
 } from '@mui/icons-material';
 import { GoogleMap, MarkerF, CircleF, useLoadScript } from '@react-google-maps/api';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment } from 'firebase/firestore';
 import ActivityRegistrationForm from '../../components/ActivityRegistrationForm';
+import MicrosoftLogin from '../../components/MicrosoftLogin';
 import { db } from '../../lib/firebase';
+import { useAuth, UniversityUserProfile } from '../../lib/firebaseAuth';
 import { AdminSettings } from '../../types';
 
 interface ActivityData {
@@ -51,6 +58,7 @@ interface ActivityData {
   currentParticipants: number;
   qrUrl: string;
   targetUrl: string;
+  requiresUniversityLogin: boolean;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -77,7 +85,7 @@ const ActivityLocationMap: React.FC<{
   const center = { lat: latitude, lng: longitude };
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371e3; // Earth's radius in meters
+    const R = 6371e3;
     const φ1 = lat1 * Math.PI/180;
     const φ2 = lat2 * Math.PI/180;
     const Δφ = (lat2-lat1) * Math.PI/180;
@@ -88,7 +96,7 @@ const ActivityLocationMap: React.FC<{
               Math.sin(Δλ/2) * Math.sin(Δλ/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 
-    return R * c; // Distance in meters
+    return R * c;
   };
 
   if (loadError) {
@@ -179,9 +187,57 @@ const ActivityLocationMap: React.FC<{
   );
 };
 
+const RegistrationSteps: React.FC<{ 
+  activeStep: number; 
+  requiresLogin: boolean;
+  isVerified: boolean;
+}> = ({ activeStep, requiresLogin, isVerified }) => {
+  // เปลี่ยนให้แสดงขั้นตอน login เสมอ
+  const steps = requiresLogin 
+    ? ['เข้าสู่ระบบ', 'ตรวจสอบสิทธิ์', 'ลงทะเบียน']
+    : ['เข้าสู่ระบบ', 'ลงทะเบียน'];
+
+  return (
+    <Card sx={{ mb: 3 }}>
+      <CardContent>
+        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SecurityIcon />
+          ขั้นตอนการลงทะเบียน
+        </Typography>
+        <Stepper activeStep={activeStep} alternativeLabel>
+          {steps.map((label, index) => (
+            <Step key={label}>
+              <StepLabel
+                StepIconProps={{
+                  style: {
+                    color: index <= activeStep ? '#4caf50' : '#e0e0e0'
+                  }
+                }}
+              >
+                {label}
+              </StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+        
+        {requiresLogin && !isVerified && activeStep === 1 && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              <strong>รอการอนุมัติ:</strong> บัญชีของคุณอยู่ระหว่างการตรวจสอบ 
+              กรุณารอให้ผู้ดูแลระบบอนุมัติก่อนลงทะเบียนกิจกรรม
+            </Typography>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const RegisterPageContent: React.FC = () => {
   const searchParams = useSearchParams();
   const activityCode = searchParams.get('activity') || '';
+  
+  const { user, userData, loading: authLoading, login, logout } = useAuth();
   
   const [adminSettings, setAdminSettings] = useState<AdminSettings | null>(null);
   const [activityData, setActivityData] = useState<ActivityData | null>(null);
@@ -224,7 +280,6 @@ const RegisterPageContent: React.FC = () => {
       message: `กิจกรรมสิ้นสุดแล้วเมื่อวันที่ ${endTime.toLocaleString('th-TH')}`
     };
     
-    // ตรวจสอบจำนวนผู้เข้าร่วม
     if (activity.maxParticipants > 0 && activity.currentParticipants >= activity.maxParticipants) {
       return { 
         status: 'เต็มแล้ว', 
@@ -237,7 +292,7 @@ const RegisterPageContent: React.FC = () => {
   };
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371e3; // Earth's radius in meters
+    const R = 6371e3;
     const φ1 = lat1 * Math.PI/180;
     const φ2 = lat2 * Math.PI/180;
     const Δφ = (lat2-lat1) * Math.PI/180;
@@ -248,7 +303,7 @@ const RegisterPageContent: React.FC = () => {
               Math.sin(Δλ/2) * Math.sin(Δλ/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 
-    return R * c; // Distance in meters
+    return R * c;
   };
 
   const getCurrentLocation = () => {
@@ -265,7 +320,6 @@ const RegisterPageContent: React.FC = () => {
           setUserLocation(userPos);
           setLocationLoading(false);
 
-          // คำนวณระยะห่าง
           if (activityData) {
             const distance = calculateDistance(
               userPos.lat,
@@ -316,7 +370,6 @@ const RegisterPageContent: React.FC = () => {
       setLoading(true);
       setError('');
 
-      // โหลด settings
       const { getAdminSettings } = await import('../../lib/firebaseUtils');
       const settings = await getAdminSettings();
 
@@ -335,7 +388,6 @@ const RegisterPageContent: React.FC = () => {
         return;
       }
 
-      // ตรวจสอบกิจกรรม
       const q = query(
         collection(db, 'activityQRCodes'),
         where('activityCode', '==', activityCode)
@@ -355,7 +407,8 @@ const RegisterPageContent: React.FC = () => {
           latitude: docData.latitude || 13.7563,
           longitude: docData.longitude || 100.5018,
           checkInRadius: docData.checkInRadius || 100,
-          userCode: docData.userCode || ''
+          userCode: docData.userCode || '',
+          requiresUniversityLogin: docData.requiresUniversityLogin || false
         } as ActivityData;
 
         setActivityData(activity);
@@ -378,7 +431,6 @@ const RegisterPageContent: React.FC = () => {
   };
 
   const handleRegistrationSuccess = async () => {
-    // อัพเดทจำนวนผู้เข้าร่วม
     if (activityData) {
       try {
         const docRef = doc(db, 'activityQRCodes', activityData.id);
@@ -386,7 +438,6 @@ const RegisterPageContent: React.FC = () => {
           currentParticipants: increment(1)
         });
         
-        // อัพเดท state ในหน้า
         setActivityData(prev => prev ? {
           ...prev,
           currentParticipants: prev.currentParticipants + 1
@@ -397,7 +448,46 @@ const RegisterPageContent: React.FC = () => {
     }
   };
 
-  if (loading) {
+  const handleLoginSuccess = (userProfile: any) => {
+    console.log('Login successful:', userProfile);
+  };
+
+  const handleLoginError = (errorMessage: string) => {
+    setError(errorMessage);
+  };
+
+  // แก้ไขฟังก์ชัน getCurrentStep เพื่อจัดการขั้นตอนใหม่
+  const getCurrentStep = () => {
+    if (!user) return 0; // ยังไม่ login
+    
+    if (activityData?.requiresUniversityLogin) {
+      if (userData && !userData.isVerified) return 1; // login แล้วแต่ยังไม่ verify
+      if (userData && userData.isVerified) return 2; // verify แล้ว พร้อมลงทะเบียน
+    } else {
+      // กิจกรรมไม่ต้องการ university login แต่ login แล้ว
+      return 1; // พร้อมลงทะเบียน
+    }
+    
+    return 0;
+  };
+
+  // แก้ไขฟังก์ชัน canProceedToRegistration เพื่อบังคับให้ต้อง login ก่อนเสมอ
+  const canProceedToRegistration = () => {
+    if (!activityData) return false;
+    
+    // บังคับให้ต้องมี user (login) เสมอ
+    if (!user) return false;
+    
+    // หากกิจกรรมต้องการ university login จะต้องมีการ verify ด้วย
+    if (activityData.requiresUniversityLogin) {
+      return userData && userData.isVerified && userData.isActive;
+    }
+    
+    // หากไม่ต้องการ university login แต่ต้อง login อยู่ดี
+    return true;
+  };
+
+  if (loading || authLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
         <CircularProgress />
@@ -426,6 +516,38 @@ const RegisterPageContent: React.FC = () => {
 
   return (
     <>
+      {/* Progress Steps */}
+      {activityData && (
+        <RegistrationSteps 
+          activeStep={getCurrentStep()}
+          requiresLogin={activityData.requiresUniversityLogin}
+          isVerified={userData?.isVerified || false}
+        />
+      )}
+
+      {/* Microsoft Login Section - แสดงเสมอ */}
+      <MicrosoftLogin
+        onLoginSuccess={handleLoginSuccess}
+        onLoginError={handleLoginError}
+        onLogout={() => setError('')}
+      />
+
+      {/* User Verification Status */}
+      {activityData?.requiresUniversityLogin && user && userData && !userData.isVerified && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          <Typography variant="body1" gutterBottom>
+            <strong>รอการอนุมัติบัญชี</strong>
+          </Typography>
+          <Typography variant="body2">
+            บัญชีของคุณอยู่ระหว่างการตรวจสอบจากผู้ดูแลระบบ 
+            คุณจะสามารถลงทะเบียนกิจกรรมได้หลังจากได้รับการอนุมัติ
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            หากมีข้อสงสัย กรุณาติดต่อผู้ดูแลระบบ
+          </Typography>
+        </Alert>
+      )}
+
       {/* Activity Information Card */}
       {activityData && (
         <Card sx={{ mb: 4 }}>
@@ -438,6 +560,14 @@ const RegisterPageContent: React.FC = () => {
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   รหัสกิจกรรม: {activityData.activityCode}
                 </Typography>
+                {activityData.requiresUniversityLogin && (
+                  <Chip 
+                    label="ต้องใช้บัญชีมหาวิทยาลัย" 
+                    color="info" 
+                    size="small"
+                    sx={{ mt: 1 }}
+                  />
+                )}
               </Box>
               <Chip 
                 label={getActivityStatus(activityData).status}
@@ -461,21 +591,23 @@ const RegisterPageContent: React.FC = () => {
                 </Box>
               )}
 
-              {/* รหัสผู้ใช้ */}
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <PersonIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-                <Box>
-                  <Typography variant="subtitle2" gutterBottom>รหัสผู้ใช้สำหรับลงทะเบียน</Typography>
-                  <Paper sx={{ p: 1.5, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
-                    <Typography variant="h6" color="primary.main" sx={{ fontFamily: 'monospace' }}>
-                      {activityData.userCode}
+              {/* รหัสผู้ใช้ - แสดงเฉพาะเมื่อ login แล้ว */}
+              {user && (!activityData.requiresUniversityLogin || (userData?.isVerified)) && (
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                  <PersonIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
+                  <Box>
+                    <Typography variant="subtitle2" gutterBottom>รหัสผู้ใช้สำหรับลงทะเบียน</Typography>
+                    <Paper sx={{ p: 1.5, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
+                      <Typography variant="h6" color="primary.main" sx={{ fontFamily: 'monospace' }}>
+                        {activityData.userCode}
+                      </Typography>
+                    </Paper>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                      กรุณาจดจำรหัสนี้เพื่อใช้ในการลงทะเบียน
                     </Typography>
-                  </Paper>
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                    กรุณาจดจำรหัสนี้เพื่อใช้ในการลงทะเบียน
-                  </Typography>
+                  </Box>
                 </Box>
-              </Box>
+              )}
               
               {activityData.location && (
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
@@ -584,12 +716,59 @@ const RegisterPageContent: React.FC = () => {
         </Card>
       )}
 
-      {/* Registration Form */}
-      {validActivity && adminSettings && activityCode && (
+      {/* Message when not logged in */}
+      {validActivity && !user && (
+        <Card sx={{ mb: 4 }}>
+          <CardContent sx={{ textAlign: 'center' }}>
+            <SecurityIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              ต้องเข้าสู่ระบบก่อนลงทะเบียน
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              กรุณาเข้าสู่ระบบด้วยบัญชี Microsoft ก่อนดำเนินการลงทะเบียนกิจกรรม
+            </Typography>
+            <Alert severity="info">
+              การลงทะเบียนกิจกรรมต้องเข้าสู่ระบบเพื่อความปลอดภัยและการจัดการข้อมูล
+            </Alert>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Registration Form - แสดงเฉพาะเมื่อผ่านเงื่อนไขครบ */}
+      {validActivity && adminSettings && activityCode && canProceedToRegistration() && (
         <ActivityRegistrationForm
           activityCode={activityCode}
           adminSettings={adminSettings}
+          onSuccess={handleRegistrationSuccess}
         />
+      )}
+
+      {/* Message when login required but not completed for university activities */}
+      {validActivity && activityData?.requiresUniversityLogin && user && !canProceedToRegistration() && (
+        <Card sx={{ mb: 4 }}>
+          <CardContent sx={{ textAlign: 'center' }}>
+            <SecurityIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              กิจกรรมนี้ต้องการการยืนยันตัวตนจากมหาวิทยาลัย
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              คุณได้เข้าสู่ระบบแล้ว แต่ยังต้องรอการอนุมัติจากผู้ดูแลระบบ
+              เพื่อยืนยันสิทธิ์ในการลงทะเบียนกิจกรรมนี้
+            </Typography>
+            
+            {userData && !userData.isVerified && (
+              <Alert severity="warning">
+                บัญชีของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ
+              </Alert>
+            )}
+            
+            {userData && !userData.isActive && (
+              <Alert severity="error">
+                บัญชีของคุณถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Location Dialog */}
@@ -645,8 +824,6 @@ const RegisterPageContent: React.FC = () => {
     </>
   );
 };
-
-
 
 const RegisterPage: React.FC = () => {
   return (

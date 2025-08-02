@@ -61,11 +61,13 @@ interface ActivityStatus {
 interface ActivityRegistrationFormProps {
   activityCode: string;
   adminSettings: AdminSettings;
+  onSuccess?: () => Promise<void>; // เพิ่ม prop นี้
 }
 
 const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   activityCode,
-  adminSettings
+  adminSettings,
+  onSuccess // เพิ่มการรับ prop นี้
 }) => {
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -489,6 +491,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       setActiveStep(2);
       setSuccess(true);
       setLoading(false);
+
+      // เรียก onSuccess callback ถ้ามี
+      if (onSuccess) {
+        try {
+          await onSuccess();
+        } catch (error) {
+          console.error('Error in onSuccess callback:', error);
+        }
+      }
     } catch (error) {
       console.error('Error saving record:', error);
       setError('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
