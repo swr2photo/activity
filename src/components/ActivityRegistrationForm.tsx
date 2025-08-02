@@ -21,7 +21,9 @@ import {
   Paper,
   Fade,
   Grow,
-  Slide
+  Slide,
+  Divider,
+  Avatar
 } from '@mui/material';
 import {
   Block as BlockIcon,
@@ -32,7 +34,10 @@ import {
   LocationOn as LocationIcon,
   AccessTime as AccessTimeIcon,
   School as SchoolIcon,
-  Badge as BadgeIcon
+  Badge as BadgeIcon,
+  Security as SecurityIcon,
+  Edit as EditIcon,
+  AccountCircle as AccountCircleIcon
 } from '@mui/icons-material';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -52,23 +57,41 @@ interface ActivityStatus {
   activityCode: string;
   description?: string;
   userCode?: string;
-  // เพิ่มข้อมูลตำแหน่งกิจกรรม
+  requiresUniversityLogin?: boolean;
   latitude?: number;
   longitude?: number;
   checkInRadius?: number;
 }
 
+interface UserProfile {
+  id: string;
+  email: string;
+  displayName: string;
+  givenName?: string;
+  surname?: string;
+  jobTitle?: string;
+  department?: string;
+  officeLocation?: string;
+  mobilePhone?: string;
+}
+
 interface ActivityRegistrationFormProps {
   activityCode: string;
   adminSettings: AdminSettings;
-  onSuccess?: () => Promise<void>; // เพิ่ม prop นี้
+  onSuccess?: () => Promise<void>;
+  // รับข้อมูล Microsoft ที่ login แล้วมาจาก RegisterPage
+  existingUserProfile?: UserProfile; // Made optional with ?
+  existingAuthStatus: boolean;
 }
 
 const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   activityCode,
   adminSettings,
-  onSuccess // เพิ่มการรับ prop นี้
+  onSuccess,
+  existingUserProfile,
+  existingAuthStatus
 }) => {
+  // เริ่มต้นที่ขั้นตอนกรอกข้อมูล (ข้าม Microsoft login)
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
@@ -81,6 +104,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     isActive: false,
     activityCode: '',
     userCode: '',
+    requiresUniversityLogin: false,
     latitude: 0,
     longitude: 0,
     checkInRadius: 100
@@ -91,14 +115,83 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [realtimeListener, setRealtimeListener] = useState<(() => void) | null>(null);
 
-  const [formData, setFormData] = useState({
-    studentId: '',
-    firstName: '',
-    lastName: '',
-    department: '',
-    userCode: ''
+  // ฟังก์ชันดึงข้อมูลจาก Microsoft Profile
+  function extractUserDataFromMicrosoft(profile?: UserProfile) {
+    // ตรวจสอบว่า profile มีค่าหรือไม่
+    if (!profile) {
+      return {
+        studentId: '',
+        firstName: '',
+        lastName: '',
+        department: ''
+      };
+    }
+
+    // พยายามดึงรหัสนักศึกษาจาก email หรือ displayName
+    let studentId = '';
+    
+    // วิธีที่ 1: จากรูปแบบ email (เช่น 6412345678@university.edu)
+    if (profile.email) {
+      const emailMatch = profile.email.match(/^(\d{10})@/);
+      if (emailMatch) {
+        studentId = emailMatch[1];
+      }
+    }
+    
+    // วิธีที่ 2: จาก displayName หรือ jobTitle
+    if (!studentId && profile.displayName) {
+      const displayNameMatch = profile.displayName.match(/(\d{10})/);
+      if (displayNameMatch) {
+        studentId = displayNameMatch[1];
+      }
+    }
+
+    // ตรวจสอบและดึงชื่อ-นามสกุล
+    let firstName = profile.givenName || '';
+    let lastName = profile.surname || '';
+    
+    // ถ้าไม่มีชื่อแยก ลองแยกจาก displayName
+    if (!firstName && !lastName && profile.displayName) {
+      const nameParts = profile.displayName.trim().split(/\s+/);
+      if (nameParts.length >= 2) {
+        firstName = nameParts[0];
+        lastName = nameParts.slice(1).join(' ');
+      } else {
+        firstName = profile.displayName;
+      }
+    }
+
+    // พยายามระบุสาขาจากข้อมูล Microsoft
+    let department = '';
+    if (profile.department) {
+      // หาสาขาที่ตรงกันหรือใกล้เคียง
+      const matchedDept = defaultDepartments.find(dept => 
+        dept.toLowerCase().includes(profile.department!.toLowerCase()) ||
+        profile.department!.toLowerCase().includes(dept.toLowerCase())
+      );
+      department = matchedDept || profile.department;
+    }
+
+    return {
+      studentId,
+      firstName,
+      lastName,
+      department
+    };
+  }
+
+  // ตั้งค่า formData จากข้อมูล Microsoft ที่ได้รับมา
+  const [formData, setFormData] = useState(() => {
+    const extractedData = extractUserDataFromMicrosoft(existingUserProfile);
+    return {
+      ...extractedData,
+      userCode: '',
+      email: existingUserProfile?.email || '',
+      microsoftId: existingUserProfile?.id || ''
+    };
   });
 
+  // ขั้นตอนใหม่ (เอา Microsoft login ออก)
   const steps = ['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'];
 
   // ข้อมูลสาขาเริ่มต้น
@@ -125,13 +218,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     console.log('🔄 Initiating force refresh...');
     setIsRefreshing(true);
     
-    // ปิด real-time listener ก่อนโหลดหน้าใหม่
     if (realtimeListener) {
       realtimeListener();
       setRealtimeListener(null);
     }
     
-    // รอสักครู่เพื่อแสดง loading state
     setTimeout(() => {
       window.location.reload();
     }, 1500);
@@ -156,6 +247,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           isActive: false,
           activityCode: activityCode,
           userCode: '',
+          requiresUniversityLogin: false,
           latitude: 0,
           longitude: 0,
           checkInRadius: 100
@@ -171,55 +263,46 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           activityCode: data.activityCode,
           description: data.description || '',
           userCode: data.userCode || '',
-          // ข้อมูลตำแหน่งของกิจกรรม
+          requiresUniversityLogin: data.requiresUniversityLogin || false,
           latitude: data.latitude || 13.7563,
           longitude: data.longitude || 100.5018,
           checkInRadius: data.checkInRadius || 100
         });
 
-        // ตั้งค่าเริ่มต้นของการบังคับโหลดหน้าใหม่
         setForceRefreshEnabled(data.forceRefresh === true);
 
-        // ตั้ง real-time listener สำหรับการเปลี่ยนแปลงสถานะ
+        // ตั้ง real-time listener
         const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityDoc.id), (docSnapshot) => {
           if (docSnapshot.exists()) {
             const updatedData = docSnapshot.data();
             console.log('Activity status updated in real-time:', updatedData);
             
-            // อัพเดทสถานะกิจกรรม
             setActivityStatus(prev => ({
               ...prev,
               isActive: updatedData.isActive !== undefined ? updatedData.isActive : true,
               description: updatedData.description || '',
               userCode: updatedData.userCode || '',
-              // อัพเดทข้อมูลตำแหน่งใหม่ด้วย
+              requiresUniversityLogin: updatedData.requiresUniversityLogin || false,
               latitude: updatedData.latitude || prev.latitude,
               longitude: updatedData.longitude || prev.longitude,
               checkInRadius: updatedData.checkInRadius || prev.checkInRadius
             }));
 
-            // ตรวจสอบการเปลี่ยนแปลงของ forceRefresh
             const newForceRefresh = updatedData.forceRefresh === true;
             
             if (newForceRefresh && !forceRefreshEnabled) {
               console.log('🔄 Force refresh enabled from server - initiating refresh...');
               setForceRefreshEnabled(true);
-              
-              // แสดงการแจ้งเตือนและบังคับโหลดหน้าใหม่ทันที
               setTimeout(() => {
                 handleForceRefresh();
-              }, 2000); // รอ 2 วินาทีเพื่อให้ผู้ใช้เห็นข้อความ
-              
+              }, 2000);
             } else if (!newForceRefresh && forceRefreshEnabled) {
               console.log('✅ Force refresh disabled from server');
               setForceRefreshEnabled(false);
             }
           }
-        }, (error) => {
-          console.error('Real-time listener error:', error);
         });
 
-        // เก็บ unsubscribe function
         setRealtimeListener(() => unsubscribe);
       }
     } catch (error) {
@@ -230,6 +313,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         isActive: false,
         activityCode: activityCode,
         userCode: '',
+        requiresUniversityLogin: false,
         latitude: 0,
         longitude: 0,
         checkInRadius: 100
@@ -260,7 +344,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
   };
 
-  // ดึงข้อมูลสาขาจาก Firebase และสร้างหากยังไม่มี
+  // ดึงข้อมูลสาขาจาก Firebase
   const fetchDepartments = async () => {
     try {
       setDepartmentsLoading(true);
@@ -278,12 +362,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         } as Department);
       });
 
-      // หากไม่มีข้อมูลสาขาในฐานข้อมูล ให้สร้างข้อมูลเริ่มต้น
       if (departmentsList.length === 0) {
         console.log('No departments found, initializing default departments...');
         await initializeDepartments();
         
-        // ดึงข้อมูลใหม่หลังจากสร้างเสร็จ
         const newQuerySnapshot = await getDocs(departmentsQuery);
         departmentsList = [];
         newQuerySnapshot.forEach((doc) => {
@@ -294,7 +376,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         });
       }
 
-      // เรียงลำดับตามชื่อ
       departmentsList.sort((a, b) => a.name.localeCompare(b.name, 'th'));
       setDepartments(departmentsList);
       
@@ -302,7 +383,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       console.error('Error fetching departments:', error);
       setError('ไม่สามารถโหลดข้อมูลสาขาได้ กรุณาลองใหม่อีกครั้ง');
       
-      // Fallback: ใช้ข้อมูลสาขาเดิมหากไม่สามารถดึงจาก Firebase ได้
       const fallbackDepartments = defaultDepartments.map((name, index) => ({
         id: `fallback-${index}`,
         name,
@@ -315,7 +395,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
   };
 
-  // โหลดข้อมูลเมื่อ component mount และ cleanup เมื่อ unmount
+  // โหลดข้อมูลเมื่อ component mount
   useEffect(() => {
     const loadInitialData = async () => {
       await Promise.all([
@@ -326,7 +406,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     
     loadInitialData();
 
-    // Cleanup function เพื่อหยุด real-time listener
     return () => {
       if (realtimeListener) {
         console.log('🔌 Cleaning up real-time listener');
@@ -335,7 +414,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     };
   }, [activityCode]);
 
-  // useEffect แยกสำหรับติดตาม realtimeListener changes
   useEffect(() => {
     return () => {
       if (realtimeListener) {
@@ -347,10 +425,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   const handleInputChange = (field: string) => (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
-    // ถ้าเปิดบังคับโหลดหน้าใหม่ ห้ามแก้ไขข้อมูล
-    if (forceRefreshEnabled) {
-      return;
-    }
+    if (forceRefreshEnabled) return;
 
     setFormData({
       ...formData,
@@ -362,10 +437,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   const handleSelectChange = (field: string) => (
     event: SelectChangeEvent<string>
   ) => {
-    // ถ้าเปิดบังคับโหลดหน้าใหม่ ห้ามแก้ไขข้อมูล
-    if (forceRefreshEnabled) {
-      return;
-    }
+    if (forceRefreshEnabled) return;
 
     setFormData({
       ...formData,
@@ -376,19 +448,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
 
   // ฟังก์ชันตรวจสอบรหัสนักศึกษาใหม่
   const validateNewStudentId = (studentId: string): boolean => {
-    // ต้องเป็นตัวเลข 10 หลักเท่านั้น
     if (!/^\d{10}$/.test(studentId)) {
       return false;
     }
     
-    // ต้องขึ้นต้นด้วย 64-69
     const prefix = studentId.substring(0, 2);
     const prefixNum = parseInt(prefix);
     return prefixNum >= 64 && prefixNum <= 69;
   };
 
   const validateForm = async (): Promise<boolean> => {
-    // ถ้าเปิดบังคับโหลดหน้าใหม่ ห้ามบันทึก
     if (forceRefreshEnabled) {
       setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่');
       return false;
@@ -414,13 +483,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       return false;
     }
     
-    // ตรวจสอบรหัสผู้ใช้แทนรหัสแนะนำ
     if (!formData.userCode) {
       setError('กรุณาใส่รหัสผู้ใช้');
       return false;
     }
 
-    // เปรียบเทียบกับรหัสผู้ใช้ของกิจกรรม
     if (formData.userCode !== activityStatus.userCode) {
       setError('รหัสผู้ใช้ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
       return false;
@@ -447,7 +514,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   };
 
   const handleSubmit = async () => {
-    // ถ้าเปิดบังคับโหลดหน้าใหม่ ห้ามส่งฟอร์ม
     if (forceRefreshEnabled) {
       setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่');
       return;
@@ -463,7 +529,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     latitude: number;
     longitude: number;
   }) => {
-    // ตรวจสอบอีกครั้งก่อนบันทึกจริง
     if (forceRefreshEnabled) {
       setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่');
       setLoading(false);
@@ -472,7 +537,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
 
     try {
-      // สร้าง object โดยไม่ระบุ type เพื่อหลีกเลี่ยง type error
       const activityRecord = {
         studentId: formData.studentId,
         firstName: formData.firstName,
@@ -480,7 +544,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         department: formData.department,
         activityCode,
         location,
-        userCode: formData.userCode // เก็บรหัสผู้ใช้แทนรหัสแนะนำ
+        userCode: formData.userCode,
+        email: formData.email,
+        microsoftId: formData.microsoftId,
+        microsoftProfile: existingUserProfile
       };
 
       await addDoc(collection(db, 'activityRecords'), {
@@ -492,7 +559,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       setSuccess(true);
       setLoading(false);
 
-      // เรียก onSuccess callback ถ้ามี
       if (onSuccess) {
         try {
           await onSuccess();
@@ -514,7 +580,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     setActiveStep(0);
   };
 
-  // สร้าง allowedLocation object จากข้อมูลกิจกรรม
   const getActivityAllowedLocation = () => {
     return {
       latitude: activityStatus.latitude || 13.7563,
@@ -522,6 +587,25 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       radius: activityStatus.checkInRadius || 100
     };
   };
+
+  // Show error if no user profile provided
+  if (!existingUserProfile) {
+    return (
+      <Grow in={true}>
+        <Card elevation={8} sx={{ borderRadius: 4, border: '2px solid', borderColor: 'error.main' }}>
+          <CardContent sx={{ textAlign: 'center', py: 8 }}>
+            <ErrorIcon sx={{ fontSize: 100, color: 'error.main', mb: 3 }} />
+            <Typography variant="h3" color="error.main" gutterBottom fontWeight="bold">
+              ไม่พบข้อมูลผู้ใช้
+            </Typography>
+            <Typography variant="h6" paragraph color="text.secondary">
+              ไม่พบข้อมูลบัญชี Microsoft กรุณาเข้าสู่ระบบใหม่
+            </Typography>
+          </CardContent>
+        </Card>
+      </Grow>
+    );
+  }
 
   // แสดง Loading เมื่อกำลังโหลดหน้าใหม่
   if (isRefreshing) {
@@ -536,12 +620,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                 mb: 3, 
                 animation: 'spin 1s linear infinite',
                 '@keyframes spin': {
-                  '0%': {
-                    transform: 'rotate(0deg)',
-                  },
-                  '100%': {
-                    transform: 'rotate(360deg)',
-                  },
+                  '0%': { transform: 'rotate(0deg)' },
+                  '100%': { transform: 'rotate(360deg)' },
                 }
               }} 
             />
@@ -594,59 +674,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             </Typography>
             
             {!isRefreshing && (
-              <>
-                <Paper sx={{ 
-                  p: 4, 
-                  bgcolor: 'warning.50', 
-                  border: '2px solid', 
-                  borderColor: 'warning.200', 
-                  mb: 4,
-                  borderRadius: 3
-                }}>
-                  <Typography variant="h6" color="warning.main" sx={{ mb: 2, fontWeight: 600 }}>
-                    🔄 ระบบได้รับสัญญาณจาก Server แล้ว
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
-                    • การดำเนินการทั้งหมดถูกปิดใช้งาน
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
-                    • ไม่สามารถกรอกข้อมูลหรือบันทึกได้
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary">
-                    • กำลังโหลดหน้าใหม่อัตโนมัติใน 2 วินาที...
-                  </Typography>
-                </Paper>
-                
-                <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    size="large"
-                    onClick={handleForceRefresh}
-                    disabled={isRefreshing}
-                    startIcon={<RefreshIcon />}
-                    sx={{ px: 4, py: 1.5, borderRadius: 3 }}
-                  >
-                    โหลดหน้าใหม่ทันที
-                  </Button>
-                  
-                  <Button
-                    variant="outlined"
-                    size="large"
-                    onClick={() => window.close()}
-                    sx={{ px: 4, py: 1.5, borderRadius: 3 }}
-                  >
-                    ปิดหน้าต่าง
-                  </Button>
-                </Box>
-              </>
-            )}
-
-            {isRefreshing && (
-              <Box sx={{ mt: 4 }}>
-                <CircularProgress size={60} thickness={4} />
-                <Typography variant="body1" color="text.secondary" sx={{ mt: 3 }}>
-                  กำลังเชื่อมต่อกับเซิร์ฟเวอร์...
-                </Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={handleForceRefresh}
+                  disabled={isRefreshing}
+                  startIcon={<RefreshIcon />}
+                  sx={{ px: 4, py: 1.5, borderRadius: 3 }}
+                >
+                  โหลดหน้าใหม่ทันที
+                </Button>
               </Box>
             )}
           </CardContent>
@@ -668,24 +706,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h6" paragraph color="text.secondary">
               ไม่พบกิจกรรมที่มีรหัส "<strong>{activityCode}</strong>" ในระบบ
             </Typography>
-            <Paper sx={{ 
-              p: 3, 
-              bgcolor: 'grey.100', 
-              mb: 4,
-              borderRadius: 3
-            }}>
-              <Typography variant="body1" color="text.secondary">
-                กรุณาตรวจสอบรหัสกิจกรรมหรือติดต่อเจ้าหน้าที่
-              </Typography>
-            </Paper>
-            <Button
-              variant="outlined"
-              size="large"
-              onClick={() => window.close()}
-              sx={{ px: 4, py: 1.5, borderRadius: 3 }}
-            >
-              ปิดหน้าต่าง
-            </Button>
           </CardContent>
         </Card>
       </Grow>
@@ -705,38 +725,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h6" paragraph color="text.secondary">
               กิจกรรม "<strong>{activityStatus.activityCode}</strong>" ได้ปิดการลงทะเบียนแล้ว
             </Typography>
-            {activityStatus.description && (
-              <Paper sx={{ 
-                p: 3, 
-                bgcolor: 'grey.100', 
-                mb: 4,
-                borderRadius: 3
-              }}>
-                <Typography variant="body1" color="text.secondary">
-                  {activityStatus.description}
-                </Typography>
-              </Paper>
-            )}
-            <Paper sx={{ 
-              p: 3, 
-              bgcolor: 'warning.50', 
-              border: '2px solid', 
-              borderColor: 'warning.200', 
-              mb: 4,
-              borderRadius: 3
-            }}>
-              <Typography variant="body1" color="warning.main" fontWeight="600">
-                ⚠️ หากคุณคิดว่านี่เป็นข้อผิดพลาด กรุณาติดต่อเจ้าหน้าที่
-              </Typography>
-            </Paper>
-            <Button
-              variant="outlined"
-              size="large"
-              onClick={() => window.close()}
-              sx={{ px: 4, py: 1.5, borderRadius: 3 }}
-            >
-              ปิดหน้าต่าง
-            </Button>
           </CardContent>
         </Card>
       </Grow>
@@ -756,26 +744,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h6" paragraph color="text.secondary">
               กิจกรรม "<strong>{activityStatus.activityCode}</strong>" ยังไม่ได้ตั้งค่ารหัสผู้ใช้
             </Typography>
-            <Paper sx={{ 
-              p: 3, 
-              bgcolor: 'warning.50', 
-              border: '2px solid', 
-              borderColor: 'warning.200', 
-              mb: 4,
-              borderRadius: 3
-            }}>
-              <Typography variant="body1" color="warning.main" fontWeight="600">
-                ⚠️ กรุณาติดต่อเจ้าหน้าที่เพื่อตั้งค่ารหัสผู้ใช้สำหรับกิจกรรมนี้
-              </Typography>
-            </Paper>
-            <Button
-              variant="outlined"
-              size="large"
-              onClick={() => window.close()}
-              sx={{ px: 4, py: 1.5, borderRadius: 3 }}
-            >
-              ปิดหน้าต่าง
-            </Button>
           </CardContent>
         </Card>
       </Grow>
@@ -795,6 +763,31 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h6" paragraph color="text.secondary">
               ข้อมูลการเข้าร่วมกิจกรรมของคุณได้รับการบันทึกเรียบร้อยแล้ว
             </Typography>
+
+            {/* แสดงข้อมูลผู้ใช้ Microsoft */}
+            <Paper sx={{ 
+              p: 3, 
+              bgcolor: 'primary.50', 
+              border: '2px solid', 
+              borderColor: 'primary.200', 
+              mb: 3,
+              borderRadius: 3
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+                <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
+                  <AccountCircleIcon />
+                </Avatar>
+                <Box>
+                  <Typography variant="h6" color="primary.main" fontWeight="bold">
+                    บัญชี Microsoft
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {existingUserProfile.email}
+                  </Typography>
+                </Box>
+              </Box>
+            </Paper>
+            
             <Paper sx={{ 
               p: 4, 
               bgcolor: 'success.50', 
@@ -867,12 +860,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                 onClick={() => {
                   setSuccess(false);
                   setActiveStep(0);
+                  const extractedData = extractUserDataFromMicrosoft(existingUserProfile);
                   setFormData({
-                    studentId: '',
-                    firstName: '',
-                    lastName: '',
-                    department: '',
-                    userCode: ''
+                    ...extractedData,
+                    userCode: '',
+                    email: existingUserProfile?.email || '',
+                    microsoftId: existingUserProfile?.id || ''
                   });
                 }}
                 sx={{ px: 4, py: 1.5, borderRadius: 3 }}
@@ -895,72 +888,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h3" gutterBottom fontWeight="bold" color="primary.main">
               ลงทะเบียนกิจกรรม
             </Typography>
-            
-            <Paper sx={{ 
-              p: 3, 
-              bgcolor: 'success.50', 
-              border: '2px solid', 
-              borderColor: 'success.200', 
-              mb: 3,
-              borderRadius: 3
-            }}>
-              <Typography variant="h5" color="success.main" fontWeight="600">
-                ✅ รหัสกิจกรรม: {activityStatus.activityCode}
-              </Typography>
-              {activityStatus.description && (
-                <Typography variant="body1" color="text.secondary" sx={{ mt: 2 }}>
-                  {activityStatus.description}
-                </Typography>
-              )}
-            </Paper>
-
-            {/* แสดงข้อมูลรหัสผู้ใช้ */}
-            <Paper sx={{ 
-              p: 3, 
-              bgcolor: 'primary.50', 
-              border: '2px solid', 
-              borderColor: 'primary.200', 
-              mb: 3,
-              borderRadius: 3
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-                <PersonIcon color="primary" sx={{ fontSize: 32 }} />
-                <Box>
-                  <Typography variant="h6" color="primary.main" fontWeight="bold">
-                    รหัสผู้ใช้สำหรับกิจกรรมนี้
-                  </Typography>
-                  <Typography variant="h4" color="primary.main" fontWeight="800">
-                    {activityStatus.userCode}
-                  </Typography>
-                </Box>
-              </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                กรุณาใช้รหัสนี้ในช่อง "รหัสผู้ใช้" ด้านล่าง
-              </Typography>
-            </Paper>
-
-            {/* แสดงข้อมูลตำแหน่งกิจกรรม */}
-            <Paper sx={{ 
-              p: 3, 
-              bgcolor: 'info.50', 
-              border: '2px solid', 
-              borderColor: 'info.200', 
-              mb: 3,
-              borderRadius: 3
-            }}>
-              <Typography variant="h6" color="info.main" fontWeight="bold" gutterBottom>
-                📍 ข้อมูลตำแหน่งเช็คอิน
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                พิกัด: {activityStatus.latitude?.toFixed(6)}, {activityStatus.longitude?.toFixed(6)}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                รัศมีการเช็คอิน: <strong>{activityStatus.checkInRadius} เมตร</strong>
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                ระบบจะตรวจสอบตำแหน่งของคุณเมื่อลงทะเบียน
-              </Typography>
-            </Paper>
           </Box>
 
           <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
@@ -1012,173 +939,205 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             </Slide>
           )}
 
+          {/* ขั้นตอนที่ 1: กรอกข้อมูล */}
           {activeStep === 0 && (
             <Grow in={true}>
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="รหัสนักศึกษา"
-                    value={formData.studentId}
-                    onChange={handleInputChange('studentId')}
-                    required
-                    placeholder="เช่น 6412345678"
-                    helperText="รหัสนักศึกษา 10 หลัก ขึ้นต้นด้วย 64-69"
-                    disabled={forceRefreshEnabled}
-                    inputProps={{
-                      maxLength: 10,
-                      pattern: '[0-9]*'
-                    }}
-                    InputProps={{
-                      startAdornment: <BadgeIcon sx={{ mr: 1, color: 'action.active' }} />
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2,
-                        '&.Mui-focused fieldset': {
-                          borderWidth: 2
-                        }
-                      }
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="ชื่อ"
-                    value={formData.firstName}
-                    onChange={handleInputChange('firstName')}
-                    required
-                    placeholder="ชื่อจริง"
-                    disabled={forceRefreshEnabled}
-                    InputProps={{
-                      startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2,
-                        '&.Mui-focused fieldset': {
-                          borderWidth: 2
-                        }
-                      }
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="นามสกุล"
-                    value={formData.lastName}
-                    onChange={handleInputChange('lastName')}
-                    required
-                    placeholder="นามสกุลจริง"
-                    disabled={forceRefreshEnabled}
-                    InputProps={{
-                      startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2,
-                        '&.Mui-focused fieldset': {
-                          borderWidth: 2
-                        }
-                      }
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <FormControl fullWidth required disabled={departmentsLoading || forceRefreshEnabled}>
-                    <InputLabel>สาขา</InputLabel>
-                    <Select
-                      value={formData.department}
-                      label="สาขา"
-                      onChange={handleSelectChange('department')}
+              <Box>
+                {/* แสดงข้อมูลผู้ใช้ Microsoft */}
+                <Paper sx={{ 
+                  p: 3, 
+                  bgcolor: 'success.50', 
+                  border: '2px solid', 
+                  borderColor: 'success.200', 
+                  mb: 4,
+                  borderRadius: 3
+                }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Avatar sx={{ bgcolor: 'success.main', mr: 2 }}>
+                      <AccountCircleIcon />
+                    </Avatar>
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Typography variant="h6" color="success.main" fontWeight="bold">
+                        ✅ ใช้บัญชี Microsoft ที่เข้าสู่ระบบแล้ว
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {existingUserProfile.displayName} ({existingUserProfile.email})
+                      </Typography>
+                      <Typography variant="caption" color="success.main" sx={{ mt: 1, display: 'block' }}>
+                        📝 ข้อมูลด้านล่างถูกดึงจาก Microsoft อัตโนมัติและไม่สามารถแก้ไขได้
+                      </Typography>
+                    </Box>
+                  </Box>
+                  
+                  <Divider sx={{ my: 2 }} />
+                  
+                  <Typography variant="body2" color="text.secondary">
+                    ข้อมูลส่วนตัวจะถูกป้องกันและใช้เฉพาะการลงทะเบียนกิจกรรมนี้เท่านั้น
+                  </Typography>
+                </Paper>
+
+                <Grid container spacing={3}>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="รหัสนักศึกษา"
+                      value={formData.studentId}
+                      onChange={handleInputChange('studentId')}
+                      required
+                      placeholder="เช่น 6412345678"
+                      helperText="รหัสนักศึกษา 10 หลัก ขึ้นต้นด้วย 64-69 (ดึงจาก Microsoft อัตโนมัติ)"
+                      disabled={true} // ไม่สามารถแก้ไขได้
+                      inputProps={{
+                        maxLength: 10,
+                        pattern: '[0-9]*'
+                      }}
+                      InputProps={{
+                        startAdornment: <BadgeIcon sx={{ mr: 1, color: 'action.active' }} />
+                      }}
                       sx={{
-                        borderRadius: 2,
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderWidth: 2
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          bgcolor: 'action.hover', // สีพื้นหลังแสดงว่าไม่สามารถแก้ไขได้
+                          '&.Mui-focused fieldset': {
+                            borderWidth: 2
+                          }
                         }
                       }}
-                    >
-                      {departmentsLoading ? (
-                        <MenuItem disabled>
-                          <CircularProgress size={20} sx={{ mr: 2 }} />
-                          กำลังโหลดข้อมูลสาขา...
-                        </MenuItem>
-                      ) : (
-                        departments.map((dept) => (
-                          <MenuItem key={dept.id} value={dept.name}>
-                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                              <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
-                              {dept.name}
-                            </Box>
-                          </MenuItem>
-                        ))
-                      )}
-                    </Select>
-                    {departmentsLoading && (
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                        กำลังโหลดรายการสาขาจากฐานข้อมูล...
-                      </Typography>
-                    )}
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="รหัสผู้ใช้"
-                    value={formData.userCode}
-                    onChange={handleInputChange('userCode')}
-                    required
-                    helperText={`กรุณาใส่รหัสผู้ใช้ที่แสดงด้านบน: ${activityStatus.userCode}`}
-                    placeholder="ใส่รหัสผู้ใช้ที่ได้รับ"
-                    disabled={forceRefreshEnabled}
-                    InputProps={{
-                      startAdornment: (
-                        <PersonIcon sx={{ mr: 1, color: 'primary.main' }} />
-                      )
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2,
-                        '&.Mui-focused fieldset': {
-                          borderColor: 'primary.main',
-                          borderWidth: 2
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="ชื่อ"
+                      value={formData.firstName}
+                      onChange={handleInputChange('firstName')}
+                      required
+                      placeholder="ชื่อจริง"
+                      disabled={true} // ไม่สามารถแก้ไขได้
+                      helperText="ดึงจาก Microsoft อัตโนมัติ"
+                      InputProps={{
+                        startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          bgcolor: 'action.hover', // สีพื้นหลังแสดงว่าไม่สามารถแก้ไขได้
+                          '&.Mui-focused fieldset': {
+                            borderWidth: 2
+                          }
                         }
-                      }
-                    }}
-                  />
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="นามสกุล"
+                      value={formData.lastName}
+                      onChange={handleInputChange('lastName')}
+                      required
+                      placeholder="นามสกุลจริง"
+                      disabled={true} // ไม่สามารถแก้ไขได้
+                      helperText="ดึงจาก Microsoft อัตโนมัติ"
+                      InputProps={{
+                        startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          bgcolor: 'action.hover', // สีพื้นหลังแสดงว่าไม่สามารถแก้ไขได้
+                          '&.Mui-focused fieldset': {
+                            borderWidth: 2
+                          }
+                        }
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControl fullWidth required disabled={true}>
+                      <InputLabel>สาขา</InputLabel>
+                      <Select
+                        value={formData.department}
+                        label="สาขา"
+                        onChange={handleSelectChange('department')}
+                        sx={{
+                          borderRadius: 2,
+                          bgcolor: 'action.hover', // สีพื้นหลังแสดงว่าไม่สามารถแก้ไขได้
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                            borderWidth: 2
+                          }
+                        }}
+                      >
+                        <MenuItem value={formData.department}>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
+                            {formData.department}
+                          </Box>
+                        </MenuItem>
+                      </Select>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                        ดึงจาก Microsoft อัตโนมัติ
+                      </Typography>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="รหัสผู้ใช้"
+                      value={formData.userCode}
+                      onChange={handleInputChange('userCode')}
+                      required
+                      helperText={`กรุณาใส่รหัสผู้ใช้สำหรับกิจกรรมนี้: ${activityStatus.userCode}`}
+                      placeholder="ใส่รหัสผู้ใช้ที่ได้รับ"
+                      disabled={forceRefreshEnabled}
+                      InputProps={{
+                        startAdornment: (
+                          <PersonIcon sx={{ mr: 1, color: 'primary.main' }} />
+                        )
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          '&.Mui-focused fieldset': {
+                            borderColor: 'primary.main',
+                            borderWidth: 2
+                          }
+                        }
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      size="large"
+                      onClick={handleSubmit}
+                      disabled={loading || departmentsLoading || forceRefreshEnabled}
+                      sx={{ 
+                        py: 2,
+                        borderRadius: 3,
+                        fontSize: '1.1rem',
+                        fontWeight: 600,
+                        boxShadow: 3,
+                        '&:hover': {
+                          boxShadow: 6
+                        }
+                      }}
+                      startIcon={<LocationIcon />}
+                    >
+                      {forceRefreshEnabled 
+                        ? 'กรุณาโหลดหน้าใหม่' 
+                        : departmentsLoading 
+                          ? 'กำลังโหลดข้อมูล...' 
+                          : 'ตรวจสอบตำแหน่งและบันทึก'}
+                    </Button>
+                  </Grid>
                 </Grid>
-                <Grid item xs={12}>
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    size="large"
-                    onClick={handleSubmit}
-                    disabled={loading || departmentsLoading || forceRefreshEnabled}
-                    sx={{ 
-                      py: 2,
-                      borderRadius: 3,
-                      fontSize: '1.1rem',
-                      fontWeight: 600,
-                      boxShadow: 3,
-                      '&:hover': {
-                        boxShadow: 6
-                      }
-                    }}
-                    startIcon={<LocationIcon />}
-                  >
-                    {forceRefreshEnabled 
-                      ? 'กรุณาโหลดหน้าใหม่' 
-                      : departmentsLoading 
-                        ? 'กำลังโหลดข้อมูล...' 
-                        : 'ตรวจสอบตำแหน่งและบันทึก'}
-                  </Button>
-                </Grid>
-              </Grid>
+              </Box>
             </Grow>
           )}
 
+          {/* ขั้นตอนที่ 2: ตรวจสอบตำแหน่ง */}
           {activeStep === 1 && (
             <Fade in={true}>
               <Box sx={{ textAlign: 'center', py: 6 }}>

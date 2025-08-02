@@ -18,7 +18,11 @@ import {
   Person as PersonIcon,
   School as SchoolIcon,
   Badge as BadgeIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  Verified as VerifiedIcon,
+  HourglassEmpty as HourglassIcon,
+  Block as BlockIcon,
+  CheckCircle as CheckIcon
 } from '@mui/icons-material';
 import { 
   signInWithPopup, 
@@ -42,6 +46,7 @@ interface UniversityUserData {
   faculty: string;
   photoURL?: string;
   isActive: boolean;
+  isVerified: boolean;
   createdAt: any;
   updatedAt: any;
   lastLoginAt: any;
@@ -51,14 +56,18 @@ interface MicrosoftLoginProps {
   onLoginSuccess?: (userData: UniversityUserData) => void;
   onLoginError?: (error: string) => void;
   onLogout?: () => void;
+  onPreLoginCheck?: (email: string) => Promise<boolean>;
   redirectAfterLogin?: boolean;
+  disabled?: boolean;
 }
 
 const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   onLoginSuccess,
   onLoginError,
   onLogout,
-  redirectAfterLogin = false
+  onPreLoginCheck,
+  redirectAfterLogin = false,
+  disabled = false
 }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<UniversityUserData | null>(null);
@@ -181,15 +190,20 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
 
-      // ดึงข้อมูลเพิ่มเติมจาก Microsoft
-      const credential = OAuthProvider.credentialFromResult(result);
-      const accessToken = credential?.accessToken;
-
       // ตรวจสอบว่าเป็น email ของมหาวิทยาลัย
       if (!firebaseUser.email?.endsWith('@university.ac.th')) {
         await signOut(auth);
         setError('กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น (@university.ac.th)');
         return;
+      }
+
+      // ตรวจสอบ IP restriction ก่อนเข้าสู่ระบบ (ถ้ามี)
+      if (onPreLoginCheck) {
+        const canProceed = await onPreLoginCheck(firebaseUser.email);
+        if (!canProceed) {
+          await signOut(auth);
+          return;
+        }
       }
 
       // แยกข้อมูลจาก email และ display name
@@ -200,46 +214,51 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       const firstName = nameParts[0] || 'ไม่ระบุ';
       const lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
 
-      // สร้างข้อมูลผู้ใช้
-      const newUserData: UniversityUserData = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email,
-        displayName: firebaseUser.displayName || '',
-        firstName,
-        lastName,
-        studentId,
-        degreeLevel,
-        department,
-        faculty,
-        photoURL: firebaseUser.photoURL || '',
-        isActive: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        lastLoginAt: serverTimestamp()
-      };
-
-      // บันทึกหรืออัพเดทข้อมูลใน Firestore
+      // ตรวจสอบข้อมูลผู้ใช้ที่มีอยู่
       const userDocRef = doc(db, 'universityUsers', firebaseUser.uid);
       const existingUser = await getDoc(userDocRef);
 
+      let finalUserData: UniversityUserData;
+
       if (existingUser.exists()) {
         // อัพเดทข้อมูลที่มีอยู่
-        await setDoc(userDocRef, {
-          ...existingUser.data(),
-          displayName: firebaseUser.displayName || existingUser.data().displayName,
-          photoURL: firebaseUser.photoURL || existingUser.data().photoURL,
+        const existingData = existingUser.data() as UniversityUserData;
+        finalUserData = {
+          ...existingData,
+          displayName: firebaseUser.displayName || existingData.displayName,
+          photoURL: firebaseUser.photoURL || existingData.photoURL,
           updatedAt: serverTimestamp(),
           lastLoginAt: serverTimestamp()
-        }, { merge: true });
+        };
+        
+        await setDoc(userDocRef, finalUserData, { merge: true });
       } else {
         // สร้างข้อมูลใหม่
-        await setDoc(userDocRef, newUserData);
+        finalUserData = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName || '',
+          firstName,
+          lastName,
+          studentId,
+          degreeLevel,
+          department,
+          faculty,
+          photoURL: firebaseUser.photoURL || '',
+          isActive: true,
+          isVerified: false, // ต้องรอการอนุมัติ
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          lastLoginAt: serverTimestamp()
+        };
+        
+        await setDoc(userDocRef, finalUserData);
       }
 
-      setUserData(newUserData);
+      setUserData(finalUserData);
       
       if (onLoginSuccess) {
-        onLoginSuccess(newUserData);
+        onLoginSuccess(finalUserData);
       }
 
     } catch (err: any) {
@@ -250,8 +269,10 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         errorMessage = 'การเข้าสู่ระบบถูกยกเลิก';
       } else if (err.code === 'auth/popup-blocked') {
         errorMessage = 'เบราว์เซอร์บล็อก popup กรุณาอนุญาต popup สำหรับเว็บไซต์นี้';
-      } else if (err.code === 'auth/account-exists-with-different-credential') {
-        errorMessage = 'บัญชีนี้เคยลงทะเบียนด้วยวิธีอื่นแล้ว';
+      } else if (err.code === 'auth/network-request-failed') {
+        errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย กรุณาลองใหม่อีกครั้ง';
+      } else if (err.code === 'auth/too-many-requests') {
+        errorMessage = 'มีการพยายามเข้าสู่ระบบมากเกินไป กรุณารอสักครู่แล้วลองใหม่';
       }
       
       setError(errorMessage);
@@ -268,6 +289,7 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       await signOut(auth);
       setUser(null);
       setUserData(null);
+      setError('');
       if (onLogout) {
         onLogout();
       }
@@ -275,6 +297,13 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       console.error('Logout error:', err);
       setError('เกิดข้อผิดพลาดในการออกจากระบบ');
     }
+  };
+
+  const getStatusInfo = () => {
+    if (!userData) return { text: 'ไม่มีข้อมูล', color: 'default' as const, icon: <PersonIcon fontSize="small" /> };
+    if (!userData.isActive) return { text: 'บัญชีถูกระงับ', color: 'error' as const, icon: <BlockIcon fontSize="small" /> };
+    if (!userData.isVerified) return { text: 'รอการยืนยัน', color: 'warning' as const, icon: <HourglassIcon fontSize="small" /> };
+    return { text: 'บัญชีใช้งานได้', color: 'success' as const, icon: <VerifiedIcon fontSize="small" /> };
   };
 
   if (loading) {
@@ -288,6 +317,8 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
   // แสดงข้อมูลผู้ใช้ที่เข้าสู่ระบบแล้ว
   if (user && userData) {
+    const statusInfo = getStatusInfo();
+    
     return (
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -307,7 +338,12 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
               </Typography>
             </Box>
             <Chip 
-              label="เข้าสู่ระบบแล้ว" 
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  {statusInfo.icon}
+                  เข้าสู่ระบบแล้ว
+                </Box>
+              }
               color="success" 
               size="small"
             />
@@ -351,6 +387,35 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
                 </Typography>
               </Box>
             </Box>
+
+            {/* สถานะบัญชี */}
+            <Box sx={{ 
+              p: 2, 
+              bgcolor: statusInfo.color === 'success' ? 'success.50' : 
+                     statusInfo.color === 'warning' ? 'warning.50' : 
+                     statusInfo.color === 'error' ? 'error.50' : 'grey.50',
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: statusInfo.color === 'success' ? 'success.200' : 
+                          statusInfo.color === 'warning' ? 'warning.200' : 
+                          statusInfo.color === 'error' ? 'error.200' : 'grey.200'
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                {statusInfo.icon}
+                <Typography variant="subtitle2" color={`${statusInfo.color}.dark`}>
+                  สถานะบัญชี
+                </Typography>
+              </Box>
+              <Typography variant="body2" color={`${statusInfo.color}.dark`} fontWeight="medium">
+                {statusInfo.text}
+              </Typography>
+              
+              {!userData.isVerified && (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontSize: '0.8rem' }}>
+                  บัญชีใหม่ต้องรอการอนุมัติจากผู้ดูแลระบบก่อนใช้งาน
+                </Typography>
+              )}
+            </Box>
           </Stack>
 
           <Divider sx={{ my: 2 }} />
@@ -361,6 +426,7 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
             startIcon={<LogoutIcon />}
             onClick={handleLogout}
             fullWidth
+            disabled={disabled}
           >
             ออกจากระบบ
           </Button>
@@ -402,11 +468,14 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
           fullWidth
           startIcon={loginLoading ? <CircularProgress size={20} /> : <MicrosoftIcon />}
           onClick={handleMicrosoftLogin}
-          disabled={loginLoading}
+          disabled={loginLoading || disabled}
           sx={{
             bgcolor: '#0078d4',
             '&:hover': {
               bgcolor: '#106ebe'
+            },
+            '&:disabled': {
+              bgcolor: 'grey.400'
             },
             py: 1.5
           }}
@@ -417,6 +486,13 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
           การเข้าสู่ระบบจะทำการบันทึกข้อมูลของคุณในระบบเพื่อใช้ในการลงทะเบียนกิจกรรม
         </Typography>
+
+        {/* ข้อมูลเพิ่มเติมเกี่ยวกับการยืนยันบัญชี */}
+        <Alert severity="warning" sx={{ mt: 2 }} icon={<HourglassIcon />}>
+          <Typography variant="body2">
+            <strong>สำหรับผู้ใช้ใหม่:</strong> บัญชีจะต้องได้รับการอนุมัติจากผู้ดูแลระบบก่อนสามารถลงทะเบียนกิจกรรมได้
+          </Typography>
+        </Alert>
       </CardContent>
     </Card>
   );

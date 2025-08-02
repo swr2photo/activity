@@ -6,41 +6,35 @@ import {
   CircularProgress,
   Alert,
   Box,
-  Card,
-  CardContent,
-  Typography,
-  Chip,
-  Divider,
-  Stack,
   Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Paper,
-  Stepper,
-  Step,
-  StepLabel
+  Typography
 } from '@mui/material';
 import {
-  AccessTime as TimeIcon,
-  LocationOn as LocationIcon,
-  Group as GroupIcon,
-  Info as InfoIcon,
-  Person as PersonIcon,
-  Map as MapIcon,
-  MyLocation as MyLocationIcon,
-  CheckCircle as CheckIcon,
-  Security as SecurityIcon
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
-import { GoogleMap, MarkerF, CircleF, useLoadScript } from '@react-google-maps/api';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, addDoc, onSnapshot } from 'firebase/firestore';
+
+// Import separated components
+import NavigationBar from '../../components/navigation/NavigationBar';
+import MicrosoftAuthSection from '../../components/auth/MicrosoftAuthSection';
+import {
+  IPRestrictionAlert,
+  DuplicateRegistrationAlert,
+  ProfileSetupAlert,
+  SuccessAlert,
+  ActivityStatusAlert
+} from '../../components/alerts/StatusAlerts';
+import ProfileEditDialog from '../../components/profile/ProfileEditDialog';
+import ActivityBanner from '../../components/activity/ActivityBanner';
+import ActivityInfoCard from '../../components/activity/ActivityInfoCard';
+import ActivityLocationMap from '../../components/activity/ActivityLocationMap';
+
 import ActivityRegistrationForm from '../../components/ActivityRegistrationForm';
-import MicrosoftLogin from '../../components/MicrosoftLogin';
 import { db } from '../../lib/firebase';
 import { useAuth, UniversityUserProfile } from '../../lib/firebaseAuth';
 import { AdminSettings } from '../../types';
 
+// Types
 interface ActivityData {
   id: string;
   activityCode: string;
@@ -59,178 +53,131 @@ interface ActivityData {
   qrUrl: string;
   targetUrl: string;
   requiresUniversityLogin: boolean;
+  bannerUrl?: string;
   createdAt?: any;
   updatedAt?: any;
 }
 
-const mapContainerStyle = {
-  width: '100%',
-  height: '300px',
+interface IPLoginRecord {
+  ipAddress: string;
+  userEmail: string;
+  loginTime: any;
+  expiresAt: any;
+}
+
+interface RegistrationRecord {
+  activityCode: string;
+  userEmail: string;
+  registeredAt: any;
+}
+
+// Utility functions
+const getUserIP = async (): Promise<string> => {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    const data = await response.json();
+    return data.ip;
+  } catch (error) {
+    console.error('Error getting IP:', error);
+    try {
+      const response = await fetch('https://ipapi.co/json/');
+      const data = await response.json();
+      return data.ip;
+    } catch (fallbackError) {
+      console.error('Fallback IP check failed:', fallbackError);
+      return 'unknown';
+    }
+  }
 };
 
-const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places'];
-
-const ActivityLocationMap: React.FC<{ 
-  latitude: number; 
-  longitude: number; 
-  radius: number; 
-  activityName: string;
-  userLocation?: { lat: number; lng: number } | null;
-}> = ({ latitude, longitude, radius, activityName, userLocation }) => {
-  const { isLoaded, loadError } = useLoadScript({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
-    libraries,
-  });
-
-  const center = { lat: latitude, lng: longitude };
-
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371e3;
-    const φ1 = lat1 * Math.PI/180;
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    return R * c;
-  };
-
-  if (loadError) {
-    return (
-      <Alert severity="error">
-        ไม่สามารถโหลดแผนที่ได้: {loadError.message}
-      </Alert>
+const checkDuplicateRegistration = async (activityCode: string, userEmail: string): Promise<{ isDuplicate: boolean; message?: string }> => {
+  try {
+    const q = query(
+      collection(db, 'registrations'),
+      where('activityCode', '==', activityCode),
+      where('userEmail', '==', userEmail)
     );
+    
+    const querySnapshot = await getDocs(q);
+    
+    if (!querySnapshot.empty) {
+      return {
+        isDuplicate: true,
+        message: 'บัญชีนี้เคยลงทะเบียนกิจกรรมนี้แล้ว'
+      };
+    }
+    
+    return { isDuplicate: false };
+  } catch (error) {
+    console.error('Error checking duplicate registration:', error);
+    return { isDuplicate: false };
   }
+};
 
-  if (!isLoaded) {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px' }}>
-        <CircularProgress size={20} sx={{ mr: 1 }} />
-        กำลังโหลดแผนที่...
-      </Box>
+const checkIPRestriction = async (userEmail: string): Promise<{ canLogin: boolean; message?: string; remainingTime?: number }> => {
+  try {
+    const userIP = await getUserIP();
+    const now = new Date();
+    
+    const q = query(
+      collection(db, 'ipLoginRecords'),
+      where('ipAddress', '==', userIP)
     );
-  }
-
-  return (
-    <Box>
-      <GoogleMap
-        mapContainerStyle={mapContainerStyle}
-        zoom={16}
-        center={center}
-        options={{
-          disableDefaultUI: false,
-          zoomControl: true,
-          mapTypeControl: false,
-          scaleControl: true,
-          streetViewControl: false,
-          rotateControl: false,
-          fullscreenControl: true,
-        }}
-      >
-        <MarkerF
-          position={center}
-          title={`ตำแหน่งกิจกรรม: ${activityName}`}
-          icon={{
-            url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDOC4xMzQgMiA1IDUuMTM0IDUgOUM1IDEyLjA4NSA3LjIxIDE2LjE2MiAxMS4yNSAyMS42NzVDMTEuNTM4IDIyLjEwOCAxMi40NjIgMjIuMTA4IDEyLjc1IDIxLjY3NUMxNi43OSAxNi4xNjIgMTkgMTIuMDg1IDE5IDlDMTkgNS4xMzQgMTUuODY2IDIgMTIgMloiIGZpbGw9IiNmZjAwMDAiLz4KPGNpcmNsZSBjeD0iMTIiIGN5PSI5IiByPSIzIiBmaWxsPSJ3aGl0ZSIvPgo8L3N2Zz4K',
-            scaledSize: new google.maps.Size(32, 32),
-          }}
-        />
-        
-        {userLocation && (
-          <MarkerF
-            position={userLocation}
-            title="ตำแหน่งของคุณ"
-            icon={{
-              url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9IiMwMDc0ZDkiLz4KPGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iNCIgZmlsbD0id2hpdGUiLz4KPC9zdmc+',
-              scaledSize: new google.maps.Size(24, 24),
-            }}
-          />
-        )}
-        
-        <CircleF
-          center={center}
-          radius={radius}
-          options={{
-            fillColor: '#4caf50',
-            fillOpacity: 0.2,
-            strokeColor: '#4caf50',
-            strokeOpacity: 0.8,
-            strokeWeight: 2,
-          }}
-        />
-      </GoogleMap>
+    
+    const querySnapshot = await getDocs(q);
+    
+    if (!querySnapshot.empty) {
+      const existingRecord = querySnapshot.docs[0].data() as IPLoginRecord;
+      const expiresAt = existingRecord.expiresAt.toDate();
       
-      {userLocation && (
-        <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            ข้อมูลตำแหน่ง
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            ระยะห่างจากจุดกิจกรรม: {Math.round(calculateDistance(
-              userLocation.lat, userLocation.lng, 
-              latitude, longitude
-            ))} เมตร
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            สถานะ: {calculateDistance(userLocation.lat, userLocation.lng, latitude, longitude) <= radius 
-              ? '✅ อยู่ในพื้นที่กิจกรรม' 
-              : '❌ อยู่นอกพื้นที่กิจกรรม'}
-          </Typography>
-        </Box>
-      )}
-    </Box>
-  );
+      if (now < expiresAt) {
+        if (existingRecord.userEmail === userEmail) {
+          return { canLogin: true };
+        } else {
+          const remainingMs = expiresAt.getTime() - now.getTime();
+          const remainingMinutes = Math.ceil(remainingMs / (1000 * 60));
+          
+          return {
+            canLogin: false,
+            message: `IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่น กรุณารออีก ${remainingMinutes} นาที`,
+            remainingTime: remainingMinutes
+          };
+        }
+      } else {
+        await updateDoc(querySnapshot.docs[0].ref, {
+          userEmail: userEmail,
+          loginTime: now,
+          expiresAt: new Date(now.getTime() + 60 * 60 * 1000)
+        });
+        return { canLogin: true };
+      }
+    } else {
+      await addDoc(collection(db, 'ipLoginRecords'), {
+        ipAddress: userIP,
+        userEmail: userEmail,
+        loginTime: now,
+        expiresAt: new Date(now.getTime() + 60 * 60 * 1000)
+      });
+      return { canLogin: true };
+    }
+  } catch (error) {
+    console.error('Error checking IP restriction:', error);
+    return { canLogin: true };
+  }
 };
 
-const RegistrationSteps: React.FC<{ 
-  activeStep: number; 
-  requiresLogin: boolean;
-  isVerified: boolean;
-}> = ({ activeStep, requiresLogin, isVerified }) => {
-  // เปลี่ยนให้แสดงขั้นตอน login เสมอ
-  const steps = requiresLogin 
-    ? ['เข้าสู่ระบบ', 'ตรวจสอบสิทธิ์', 'ลงทะเบียน']
-    : ['เข้าสู่ระบบ', 'ลงทะเบียน'];
-
-  return (
-    <Card sx={{ mb: 3 }}>
-      <CardContent>
-        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <SecurityIcon />
-          ขั้นตอนการลงทะเบียน
-        </Typography>
-        <Stepper activeStep={activeStep} alternativeLabel>
-          {steps.map((label, index) => (
-            <Step key={label}>
-              <StepLabel
-                StepIconProps={{
-                  style: {
-                    color: index <= activeStep ? '#4caf50' : '#e0e0e0'
-                  }
-                }}
-              >
-                {label}
-              </StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-        
-        {requiresLogin && !isVerified && activeStep === 1 && (
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            <Typography variant="body2">
-              <strong>รอการอนุมัติ:</strong> บัญชีของคุณอยู่ระหว่างการตรวจสอบ 
-              กรุณารอให้ผู้ดูแลระบบอนุมัติก่อนลงทะเบียนกิจกรรม
-            </Typography>
-          </Alert>
-        )}
-      </CardContent>
-    </Card>
-  );
+// Update user profile function (if not available in useAuth hook)
+const updateUserProfileInFirestore = async (uid: string, updatedData: Partial<UniversityUserProfile>): Promise<void> => {
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    await updateDoc(userDocRef, {
+      ...updatedData,
+      updatedAt: new Date()
+    });
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    throw error;
+  }
 };
 
 const RegisterPageContent: React.FC = () => {
@@ -239,132 +186,116 @@ const RegisterPageContent: React.FC = () => {
   
   const { user, userData, loading: authLoading, login, logout } = useAuth();
   
+  // State management
   const [adminSettings, setAdminSettings] = useState<AdminSettings | null>(null);
   const [activityData, setActivityData] = useState<ActivityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [validActivity, setValidActivity] = useState(false);
-  const [showLocationDialog, setShowLocationDialog] = useState(false);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationError, setLocationError] = useState('');
-  const [locationLoading, setLocationLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  
+  // IP restriction states
+  const [ipBlocked, setIpBlocked] = useState(false);
+  const [blockRemainingTime, setBlockRemainingTime] = useState(0);
+  const [checkingIP, setCheckingIP] = useState(false);
+  
+  // Duplicate registration states
+  const [isDuplicateRegistration, setIsDuplicateRegistration] = useState(false);
+  
+  // Profile edit dialog state
+  const [showProfileDialog, setShowProfileDialog] = useState(false);
+  const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
 
-  useEffect(() => {
-    loadInitialData();
-  }, [activityCode]);
-
-  const isActivityActive = (activity: ActivityData) => {
-    const now = new Date();
-    const startTime = activity.startDateTime?.toDate() || new Date();
-    const endTime = activity.endDateTime?.toDate() || new Date();
-    
-    return activity.isActive && 
-           now >= startTime && 
-           now <= endTime;
-  };
-
+  // Activity status helpers
   const getActivityStatus = (activity: ActivityData) => {
     const now = new Date();
     const startTime = activity.startDateTime?.toDate() || new Date();
     const endTime = activity.endDateTime?.toDate() || new Date();
     
-    if (!activity.isActive) return { status: 'ปิดใช้งาน', color: 'error' as const, message: 'กิจกรรมนี้ถูกปิดใช้งานแล้ว' };
+    if (!activity.isActive) return { 
+      status: 'inactive' as const, 
+      message: 'กิจกรรมนี้ถูกปิดใช้งานแล้ว' 
+    };
     if (now < startTime) return { 
-      status: 'รอเปิด', 
-      color: 'warning' as const, 
-      message: `กิจกรรมจะเปิดลงทะเบียนในวันที่ ${startTime.toLocaleString('th-TH')}`
+      status: 'upcoming' as const, 
+      message: `กิจกรรมจะเปิดลงทะเบียนในวันที่ ${startTime.toLocaleString('th-TH')}`,
+      startTime 
     };
     if (now > endTime) return { 
-      status: 'สิ้นสุดแล้ว', 
-      color: 'default' as const, 
-      message: `กิจกรรมสิ้นสุดแล้วเมื่อวันที่ ${endTime.toLocaleString('th-TH')}`
+      status: 'ended' as const, 
+      message: `กิจกรรมสิ้นสุดแล้วเมื่อวันที่ ${endTime.toLocaleString('th-TH')}`,
+      endTime 
     };
     
     if (activity.maxParticipants > 0 && activity.currentParticipants >= activity.maxParticipants) {
       return { 
-        status: 'เต็มแล้ว', 
-        color: 'error' as const, 
+        status: 'full' as const, 
         message: 'กิจกรรมนี้มีผู้สมัครครบจำนวนแล้ว'
       };
     }
     
-    return { status: 'เปิดลงทะเบียน', color: 'success' as const, message: '' };
+    return { status: 'active' as const, message: '' };
   };
 
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371e3;
-    const φ1 = lat1 * Math.PI/180;
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    return R * c;
+  // Check conditions
+  const canProceedToRegistration = () => {
+    if (!activityData) return false;
+    if (!user) return false;
+    if (ipBlocked) return false;
+    if (isDuplicateRegistration) return false;
+    if (needsProfileSetup) return false;
+    return true;
   };
 
-  const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      setLocationLoading(true);
-      setLocationError('');
-      
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const userPos = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          };
-          setUserLocation(userPos);
-          setLocationLoading(false);
+  const shouldShowMicrosoftLogin = () => {
+    return !user && !ipBlocked && !isDuplicateRegistration;
+  };
 
-          if (activityData) {
-            const distance = calculateDistance(
-              userPos.lat,
-              userPos.lng,
-              activityData.latitude,
-              activityData.longitude
-            );
+  // Determine existing auth status for ActivityRegistrationForm
+  const getExistingAuthStatus = (): boolean => {
+    return !!(user && userData);
+  };
 
-            if (distance <= activityData.checkInRadius) {
-              setLocationError(`✅ คุณอยู่ในพื้นที่กิจกรรม (ห่างจากจุดกิจกรรม ${Math.round(distance)} เมตร)`);
-            } else {
-              setLocationError(`❌ คุณอยู่นอกพื้นที่กิจกรรม (ห่างจากจุดกิจกรรม ${Math.round(distance)} เมตร - ต้องอยู่ในรัศมี ${activityData.checkInRadius} เมตร)`);
-            }
-          }
-        },
-        (error) => {
-          setLocationLoading(false);
-          let errorMessage = 'ไม่สามารถดึงตำแหน่งปัจจุบันได้: ';
-          switch (error.code) {
-            case error.PERMISSION_DENIED:
-              errorMessage += 'ผู้ใช้ปฏิเสธการเข้าถึงตำแหน่ง กรุณาอนุญาตการเข้าถึงตำแหน่งในเบราว์เซอร์';
-              break;
-            case error.POSITION_UNAVAILABLE:
-              errorMessage += 'ไม่สามารถระบุตำแหน่งได้ กรุณาตรวจสอบการเชื่อมต่อ GPS';
-              break;
-            case error.TIMEOUT:
-              errorMessage += 'หมดเวลาในการขอตำแหน่ง กรุณาลองใหม่อีกครั้ง';
-              break;
-            default:
-              errorMessage += 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ';
-              break;
-          }
-          setLocationError(errorMessage);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 30000
-        }
-      );
-    } else {
-      setLocationError('เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง');
+  // Effects
+  useEffect(() => {
+    loadInitialData();
+  }, [activityCode]);
+
+  useEffect(() => {
+    if (user && activityCode && !isDuplicateRegistration) {
+      checkForDuplicateRegistration();
     }
-  };
+  }, [user, activityCode]);
 
+  useEffect(() => {
+    if (user && userData !== null) {
+      const needsSetup = !userData?.firstName || !userData?.lastName;
+      setNeedsProfileSetup(needsSetup);
+      
+      if (needsSetup && !showProfileDialog) {
+        setShowProfileDialog(true);
+      }
+    }
+  }, [user, userData, showProfileDialog]);
+
+  useEffect(() => {
+    if (activityData?.id) {
+      const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityData.id), (doc) => {
+        if (doc.exists()) {
+          const data = doc.data();
+          setActivityData(prev => prev ? {
+            ...prev,
+            currentParticipants: data.currentParticipants || 0,
+            isActive: data.isActive !== undefined ? data.isActive : true
+          } : prev);
+        }
+      });
+
+      return () => unsubscribe();
+    }
+  }, [activityData?.id]);
+
+  // Event handlers
   const loadInitialData = async () => {
     try {
       setLoading(true);
@@ -415,10 +346,9 @@ const RegisterPageContent: React.FC = () => {
 
         const statusInfo = getActivityStatus(activity);
         
-        if (statusInfo.status === 'เปิดลงทะเบียน') {
+        if (statusInfo.status === 'active') {
           setValidActivity(true);
         } else {
-          setError(statusInfo.message);
           setValidActivity(false);
         }
       }
@@ -430,6 +360,122 @@ const RegisterPageContent: React.FC = () => {
     }
   };
 
+  const checkForDuplicateRegistration = async () => {
+    if (!user?.email || !activityCode) return;
+
+    try {
+      const result = await checkDuplicateRegistration(activityCode, user.email);
+      setIsDuplicateRegistration(result.isDuplicate);
+      if (result.isDuplicate && result.message) {
+        setError(result.message);
+      }
+    } catch (error) {
+      console.error('Error checking duplicate registration:', error);
+    }
+  };
+
+  const handlePreLoginCheck = async (userEmail: string): Promise<boolean> => {
+    setCheckingIP(true);
+    
+    try {
+      const ipCheck = await checkIPRestriction(userEmail);
+      
+      if (!ipCheck.canLogin) {
+        setIpBlocked(true);
+        setBlockRemainingTime(ipCheck.remainingTime || 60);
+        setError(ipCheck.message || 'ไม่สามารถเข้าสู่ระบบได้');
+        return false;
+      }
+      
+      setIpBlocked(false);
+      setError('');
+      return true;
+    } catch (error) {
+      console.error('Error in pre-login check:', error);
+      return true;
+    } finally {
+      setCheckingIP(false);
+    }
+  };
+
+  const handleLoginSuccess = async (userProfile: any) => {
+    console.log('Login successful:', userProfile);
+    
+    try {
+      const userIP = await getUserIP();
+      const now = new Date();
+      
+      const q = query(
+        collection(db, 'ipLoginRecords'),
+        where('ipAddress', '==', userIP)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        await updateDoc(querySnapshot.docs[0].ref, {
+          userEmail: userProfile.email,
+          loginTime: now,
+          expiresAt: new Date(now.getTime() + 60 * 60 * 1000)
+        });
+      }
+      
+      if (activityCode) {
+        setTimeout(() => {
+          checkForDuplicateRegistration();
+        }, 1000);
+      }
+    } catch (error) {
+      console.error('Error updating IP record after login:', error);
+    }
+  };
+
+  const handleLoginError = (errorMessage: string) => {
+    setError(errorMessage);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setError('');
+      setSuccessMessage('');
+      setIpBlocked(false);
+      setBlockRemainingTime(0);
+      setIsDuplicateRegistration(false);
+      setNeedsProfileSetup(false);
+    } catch (error) {
+      console.error('Logout error:', error);
+      setError('เกิดข้อผิดพลาดในการออกจากระบบ');
+    }
+  };
+
+  const handleIPBlockExpired = () => {
+    setIpBlocked(false);
+    setBlockRemainingTime(0);
+    setError('');
+  };
+
+  const handleEditProfile = () => {
+    setShowProfileDialog(true);
+  };
+
+  const handleSaveProfile = async (updatedData: Partial<UniversityUserProfile>) => {
+    try {
+      if (!user?.uid) throw new Error('ไม่พบข้อมูลผู้ใช้');
+      
+      // Use the local function since updateUserProfile is not available in useAuth
+      await updateUserProfileInFirestore(user.uid, updatedData);
+      setNeedsProfileSetup(false);
+      setSuccessMessage('บันทึกข้อมูลเรียบร้อยแล้ว');
+      
+      setTimeout(() => {
+        setSuccessMessage('');
+      }, 3000);
+    } catch (error: any) {
+      throw new Error(error.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+    }
+  };
+
   const handleRegistrationSuccess = async () => {
     if (activityData) {
       try {
@@ -437,6 +483,14 @@ const RegisterPageContent: React.FC = () => {
         await updateDoc(docRef, {
           currentParticipants: increment(1)
         });
+        
+        if (user?.email) {
+          await addDoc(collection(db, 'registrations'), {
+            activityCode: activityCode,
+            userEmail: user.email,
+            registeredAt: new Date()
+          });
+        }
         
         setActivityData(prev => prev ? {
           ...prev,
@@ -448,57 +502,27 @@ const RegisterPageContent: React.FC = () => {
     }
   };
 
-  const handleLoginSuccess = (userProfile: any) => {
-    console.log('Login successful:', userProfile);
-  };
-
-  const handleLoginError = (errorMessage: string) => {
-    setError(errorMessage);
-  };
-
-  // แก้ไขฟังก์ชัน getCurrentStep เพื่อจัดการขั้นตอนใหม่
-  const getCurrentStep = () => {
-    if (!user) return 0; // ยังไม่ login
-    
-    if (activityData?.requiresUniversityLogin) {
-      if (userData && !userData.isVerified) return 1; // login แล้วแต่ยังไม่ verify
-      if (userData && userData.isVerified) return 2; // verify แล้ว พร้อมลงทะเบียน
-    } else {
-      // กิจกรรมไม่ต้องการ university login แต่ login แล้ว
-      return 1; // พร้อมลงทะเบียน
-    }
-    
-    return 0;
-  };
-
-  // แก้ไขฟังก์ชัน canProceedToRegistration เพื่อบังคับให้ต้อง login ก่อนเสมอ
-  const canProceedToRegistration = () => {
-    if (!activityData) return false;
-    
-    // บังคับให้ต้องมี user (login) เสมอ
-    if (!user) return false;
-    
-    // หากกิจกรรมต้องการ university login จะต้องมีการ verify ด้วย
-    if (activityData.requiresUniversityLogin) {
-      return userData && userData.isVerified && userData.isActive;
-    }
-    
-    // หากไม่ต้องการ university login แต่ต้อง login อยู่ดี
-    return true;
-  };
-
+  // Render loading state
   if (loading || authLoading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-        <CircularProgress />
-        <Box sx={{ ml: 2, display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        minHeight: '50vh',
+        flexDirection: 'column',
+        gap: 2
+      }}>
+        <CircularProgress size={40} />
+        <Typography variant="body1" color="text.secondary">
           กำลังโหลดข้อมูล...
-        </Box>
+        </Typography>
       </Box>
     );
   }
 
-  if (error) {
+  // Render error state (non-recoverable errors)
+  if (error && !ipBlocked && !isDuplicateRegistration && !successMessage) {
     return (
       <Alert severity="error" sx={{ mt: 2 }}>
         {error}
@@ -507,6 +531,7 @@ const RegisterPageContent: React.FC = () => {
           size="small" 
           onClick={loadInitialData}
           sx={{ ml: 2 }}
+          startIcon={<RefreshIcon />}
         >
           ลองใหม่
         </Button>
@@ -514,331 +539,136 @@ const RegisterPageContent: React.FC = () => {
     );
   }
 
+  // Get activity status for conditional rendering
+  const activityStatus = activityData ? getActivityStatus(activityData) : null;
+
   return (
     <>
-      {/* Progress Steps */}
-      {activityData && (
-        <RegistrationSteps 
-          activeStep={getCurrentStep()}
-          requiresLogin={activityData.requiresUniversityLogin}
-          isVerified={userData?.isVerified || false}
+      {/* Navigation Bar */}
+      <NavigationBar 
+        user={user}
+        userData={userData}
+        onLogout={handleLogout}
+        onEditProfile={handleEditProfile}
+      />
+
+      {/* Success Message */}
+      {successMessage && (
+        <SuccessAlert 
+          message={successMessage}
+          onClose={() => setSuccessMessage('')}
         />
       )}
 
-      {/* Microsoft Login Section - แสดงเสมอ */}
-      <MicrosoftLogin
-        onLoginSuccess={handleLoginSuccess}
-        onLoginError={handleLoginError}
-        onLogout={() => setError('')}
-      />
+      {/* Activity Banner */}
+      {activityData && !ipBlocked && (
+        <ActivityBanner activity={activityData} />
+      )}
 
-      {/* User Verification Status */}
-      {activityData?.requiresUniversityLogin && user && userData && !userData.isVerified && (
-        <Alert severity="warning" sx={{ mb: 3 }}>
-          <Typography variant="body1" gutterBottom>
-            <strong>รอการอนุมัติบัญชี</strong>
-          </Typography>
-          <Typography variant="body2">
-            บัญชีของคุณอยู่ระหว่างการตรวจสอบจากผู้ดูแลระบบ 
-            คุณจะสามารถลงทะเบียนกิจกรรมได้หลังจากได้รับการอนุมัติ
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 1 }}>
-            หากมีข้อสงสัย กรุณาติดต่อผู้ดูแลระบบ
-          </Typography>
-        </Alert>
+      {/* IP Restriction Alert */}
+      {ipBlocked && (
+        <IPRestrictionAlert 
+          remainingTime={blockRemainingTime}
+          onClose={handleIPBlockExpired}
+        />
+      )}
+
+      {/* Duplicate Registration Alert */}
+      {isDuplicateRegistration && user && (
+        <DuplicateRegistrationAlert />
+      )}
+
+      {/* Activity Status Alert (for non-active activities) */}
+      {activityData && activityStatus && activityStatus.status !== 'active' && !ipBlocked && (
+        <ActivityStatusAlert
+          status={activityStatus.status}
+          message={activityStatus.message}
+          startTime={activityStatus.startTime}
+          endTime={activityStatus.endTime}
+        />
+      )}
+
+      {/* Microsoft Login Section */}
+      {shouldShowMicrosoftLogin() && activityData && validActivity && (
+        <MicrosoftAuthSection
+          activityData={activityData}
+          onLoginSuccess={handleLoginSuccess}
+          onLoginError={handleLoginError}
+          onPreLoginCheck={handlePreLoginCheck}
+          checkingIP={checkingIP}
+        />
+      )}
+
+      {/* Profile Setup Alert */}
+      {user && needsProfileSetup && !ipBlocked && !isDuplicateRegistration && (
+        <ProfileSetupAlert onEditProfile={handleEditProfile} />
       )}
 
       {/* Activity Information Card */}
-      {activityData && (
-        <Card sx={{ mb: 4 }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-              <Box>
-                <Typography variant="h5" gutterBottom>
-                  {activityData.activityName}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  รหัสกิจกรรม: {activityData.activityCode}
-                </Typography>
-                {activityData.requiresUniversityLogin && (
-                  <Chip 
-                    label="ต้องใช้บัญชีมหาวิทยาลัย" 
-                    color="info" 
-                    size="small"
-                    sx={{ mt: 1 }}
-                  />
-                )}
-              </Box>
-              <Chip 
-                label={getActivityStatus(activityData).status}
-                color={getActivityStatus(activityData).color}
-                variant="filled"
-              />
-            </Box>
-
-            <Divider sx={{ my: 2 }} />
-
-            <Stack spacing={2}>
-              {activityData.description && (
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <InfoIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-                  <Box>
-                    <Typography variant="subtitle2" gutterBottom>รายละเอียด</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {activityData.description}
-                    </Typography>
-                  </Box>
-                </Box>
-              )}
-
-              {/* รหัสผู้ใช้ - แสดงเฉพาะเมื่อ login แล้ว */}
-              {user && (!activityData.requiresUniversityLogin || (userData?.isVerified)) && (
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                  <PersonIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-                  <Box>
-                    <Typography variant="subtitle2" gutterBottom>รหัสผู้ใช้สำหรับลงทะเบียน</Typography>
-                    <Paper sx={{ p: 1.5, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
-                      <Typography variant="h6" color="primary.main" sx={{ fontFamily: 'monospace' }}>
-                        {activityData.userCode}
-                      </Typography>
-                    </Paper>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                      กรุณาจดจำรหัสนี้เพื่อใช้ในการลงทะเบียน
-                    </Typography>
-                  </Box>
-                </Box>
-              )}
-              
-              {activityData.location && (
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                  <LocationIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-                  <Box>
-                    <Typography variant="subtitle2" gutterBottom>สถานที่</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {activityData.location}
-                    </Typography>
-                  </Box>
-                </Box>
-              )}
-
-              {/* ตำแหน่งที่ตั้งและการเช็คอิน */}
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <MapIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-                <Box sx={{ width: '100%' }}>
-                  <Typography variant="subtitle2" gutterBottom>ตำแหน่งกิจกรรม</Typography>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    พิกัด: {activityData.latitude.toFixed(6)}, {activityData.longitude.toFixed(6)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    รัศมีเช็คอิน: {activityData.checkInRadius} เมตร
-                  </Typography>
-                  
-                  <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<MapIcon />}
-                      onClick={() => setShowLocationDialog(true)}
-                    >
-                      ดูแผนที่
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={locationLoading ? <CircularProgress size={16} /> : <MyLocationIcon />}
-                      onClick={getCurrentLocation}
-                      disabled={locationLoading}
-                    >
-                      {locationLoading ? 'กำลังค้นหา...' : 'ตรวจสอบตำแหน่งของฉัน'}
-                    </Button>
-                  </Box>
-
-                  {locationError && (
-                    <Alert 
-                      severity={locationError.includes('✅') ? 'success' : locationError.includes('❌') ? 'error' : 'warning'} 
-                      sx={{ mt: 2 }}
-                    >
-                      {locationError}
-                    </Alert>
-                  )}
-                </Box>
-              </Box>
-              
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <TimeIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-                <Box>
-                  <Typography variant="subtitle2" gutterBottom>วันเวลา</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    เริ่ม: {activityData.startDateTime?.toDate()?.toLocaleString('th-TH') || 'ไม่ระบุ'}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    สิ้นสุด: {activityData.endDateTime?.toDate()?.toLocaleString('th-TH') || 'ไม่ระบุ'}
-                  </Typography>
-                </Box>
-              </Box>
-              
-              {activityData.maxParticipants > 0 && (
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                  <GroupIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-                  <Box>
-                    <Typography variant="subtitle2" gutterBottom>จำนวนผู้เข้าร่วม</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {activityData.currentParticipants} / {activityData.maxParticipants} คน
-                    </Typography>
-                    {activityData.maxParticipants > 0 && (
-                      <Box sx={{ 
-                        width: '100%', 
-                        bgcolor: 'grey.200', 
-                        borderRadius: 1, 
-                        mt: 1,
-                        height: 8,
-                        overflow: 'hidden'
-                      }}>
-                        <Box
-                          sx={{
-                            width: `${Math.min((activityData.currentParticipants / activityData.maxParticipants) * 100, 100)}%`,
-                            height: '100%',
-                            bgcolor: activityData.currentParticipants >= activityData.maxParticipants 
-                              ? 'error.main' 
-                              : activityData.currentParticipants / activityData.maxParticipants > 0.8 
-                                ? 'warning.main' 
-                                : 'success.main',
-                            transition: 'width 0.3s ease'
-                          }}
-                        />
-                      </Box>
-                    )}
-                  </Box>
-                </Box>
-              )}
-            </Stack>
-          </CardContent>
-        </Card>
+      {activityData && !ipBlocked && !isDuplicateRegistration && (
+        <ActivityInfoCard 
+          activity={activityData}
+          showRegistrationButton={canProceedToRegistration()}
+        />
       )}
 
-      {/* Message when not logged in */}
-      {validActivity && !user && (
-        <Card sx={{ mb: 4 }}>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <SecurityIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="h6" gutterBottom>
-              ต้องเข้าสู่ระบบก่อนลงทะเบียน
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              กรุณาเข้าสู่ระบบด้วยบัญชี Microsoft ก่อนดำเนินการลงทะเบียนกิจกรรม
-            </Typography>
-            <Alert severity="info">
-              การลงทะเบียนกิจกรรมต้องเข้าสู่ระบบเพื่อความปลอดภัยและการจัดการข้อมูล
-            </Alert>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Registration Form - แสดงเฉพาะเมื่อผ่านเงื่อนไขครบ */}
+      {/* Registration Form */}
       {validActivity && adminSettings && activityCode && canProceedToRegistration() && (
         <ActivityRegistrationForm
           activityCode={activityCode}
           adminSettings={adminSettings}
+          existingAuthStatus={getExistingAuthStatus()}
           onSuccess={handleRegistrationSuccess}
         />
       )}
 
-      {/* Message when login required but not completed for university activities */}
-      {validActivity && activityData?.requiresUniversityLogin && user && !canProceedToRegistration() && (
-        <Card sx={{ mb: 4 }}>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <SecurityIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="h6" gutterBottom>
-              กิจกรรมนี้ต้องการการยืนยันตัวตนจากมหาวิทยาลัย
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              คุณได้เข้าสู่ระบบแล้ว แต่ยังต้องรอการอนุมัติจากผู้ดูแลระบบ
-              เพื่อยืนยันสิทธิ์ในการลงทะเบียนกิจกรรมนี้
-            </Typography>
-            
-            {userData && !userData.isVerified && (
-              <Alert severity="warning">
-                บัญชีของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ
-              </Alert>
-            )}
-            
-            {userData && !userData.isActive && (
-              <Alert severity="error">
-                บัญชีของคุณถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Location Dialog */}
-      <Dialog 
-        open={showLocationDialog} 
-        onClose={() => setShowLocationDialog(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <MapIcon />
-          ตำแหน่งกิจกรรม: {activityData?.activityName}
-        </DialogTitle>
-        <DialogContent>
-          {activityData && (
-            <Box>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                🟢 วงกลมสีเขียวแสดงพื้นที่ที่สามารถเช็คอินได้ (รัศมี {activityData.checkInRadius} เมตร)
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                📍 หมุดสีแดงแสดงจุดกิจกรรม
-              </Typography>
-              {userLocation && (
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  🔵 จุดสีน้ำเงินแสดงตำแหน่งของคุณ
-                </Typography>
-              )}
-              
-              <ActivityLocationMap
-                latitude={activityData.latitude}
-                longitude={activityData.longitude}
-                radius={activityData.checkInRadius}
-                activityName={activityData.activityName}
-                userLocation={userLocation}
-              />
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowLocationDialog(false)}>
-            ปิด
-          </Button>
-          <Button 
-            onClick={getCurrentLocation} 
-            variant="contained" 
-            startIcon={locationLoading ? <CircularProgress size={16} /> : <MyLocationIcon />}
-            disabled={locationLoading}
-          >
-            {locationLoading ? 'กำลังค้นหา...' : 'ค้นหาตำแหน่งของฉัน'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Profile Edit Dialog */}
+      <ProfileEditDialog
+        open={showProfileDialog}
+        onClose={() => {
+          setShowProfileDialog(false);
+          // หากยังต้องการข้อมูล ให้เปิด dialog อีกครั้งหลัง 500ms
+          if (needsProfileSetup) {
+            setTimeout(() => {
+              setShowProfileDialog(true);
+            }, 500);
+          }
+        }}
+        user={user}
+        userData={userData}
+        onSave={handleSaveProfile}
+      />
     </>
   );
 };
 
+// Main RegisterPage Component
 const RegisterPage: React.FC = () => {
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <Suspense fallback={
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-          <CircularProgress />
-          <Typography variant="body1" sx={{ ml: 2 }}>
-            กำลังโหลดหน้าลงทะเบียน...
-          </Typography>
-        </Box>
-      }>
-        <RegisterPageContent />
-      </Suspense>
-    </Container>
+    <Box sx={{ 
+      minHeight: '100vh', 
+      background: 'linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)'
+    }}>
+      <Container maxWidth="md" sx={{ py: 0 }}>
+        <Suspense fallback={
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center',
+            minHeight: '50vh',
+            flexDirection: 'column',
+            gap: 2
+          }}>
+            <CircularProgress size={40} />
+            <Typography variant="body1" color="text.secondary">
+              กำลังโหลดหน้าลงทะเบียน...
+            </Typography>
+          </Box>
+        }>
+          <RegisterPageContent />
+        </Suspense>
+      </Container>
+    </Box>
   );
 };
 
