@@ -1,9 +1,12 @@
+// app/admin/page.tsx
 'use client';
+
 import React from 'react';
 import dynamic from 'next/dynamic';
 
-// Dynamic import เพื่อป้องกัน SSR issues กับ Firebase Auth
-const AdminLogin = dynamic(() => import('../../components/AdminLogin'), {
+// Dynamic import - แก้ไข path ตามตำแหน่งไฟล์ App.tsx จริง
+// ถ้า App.tsx อยู่ที่ src/App.tsx
+const App = dynamic(() => import('./App'), {
   ssr: false,
   loading: () => (
     <div style={{
@@ -14,15 +17,17 @@ const AdminLogin = dynamic(() => import('../../components/AdminLogin'), {
       backgroundColor: '#f5f5f5'
     }}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{
-          width: '40px',
-          height: '40px',
-          border: '4px solid #e3f2fd',
-          borderTop: '4px solid #1976d2',
-          borderRadius: '50%',
-          animation: 'spin 1s linear infinite',
-          margin: '0 auto 16px auto'
-        }} />
+        <div 
+          style={{
+            width: '40px',
+            height: '40px',
+            border: '4px solid #e3f2fd',
+            borderTop: '4px solid #1976d2',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 16px auto'
+          }} 
+        />
         <p style={{ color: '#666', fontSize: '16px' }}>กำลังโหลดระบบแอดมิน...</p>
         <style jsx>{`
           @keyframes spin {
@@ -36,7 +41,7 @@ const AdminLogin = dynamic(() => import('../../components/AdminLogin'), {
 });
 
 const AdminPage: React.FC = () => {
-  return <AdminLogin />;
+  return <App />;
 };
 
 export default AdminPage;

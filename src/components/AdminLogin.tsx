@@ -14,9 +14,6 @@ import {
   Paper,
   Fade,
   CircularProgress,
-  AppBar,
-  Toolbar,
-  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -27,16 +24,12 @@ import {
   Slide,
   Zoom,
   Stack,
-  ButtonBase,
-  Backdrop
+  IconButton
 } from '@mui/material';
 import {
   Google as GoogleIcon,
   Security as SecurityIcon,
-  AdminPanelSettings as AdminIcon,
   Logout as LogoutIcon,
-  Settings as SettingsIcon,
-  Menu as MenuIcon,
   Shield as ShieldIcon,
   Lock as LockIcon,
   Person as PersonIcon
@@ -54,10 +47,18 @@ import {
   where,
   getDocs,
   addDoc,
-  serverTimestamp
+  serverTimestamp,
+  Timestamp
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-import AdminPanel from './AdminPanel';
+
+// Add these constants at the top of the file after imports
+const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE || 'default-admin-code';
+const allowedAdminEmails = [
+  // Add allowed admin emails here
+  'doralaikon.th@gmail.com',
+  '10035@swr2.ac.th'
+];
 
 interface AdminUser {
   id: string;
@@ -68,6 +69,10 @@ interface AdminUser {
   isActive: boolean;
   lastLogin: Date;
   createdAt: Date;
+}
+
+interface AdminLoginProps {
+  onLoginSuccess?: (adminUser: AdminUser) => void;
 }
 
 interface TransitionProps {
@@ -83,13 +88,12 @@ const TransitionUp = React.forwardRef<any, TransitionProps>(
   )
 );
 
-const AdminLogin: React.FC = () => {
+const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isSmallMobile = useMediaQuery(theme.breakpoints.down('sm'));
   
   const [user, setUser] = useState<User | null>(null);
-  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
@@ -101,12 +105,7 @@ const AdminLogin: React.FC = () => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
-        await checkAdminAccess(user, {
-          allowedAdminEmails: [], // TODO: Replace with your allowed admin emails
-          adminCode: typeof adminCode !== 'undefined' ? adminCode : ''
-        });
-      } else {
-        setAdminUser(null);
+        await checkAdminAccess(user);
       }
       setLoading(false);
     });
@@ -114,7 +113,7 @@ const AdminLogin: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  const checkAdminAccess = async (user: User, config: { allowedAdminEmails: string[], adminCode: string }) => {
+  const checkAdminAccess = async (user: User) => {
     try {
       const adminQuery = query(
         collection(db, 'adminUsers'),
@@ -123,21 +122,42 @@ const AdminLogin: React.FC = () => {
       const adminSnapshot = await getDocs(adminQuery);
 
       if (!adminSnapshot.empty) {
-        const adminData = adminSnapshot.docs[0].data() as AdminUser;
+        const adminData = adminSnapshot.docs[0].data() as Omit<AdminUser, 'id' | 'lastLogin' | 'createdAt'> & {
+          lastLogin: Timestamp | Date;
+          createdAt: Timestamp | Date;
+        };
+        
         if (adminData.isActive) {
-          setAdminUser({
+          const adminUser: AdminUser = {
             ...adminData,
-            id: adminSnapshot.docs[0].id
-          });
+            id: adminSnapshot.docs[0].id,
+            lastLogin: adminData.lastLogin instanceof Timestamp ? 
+              adminData.lastLogin.toDate() : 
+              adminData.lastLogin instanceof Date ? 
+              adminData.lastLogin : 
+              new Date(),
+            createdAt: adminData.createdAt instanceof Timestamp ? 
+              adminData.createdAt.toDate() : 
+              adminData.createdAt instanceof Date ? 
+              adminData.createdAt : 
+              new Date()
+          };
+          
+          // Call the success callback to notify parent component
+          if (onLoginSuccess) {
+            onLoginSuccess(adminUser);
+          }
         } else {
           setError('บัญชีแอดมินของคุณถูกปิดใช้งาน');
         }
       } else {
-        if (config.allowedAdminEmails.includes(user.email || '')) {
+        // Check if email is in allowed list
+        if (allowedAdminEmails.includes(user.email || '')) {
           setPendingUser(user);
           setAdminCodeDialog(true);
         } else {
           setError('คุณไม่มีสิทธิ์เข้าถึงระบบแอดมิน');
+          await signOut(auth);
         }
       }
     } catch (error) {
@@ -156,7 +176,7 @@ const AdminLogin: React.FC = () => {
       provider.addScope('profile');
       
       const result = await signInWithPopup(auth, provider);
-      // checkAdminAccess จะถูกเรียกใน useEffect
+      // checkAdminAccess will be called in useEffect
     } catch (error: any) {
       console.error('Login error:', error);
       if (error.code === 'auth/popup-closed-by-user') {
@@ -172,7 +192,7 @@ const AdminLogin: React.FC = () => {
   };
 
   const handleAdminCodeSubmit = async () => {
-    if (adminCode !== adminCode) {
+    if (adminCode !== ADMIN_CODE) {
       setError('รหัสแอดมินไม่ถูกต้อง');
       return;
     }
@@ -183,7 +203,7 @@ const AdminLogin: React.FC = () => {
     }
 
     try {
-      // สร้างบัญชีแอดมินใหม่
+      // Create new admin user
       const newAdminUser = {
         email: pendingUser.email,
         displayName: pendingUser.displayName,
@@ -196,7 +216,7 @@ const AdminLogin: React.FC = () => {
 
       const docRef = await addDoc(collection(db, 'adminUsers'), newAdminUser);
       
-      setAdminUser({
+      const adminUser: AdminUser = {
         ...newAdminUser,
         id: docRef.id,
         email: pendingUser.email ?? '',
@@ -204,12 +224,17 @@ const AdminLogin: React.FC = () => {
         photoURL: pendingUser.photoURL ?? '',
         lastLogin: new Date(),
         createdAt: new Date()
-      });
+      };
 
       setAdminCodeDialog(false);
       setAdminCode('');
       setPendingUser(null);
       setError('');
+      
+      // Call the success callback
+      if (onLoginSuccess) {
+        onLoginSuccess(adminUser);
+      }
     } catch (error) {
       console.error('Error creating admin user:', error);
       setError('เกิดข้อผิดพลาดในการสร้างบัญชีแอดมิน');
@@ -219,7 +244,6 @@ const AdminLogin: React.FC = () => {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      setAdminUser(null);
       setError('');
     } catch (error) {
       console.error('Logout error:', error);
@@ -299,96 +323,6 @@ const AdminLogin: React.FC = () => {
             </Typography>
           </Box>
         </Zoom>
-      </Box>
-    );
-  }
-
-  // แสดง AdminPanel หากเข้าสู่ระบบสำเร็จ
-  if (user && adminUser) {
-    return (
-      <Box sx={{ minHeight: '100vh', bgcolor: 'grey.50' }}>
-        {/* Enhanced Admin Header */}
-        <AppBar 
-          position="static" 
-          elevation={0}
-          sx={{ 
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderBottom: '1px solid rgba(255,255,255,0.1)'
-          }}
-        >
-          <Toolbar sx={{ minHeight: { xs: 56, sm: 64 } }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-              <Avatar
-                sx={{
-                  bgcolor: 'rgba(255,255,255,0.15)',
-                  color: 'white',
-                  width: { xs: 32, sm: 40 },
-                  height: { xs: 32, sm: 40 },
-                  mr: { xs: 1, sm: 2 }
-                }}
-              >
-                <AdminIcon fontSize={isSmallMobile ? "small" : "medium"} />
-              </Avatar>
-              <Typography 
-                variant={isSmallMobile ? "subtitle1" : "h6"} 
-                component="div" 
-                sx={{ 
-                  flexGrow: 1,
-                  fontWeight: 'bold',
-                  textShadow: '0 1px 2px rgba(0,0,0,0.3)'
-                }}
-              >
-                {isSmallMobile ? 'แอดมิน' : 'ระบบจัดการแอดมิน'}
-              </Typography>
-            </Box>
-            
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 } }}>
-              {!isSmallMobile && (
-                <Chip
-                  avatar={
-                    <Avatar 
-                      src={adminUser.photoURL} 
-                      sx={{ width: 24, height: 24 }} 
-                    />
-                  }
-                  label={adminUser.displayName}
-                  variant="outlined"
-                  sx={{ 
-                    color: 'white', 
-                    borderColor: 'rgba(255,255,255,0.5)',
-                    backgroundColor: 'rgba(255,255,255,0.1)',
-                    backdropFilter: 'blur(10px)'
-                  }}
-                />
-              )}
-              <Chip
-                label={adminUser.role === 'super_admin' ? 'Super Admin' : 'Admin'}
-                sx={{
-                  backgroundColor: 'rgba(255,255,255,0.2)',
-                  color: 'white',
-                  fontWeight: 'bold',
-                  fontSize: { xs: '0.75rem', sm: '0.8125rem' }
-                }}
-                size={isSmallMobile ? "small" : "medium"}
-              />
-              <IconButton 
-                color="inherit" 
-                onClick={handleLogout}
-                sx={{
-                  backgroundColor: 'rgba(255,255,255,0.1)',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255,255,255,0.2)'
-                  }
-                }}
-              >
-                <LogoutIcon fontSize={isSmallMobile ? "small" : "medium"} />
-              </IconButton>
-            </Box>
-          </Toolbar>
-        </AppBar>
-
-        {/* Admin Panel Content */}
-        <AdminPanel />
       </Box>
     );
   }
