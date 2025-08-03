@@ -353,11 +353,8 @@ const AdminPanel: React.FC = () => {
       try {
         const recordToDelete = records.find(r => r.id === recordId);
         
-        // Delete the record
-        await deleteDoc(doc(db, 'activityRecords', recordId));
-        
-        // Update currentParticipants count for the activity
         if (recordToDelete) {
+          // Update currentParticipants count for the activity BEFORE deleting
           const activityQuery = query(
             collection(db, 'activities'),
             where('code', '==', recordToDelete.activityCode)
@@ -366,17 +363,26 @@ const AdminPanel: React.FC = () => {
           
           if (!activitySnapshot.empty) {
             const activityDoc = activitySnapshot.docs[0];
-            await updateDoc(doc(db, 'activities', activityDoc.id), {
-              currentParticipants: increment(-1)
-            });
+            const currentData = activityDoc.data();
+            const currentParticipants = currentData.currentParticipants || 0;
+            
+            // Only decrease if currentParticipants is greater than 0
+            if (currentParticipants > 0) {
+              await updateDoc(doc(db, 'activities', activityDoc.id), {
+                currentParticipants: Math.max(0, currentParticipants - 1)
+              });
+            }
           }
         }
+        
+        // Delete the record AFTER updating participants count
+        await deleteDoc(doc(db, 'activityRecords', recordId));
         
         showMessage('ลบรายการสำเร็จและอัปเดตจำนวนผู้เข้าร่วมแล้ว 🗑️', 'success');
         loadRecords();
       } catch (error) {
         console.error('Error deleting record:', error);
-        showMessage('เกิดข้อผิดพลาดในการลบ', 'error');
+        showMessage('เกิดข้อผิดพลาดในการลบ: ' + (error as Error).message, 'error');
       }
     }
   };
@@ -390,44 +396,86 @@ const AdminPanel: React.FC = () => {
     if (window.confirm(`คุณแน่ใจหรือไม่ที่จะลบรายการที่เลือก ${selectedRecords.length} รายการ?`)) {
       try {
         setLoading(true);
+        setLoadingProgress(10);
         
         // Group records by activity code for batch updating
         const activityCounts: { [key: string]: number } = {};
+        const recordsToDelete: any[] = [];
         
+        // First, collect all records and count by activity
         for (const recordId of selectedRecords) {
           const recordToDelete = records.find(r => r.id === recordId);
           if (recordToDelete) {
+            recordsToDelete.push(recordToDelete);
             activityCounts[recordToDelete.activityCode] = 
               (activityCounts[recordToDelete.activityCode] || 0) + 1;
           }
-          
-          await deleteDoc(doc(db, 'activityRecords', recordId));
         }
         
-        // Update currentParticipants for each affected activity
+        setLoadingProgress(30);
+        
+        // Update currentParticipants for each affected activity BEFORE deleting
+        let processedActivities = 0;
         for (const [activityCode, count] of Object.entries(activityCounts)) {
-          const activityQuery = query(
-            collection(db, 'activities'),
-            where('code', '==', activityCode)
-          );
-          const activitySnapshot = await getDocs(activityQuery);
-          
-          if (!activitySnapshot.empty) {
-            const activityDoc = activitySnapshot.docs[0];
-            await updateDoc(doc(db, 'activities', activityDoc.id), {
-              currentParticipants: increment(-count)
-            });
+          try {
+            const activityQuery = query(
+              collection(db, 'activities'),
+              where('code', '==', activityCode)
+            );
+            const activitySnapshot = await getDocs(activityQuery);
+            
+            if (!activitySnapshot.empty) {
+              const activityDoc = activitySnapshot.docs[0];
+              const currentData = activityDoc.data();
+              const currentParticipants = currentData.currentParticipants || 0;
+              
+              // Calculate new participant count (don't go below 0)
+              const newCount = Math.max(0, currentParticipants - count);
+              
+              await updateDoc(doc(db, 'activities', activityDoc.id), {
+                currentParticipants: newCount
+              });
+              
+              console.log(`Updated activity ${activityCode}: ${currentParticipants} -> ${newCount} (-${count})`);
+            }
+          } catch (activityError) {
+            console.error(`Error updating activity ${activityCode}:`, activityError);
           }
+          
+          processedActivities++;
+          setLoadingProgress(30 + (processedActivities / Object.keys(activityCounts).length) * 40);
         }
+        
+        setLoadingProgress(70);
+        
+        // Delete all selected records AFTER updating participant counts
+        let deletedCount = 0;
+        for (const recordId of selectedRecords) {
+          try {
+            await deleteDoc(doc(db, 'activityRecords', recordId));
+            deletedCount++;
+          } catch (deleteError) {
+            console.error(`Error deleting record ${recordId}:`, deleteError);
+          }
+          
+          setLoadingProgress(70 + (deletedCount / selectedRecords.length) * 25);
+        }
+        
+        setLoadingProgress(95);
         
         setSelectedRecords([]);
-        showMessage(`ลบรายการ ${selectedRecords.length} รายการสำเร็จและอัปเดตจำนวนผู้เข้าร่วมแล้ว`, 'success');
+        showMessage(`ลบรายการ ${deletedCount} รายการสำเร็จและอัปเดตจำนวนผู้เข้าร่วมแล้ว`, 'success');
         loadRecords();
+        
+        setLoadingProgress(100);
+        
       } catch (error) {
         console.error('Error deleting selected records:', error);
-        showMessage('เกิดข้อผิดพลาดในการลบรายการที่เลือก', 'error');
+        showMessage('เกิดข้อผิดพลาดในการลบรายการที่เลือก: ' + (error as Error).message, 'error');
       }
+      
       setLoading(false);
+      setTimeout(() => setLoadingProgress(0), 1000);
     }
   };
 
