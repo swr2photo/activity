@@ -10,7 +10,9 @@ import {
   Typography
 } from '@mui/material';
 import {
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Warning as WarningIcon,
+  AccessTime as TimeIcon
 } from '@mui/icons-material';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, addDoc, onSnapshot, setDoc } from 'firebase/firestore';
 // Import separated components
@@ -26,11 +28,11 @@ import {
 import ProfileEditDialog from '../../components/profile/ProfileEditDialog';
 import ActivityBanner from '../../components/activity/ActivityBanner';
 import ActivityInfoCard from '../../components/activity/ActivityInfoCard';
-import ActivityLocationMap from '../../components/activity/ActivityLocationMap';
 
 import ActivityRegistrationForm from '../../components/ActivityRegistrationForm';
 import { db } from '../../lib/firebase';
 import { useAuth, UniversityUserProfile } from '../../lib/firebaseAuth';
+import { SessionManager } from '../../lib/sessionManager';
 import { AdminSettings } from '../../types';
 
 // Types
@@ -200,6 +202,12 @@ const RegisterPageContent: React.FC = () => {
   const [validActivity, setValidActivity] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   
+  // Session management states
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionWarning, setSessionWarning] = useState('');
+  const [sessionRemainingTime, setSessionRemainingTime] = useState(0);
+  const [sessionValidating, setSessionValidating] = useState(false);
+  
   // IP restriction states
   const [ipBlocked, setIpBlocked] = useState(false);
   const [blockRemainingTime, setBlockRemainingTime] = useState(0);
@@ -211,6 +219,102 @@ const RegisterPageContent: React.FC = () => {
   // Profile edit dialog state
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
+
+  // Initial session validation when user is detected
+  useEffect(() => {
+    if (user && !sessionExpired && !sessionValidating) {
+      validateInitialSession();
+    }
+  }, [user]);
+
+  // Session monitoring interval
+  useEffect(() => {
+    let sessionCheckInterval: NodeJS.Timeout;
+
+    if (user && !sessionExpired) {
+      // ตั้งค่าการตรวจสอบเซสชันทุก 2 นาที (หลังจากตรวจสอบครั้งแรกแล้ว)
+      sessionCheckInterval = setInterval(() => {
+        validateUserSession(false); // false = ไม่ใช่ initial check
+      }, 120000);
+    }
+
+    return () => {
+      if (sessionCheckInterval) {
+        clearInterval(sessionCheckInterval);
+      }
+    };
+  }, [user, sessionExpired]);
+
+  const validateInitialSession = async () => {
+    if (!user?.uid) return;
+    
+    setSessionValidating(true);
+    console.log('Validating initial session for user:', user.uid);
+
+    try {
+      // รอ 2 วินาทีเพื่อให้ session ถูกสร้างเสร็จก่อน (ถ้าเพิ่งเข้าสู่ระบบ)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const sessionResult = await SessionManager.validateSession(user.uid);
+      console.log('Initial session validation result:', sessionResult);
+      
+      if (!sessionResult.isValid) {
+        console.log('Session is invalid:', sessionResult.message);
+        setSessionExpired(true);
+        setError(sessionResult.message || 'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+        return;
+      }
+
+      console.log('Session is valid, remaining time:', sessionResult.remainingTime);
+      setSessionRemainingTime(sessionResult.remainingTime || 0);
+      setSessionExpired(false);
+      
+      // แสดงการเตือนเมื่อเหลือเวลา 5 นาที
+      if (sessionResult.remainingTime && sessionResult.remainingTime <= 5) {
+        setSessionWarning(`เซสชันจะหมดอายุในอีก ${sessionResult.remainingTime} นาที กรุณาเตรียมตัวเข้าสู่ระบบใหม่`);
+      } else {
+        setSessionWarning('');
+      }
+    } catch (error) {
+      console.error('Error validating initial session:', error);
+      // ถ้า error ในการตรวจสอบ session แต่ยัง login อยู่ ให้ถือว่าใช้ได้
+      console.log('Session validation error, but user still logged in - assuming valid');
+    } finally {
+      setSessionValidating(false);
+    }
+  };
+
+  const validateUserSession = async (isInitial: boolean = false) => {
+    if (!user?.uid) return;
+
+    try {
+      const sessionResult = await SessionManager.validateSession(user.uid);
+      
+      if (!sessionResult.isValid) {
+        console.log('Session validation failed:', sessionResult.message);
+        setSessionExpired(true);
+        setError(sessionResult.message || 'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+        setSessionWarning('');
+        return;
+      }
+
+      setSessionRemainingTime(sessionResult.remainingTime || 0);
+      
+      // แสดงการเตือนเมื่อเหลือเวลา 5 นาที
+      if (sessionResult.remainingTime && sessionResult.remainingTime <= 5) {
+        setSessionWarning(`เซสชันจะหมดอายุในอีก ${sessionResult.remainingTime} นาที กรุณาเตรียมตัวเข้าสู่ระบบใหม่`);
+      } else {
+        setSessionWarning('');
+      }
+      
+      // ถ้าเป็นการตรวจสอบครั้งแรกและมี error อยู่ ให้ล้าง error
+      if (isInitial && error && !sessionExpired) {
+        setError('');
+      }
+    } catch (error) {
+      console.error('Error validating session:', error);
+    }
+  };
 
   // Activity status helpers
   const getActivityStatus = (activity: ActivityData) => {
@@ -247,6 +351,8 @@ const RegisterPageContent: React.FC = () => {
   const canProceedToRegistration = () => {
     if (!activityData) return false;
     if (!user) return false;
+    if (sessionExpired) return false;
+    if (sessionValidating) return false;
     if (ipBlocked) return false;
     if (isDuplicateRegistration) return false;
     if (needsProfileSetup) return false;
@@ -254,12 +360,12 @@ const RegisterPageContent: React.FC = () => {
   };
 
   const shouldShowMicrosoftLogin = () => {
-    return !user && !ipBlocked && !isDuplicateRegistration;
+    return (!user || sessionExpired) && !ipBlocked && !isDuplicateRegistration;
   };
 
   // Determine existing auth status for ActivityRegistrationForm
   const getExistingAuthStatus = (): boolean => {
-    return !!(user && userData);
+    return !!(user && userData && !sessionExpired && !sessionValidating);
   };
 
   // Effects
@@ -268,13 +374,13 @@ const RegisterPageContent: React.FC = () => {
   }, [activityCode]);
 
   useEffect(() => {
-    if (user && activityCode && !isDuplicateRegistration) {
+    if (user && activityCode && !isDuplicateRegistration && !sessionExpired && !sessionValidating) {
       checkForDuplicateRegistration();
     }
-  }, [user, activityCode]);
+  }, [user, activityCode, sessionExpired, sessionValidating]);
 
   useEffect(() => {
-    if (user && userData !== null) {
+    if (user && userData !== null && !sessionExpired && !sessionValidating) {
       const needsSetup = !userData?.firstName || !userData?.lastName;
       setNeedsProfileSetup(needsSetup);
       
@@ -282,7 +388,7 @@ const RegisterPageContent: React.FC = () => {
         setShowProfileDialog(true);
       }
     }
-  }, [user, userData, showProfileDialog]);
+  }, [user, userData, showProfileDialog, sessionExpired, sessionValidating]);
 
   useEffect(() => {
     if (activityData?.id) {
@@ -426,6 +532,11 @@ const RegisterPageContent: React.FC = () => {
         });
       }
       
+      // Reset session states
+      setSessionExpired(false);
+      setSessionWarning('');
+      setError('');
+      
       if (activityCode) {
         setTimeout(() => {
           checkForDuplicateRegistration();
@@ -442,6 +553,11 @@ const RegisterPageContent: React.FC = () => {
 
   const handleLogout = async () => {
     try {
+      // ทำลาย session ก่อน logout หาก user มี uid
+      if (user?.uid) {
+        await SessionManager.destroySession(user.uid);
+      }
+      
       await logout();
       setError('');
       setSuccessMessage('');
@@ -449,10 +565,20 @@ const RegisterPageContent: React.FC = () => {
       setBlockRemainingTime(0);
       setIsDuplicateRegistration(false);
       setNeedsProfileSetup(false);
+      setSessionExpired(false);
+      setSessionWarning('');
+      setSessionRemainingTime(0);
+      setSessionValidating(false);
     } catch (error) {
       console.error('Logout error:', error);
       setError('เกิดข้อผิดพลาดในการออกจากระบบ');
     }
+  };
+
+  const handleSessionExpired = () => {
+    setSessionExpired(true);
+    setSessionWarning('');
+    setError('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่เพื่อดำเนินการต่อ');
   };
 
   const handleIPBlockExpired = () => {
@@ -509,7 +635,7 @@ const RegisterPageContent: React.FC = () => {
   };
 
   // Render loading state
-  if (loading || authLoading) {
+  if (loading || authLoading || sessionValidating) {
     return (
       <Box sx={{ 
         display: 'flex', 
@@ -521,14 +647,14 @@ const RegisterPageContent: React.FC = () => {
       }}>
         <CircularProgress size={40} />
         <Typography variant="body1" color="text.secondary">
-          กำลังโหลดข้อมูล...
+          {sessionValidating ? 'กำลังตรวจสอบเซสชัน...' : 'กำลังโหลดข้อมูล...'}
         </Typography>
       </Box>
     );
   }
 
   // Render error state (non-recoverable errors)
-  if (error && !ipBlocked && !isDuplicateRegistration && !successMessage) {
+  if (error && !ipBlocked && !isDuplicateRegistration && !successMessage && !sessionExpired && !sessionWarning) {
     return (
       <Alert severity="error" sx={{ mt: 2 }}>
         {error}
@@ -566,6 +692,35 @@ const RegisterPageContent: React.FC = () => {
         />
       )}
 
+      {/* Session Warning Alert */}
+      {sessionWarning && !sessionExpired && (
+        <Alert 
+          severity="warning" 
+          sx={{ mt: 2 }}
+          icon={<TimeIcon />}
+        >
+          <Typography variant="body2" fontWeight="medium">
+            {sessionWarning}
+          </Typography>
+        </Alert>
+      )}
+
+      {/* Session Expired Alert */}
+      {sessionExpired && (
+        <Alert 
+          severity="error" 
+          sx={{ mt: 2 }}
+          icon={<WarningIcon />}
+        >
+          <Typography variant="body1" fontWeight="medium">
+            เซสชันหมดอายุแล้ว
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            เซสชันการเข้าสู่ระบบของคุณหมดอายุแล้ว (30 นาที) กรุณาเข้าสู่ระบบใหม่เพื่อดำเนินการต่อ
+          </Typography>
+        </Alert>
+      )}
+
       {/* Activity Banner */}
       {activityData && !ipBlocked && (
         <ActivityBanner activity={activityData} />
@@ -580,7 +735,7 @@ const RegisterPageContent: React.FC = () => {
       )}
 
       {/* Duplicate Registration Alert */}
-      {isDuplicateRegistration && user && (
+      {isDuplicateRegistration && user && !sessionExpired && (
         <DuplicateRegistrationAlert />
       )}
 
@@ -606,12 +761,12 @@ const RegisterPageContent: React.FC = () => {
       )}
 
       {/* Profile Setup Alert */}
-      {user && needsProfileSetup && !ipBlocked && !isDuplicateRegistration && (
+      {user && needsProfileSetup && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && (
         <ProfileSetupAlert onEditProfile={handleEditProfile} />
       )}
 
       {/* Activity Information Card */}
-      {activityData && !ipBlocked && !isDuplicateRegistration && (
+      {activityData && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && (
         <ActivityInfoCard 
           activity={activityData}
           showRegistrationButton={canProceedToRegistration()}
@@ -634,7 +789,7 @@ const RegisterPageContent: React.FC = () => {
         onClose={() => {
           setShowProfileDialog(false);
           // หากยังต้องการข้อมูล ให้เปิด dialog อีกครั้งหลัง 500ms
-          if (needsProfileSetup) {
+          if (needsProfileSetup && !sessionExpired && !sessionValidating) {
             setTimeout(() => {
               setShowProfileDialog(true);
             }, 500);

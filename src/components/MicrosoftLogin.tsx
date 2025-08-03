@@ -15,7 +15,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  LinearProgress
 } from '@mui/material';
 import {
   Microsoft as MicrosoftIcon,
@@ -27,7 +28,9 @@ import {
   HourglassEmpty as HourglassIcon,
   Block as BlockIcon,
   CheckCircle as CheckIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  AccessTime as TimeIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { 
   signInWithPopup, 
@@ -41,6 +44,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { SessionManager } from '../lib/sessionManager';
 
 interface UniversityUserData {
   uid: string;
@@ -65,6 +69,7 @@ interface MicrosoftLoginProps {
   onLoginError?: (error: string) => void;
   onLogout?: () => void;
   onPreLoginCheck?: (email: string) => Promise<boolean>;
+  onSessionExpired?: () => void;
   redirectAfterLogin?: boolean;
   disabled?: boolean;
 }
@@ -74,6 +79,7 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   onLoginError,
   onLogout,
   onPreLoginCheck,
+  onSessionExpired,
   redirectAfterLogin = false,
   disabled = false
 }) => {
@@ -86,52 +92,240 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   const [existingMethods, setExistingMethods] = useState<string[]>([]);
   const [pendingEmail, setPendingEmail] = useState('');
   
-  // ใช้ ref เพื่อติดตามสถานะการล็อกอิน
+  // Session management states
+  const [sessionValid, setSessionValid] = useState(true);
+  const [sessionRemainingTime, setSessionRemainingTime] = useState(0);
+  const [sessionWarning, setSessionWarning] = useState(false);
+  const [extendingSession, setExtendingSession] = useState(false);
+  const [sessionInitialized, setSessionInitialized] = useState(false);
+  
+  // References to track state
   const loginInProgressRef = useRef(false);
-  const popupWindowRef = useRef<Window | null>(null);
+  const sessionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionCreationPromiseRef = useRef<Promise<void> | null>(null);
+  const hasCheckedExistingSessionRef = useRef(false);
+  const isInitializingRef = useRef(false);
+
+  // Utility functions
+  const getUserIP = async (): Promise<string> => {
+    try {
+      const response = await fetch('https://api.ipify.org?format=json');
+      const data = await response.json();
+      return data.ip;
+    } catch (error) {
+      console.error('Error getting IP:', error);
+      return 'unknown';
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('Auth state changed:', firebaseUser?.uid, 'loginInProgress:', loginInProgressRef.current);
+      
       setLoading(true);
+      
       if (firebaseUser) {
         setUser(firebaseUser);
+        
+        // Load user data first
         await loadUserData(firebaseUser.uid);
+        
+        // Handle session logic based on context
+        if (loginInProgressRef.current) {
+          // User just logged in - session creation should be handled in handleSuccessfulLogin
+          console.log('Login in progress, waiting for session creation...');
+          setSessionValid(true); // Assume valid initially
+        } else if (!hasCheckedExistingSessionRef.current) {
+          // Check for existing session only on page refresh/reload
+          hasCheckedExistingSessionRef.current = true;
+          console.log('Checking for existing session on page load...');
+          await checkExistingSession(firebaseUser.uid);
+        }
       } else {
+        // User logged out
         setUser(null);
         setUserData(null);
+        stopSessionMonitoring();
+        resetSessionState();
       }
+      
       setLoading(false);
     });
 
-    return () => unsubscribe();
-  }, []);
-
-  // ปรับปรุงการตรวจสอบการปิดหน้าต่าง - ลดความซับซ้อน
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (loginInProgressRef.current) {
-        e.preventDefault();
-        e.returnValue = 'กำลังดำเนินการเข้าสู่ระบบ คุณแน่ใจหรือไม่ว่าต้องการออกจากหน้านี้?';
-        return e.returnValue;
-      }
-    };
-
-    // ตรวจสอบการเปลี่ยนแถบแบบเบา
-    const handleVisibilityChange = () => {
-      if (loginInProgressRef.current && document.hidden) {
-        // แทนที่จะหยุดการล็อกอิน ให้แสดงการเตือนเบาๆ
-        console.warn('Tab changed during login process');
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      unsubscribe();
+      stopSessionMonitoring();
     };
   }, []);
+
+  const resetSessionState = () => {
+    setSessionInitialized(false);
+    setSessionValid(true);
+    setSessionWarning(false);
+    setSessionRemainingTime(0);
+    hasCheckedExistingSessionRef.current = false;
+    loginInProgressRef.current = false;
+  };
+
+  // Check for existing session (for page refresh scenarios)
+  const checkExistingSession = async (userId: string) => {
+    console.log('Checking existing session for user:', userId);
+    
+    try {
+      const sessionResult = await SessionManager.validateSession(userId);
+      console.log('Existing session check result:', sessionResult);
+      
+      if (sessionResult.isValid) {
+        setSessionValid(true);
+        setSessionRemainingTime(sessionResult.remainingTime || 0);
+        setSessionInitialized(true);
+        startSessionMonitoring(userId);
+        
+        if (sessionResult.remainingTime && sessionResult.remainingTime <= 5) {
+          setSessionWarning(true);
+        }
+      } else {
+        console.log('No existing session found, user needs to login');
+        setSessionValid(false);
+        setSessionInitialized(false);
+        // Don't automatically logout here - let user login again
+      }
+    } catch (error) {
+      console.error('Error checking existing session:', error);
+      setSessionValid(false);
+      setSessionInitialized(false);
+    }
+  };
+
+  // Create session and initialize monitoring
+  const createSessionAndInitialize = async (userId: string, email: string) => {
+    console.log('Creating session for user:', userId);
+    
+    try {
+      const userIP = await getUserIP();
+      
+      // Create session
+      await SessionManager.createSession(userId, email, userIP);
+      console.log('Session created successfully');
+      
+      // Wait a moment for session to be fully written
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Validate the created session
+      const sessionResult = await SessionManager.validateSession(userId);
+      console.log('Session validation after creation:', sessionResult);
+      
+      if (sessionResult.isValid) {
+        setSessionValid(true);
+        setSessionRemainingTime(sessionResult.remainingTime || 30);
+        setSessionInitialized(true);
+        startSessionMonitoring(userId);
+        
+        if (sessionResult.remainingTime && sessionResult.remainingTime <= 5) {
+          setSessionWarning(true);
+        }
+      } else {
+        console.warn('Session validation failed after creation');
+        setSessionValid(true); // Allow user to continue but without full session monitoring
+        setSessionInitialized(false);
+      }
+      
+    } catch (error) {
+      console.error('Error creating session:', error);
+      setSessionValid(true); // Allow user to continue
+      setSessionInitialized(false);
+      setError('เข้าสู่ระบบสำเร็จ แต่เกิดข้อผิดพลาดในการสร้างเซสชัน');
+    }
+  };
+
+  // Session monitoring
+  const startSessionMonitoring = (userId: string) => {
+    console.log('Starting session monitoring for user:', userId);
+    
+    // Clear any existing interval
+    if (sessionCheckIntervalRef.current) {
+      clearInterval(sessionCheckIntervalRef.current);
+    }
+    
+    // Check session every minute
+    sessionCheckIntervalRef.current = setInterval(async () => {
+      try {
+        const sessionResult = await SessionManager.validateSession(userId);
+        
+        if (!sessionResult.isValid) {
+          console.log('Session expired during monitoring:', sessionResult.message);
+          setSessionValid(false);
+          setError(sessionResult.message || 'เซสชันหมดอายุแล้ว');
+          handleSessionExpiredInternal();
+          return;
+        }
+
+        setSessionRemainingTime(sessionResult.remainingTime || 0);
+        
+        // Show warning when 5 minutes remain
+        if (sessionResult.remainingTime && sessionResult.remainingTime <= 5) {
+          setSessionWarning(true);
+        } else {
+          setSessionWarning(false);
+        }
+      } catch (error) {
+        console.error('Error in session monitoring:', error);
+        // Continue without taking action on monitoring errors
+      }
+    }, 60000); // Check every minute
+  };
+
+  const stopSessionMonitoring = () => {
+    if (sessionCheckIntervalRef.current) {
+      clearInterval(sessionCheckIntervalRef.current);
+      sessionCheckIntervalRef.current = null;
+    }
+    setSessionWarning(false);
+    setSessionRemainingTime(0);
+  };
+
+  const handleSessionExpiredInternal = async () => {
+    try {
+      stopSessionMonitoring();
+      await signOut(auth);
+      resetSessionState();
+      setUser(null);
+      setUserData(null);
+      
+      if (onSessionExpired) {
+        onSessionExpired();
+      }
+    } catch (error) {
+      console.error('Error handling session expiry:', error);
+    }
+  };
+
+  const handleExtendSession = async () => {
+    if (!user?.uid) return;
+    
+    setExtendingSession(true);
+    try {
+      const result = await SessionManager.extendSession(user.uid);
+      
+      if (result.success && result.newExpiryTime) {
+        setSessionWarning(false);
+        setSessionRemainingTime(30);
+        setError('');
+        
+        console.log('Session extended successfully until', result.newExpiryTime?.toLocaleString('th-TH'));
+      } else {
+        setError(result.message || 'ไม่สามารถขยายเวลาเซสชันได้');
+        if (result.message?.includes('หมดอายุ')) {
+          handleSessionExpiredInternal();
+        }
+      }
+    } catch (error) {
+      console.error('Error extending session:', error);
+      setError('เกิดข้อผิดพลาดในการขยายเวลาเซสชัน');
+    } finally {
+      setExtendingSession(false);
+    }
+  };
 
   const loadUserData = async (uid: string) => {
     try {
@@ -217,7 +411,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     }
   };
 
-  // ปรับปรุงการจัดการ Popup - ลดการบล็อกและเพิ่มความเร็ว
   const handleMicrosoftLogin = async () => {
     let attemptedEmail = '';
     
@@ -226,34 +419,27 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       setError('');
       loginInProgressRef.current = true;
 
-      // ตั้งค่า provider ก่อนสร้าง popup
       const provider = new OAuthProvider('microsoft.com');
       provider.addScope('openid');
       provider.addScope('email');
       provider.addScope('profile');
       
-      // เพิ่ม custom parameters เพื่อปรับปรุงประสิทธิภาพ
       provider.setCustomParameters({
         prompt: 'select_account',
-        // ลดเวลาการโหลด
         response_mode: 'fragment'
       });
 
       console.log('Starting Microsoft login...');
       
-      // ใช้ setTimeout เพื่อให้ UI อัพเดทก่อน
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
       console.log('Microsoft login successful:', firebaseUser.email);
       
-      // Store the email that was attempted
       attemptedEmail = firebaseUser.email || '';
 
-      if (!firebaseUser.email?.endsWith('@university.ac.th')) {
+      if (!firebaseUser.email?.endsWith('@psu.ac.th')) {
         await signOut(auth);
-        setError('กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น (@university.ac.th)');
+        setError('กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น (@psu.ac.th)');
         return;
       }
 
@@ -276,7 +462,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     }
   };
 
-  // ปรับปรุงการจัดการ Error ให้ชัดเจนและเป็นมิตรกับผู้ใช้มากขึ้น
   const handleAuthError = async (err: AuthError, attemptedEmail: string = '') => {
     if (err.code === 'auth/account-exists-with-different-credential') {
       let email = '';
@@ -320,18 +505,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
           break;
         case 'auth/too-many-requests':
           errorMessage = 'มีการพยายามเข้าสู่ระบบมากเกินไป กรุณารอ 1-2 นาทีแล้วลองใหม่';
-          break;
-        case 'auth/credential-already-in-use':
-          errorMessage = 'ข้อมูลประจำตัวนี้ถูกใช้งานแล้วในบัญชีอื่น';
-          break;
-        case 'auth/cancelled-popup-request':
-          errorMessage = 'การเข้าสู่ระบบถูกยกเลิก กรุณาลองใหม่อีกครั้ง';
-          break;
-        case 'auth/operation-not-allowed':
-          errorMessage = 'การเข้าสู่ระบบด้วย Microsoft ไม่ได้รับอนุญาต กรุณาติดต่อผู้ดูแลระบบ';
-          break;
-        case 'auth/unauthorized-domain':
-          errorMessage = 'โดเมนนี้ไม่ได้รับอนุญาตให้ใช้การเข้าสู่ระบบ กรุณาติดต่อผู้ดูแลระบบ';
           break;
         default:
           if (err.message.includes('popup')) {
@@ -393,6 +566,9 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       await setDoc(userDocRef, finalUserData);
     }
 
+    // Create session and initialize monitoring
+    await createSessionAndInitialize(firebaseUser.uid, firebaseUser.email!);
+
     setUserData(finalUserData);
     
     if (onLoginSuccess) {
@@ -402,10 +578,17 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
   const handleLogout = async () => {
     try {
+      if (user?.uid) {
+        await SessionManager.destroySession(user.uid);
+      }
+      
+      stopSessionMonitoring();
       await signOut(auth);
+      resetSessionState();
       setUser(null);
       setUserData(null);
       setError('');
+      
       if (onLogout) {
         onLogout();
       }
@@ -428,6 +611,26 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     return { text: 'บัญชีใช้งานได้', color: 'success' as const, icon: <VerifiedIcon fontSize="small" /> };
   };
 
+  const formatTimeRemaining = (minutes: number): string => {
+    if (minutes <= 0) return '0 นาที';
+    if (minutes >= 60) {
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      return `${hours} ชั่วโมง ${remainingMinutes} นาที`;
+    }
+    return `${minutes} นาที`;
+  };
+
+  const getTimeProgressColor = (): 'error' | 'warning' | 'info' => {
+    if (sessionRemainingTime <= 5) return 'error';
+    if (sessionRemainingTime <= 10) return 'warning';
+    return 'info';
+  };
+
+  const getTimeProgressValue = (): number => {
+    return (sessionRemainingTime / 30) * 100;
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 4 }}>
@@ -437,13 +640,39 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     );
   }
 
-  // แสดงข้อมูลผู้ใช้ที่เข้าสู่ระบบแล้ว
-  if (user && userData) {
+  // Show user info when logged in and session is valid
+  if (user && userData && sessionValid) {
     const statusInfo = getStatusInfo();
     
     return (
       <Card sx={{ mb: 3 }}>
         <CardContent>
+          {/* Session Warning Alert */}
+          {sessionWarning && sessionInitialized && (
+            <Alert 
+              severity="warning" 
+              sx={{ mb: 2 }}
+              action={
+                <Button 
+                  color="inherit" 
+                  size="small" 
+                  onClick={handleExtendSession}
+                  disabled={extendingSession}
+                  startIcon={extendingSession ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
+                >
+                  {extendingSession ? 'กำลังขยายเวลา...' : 'ขยายเวลา'}
+                </Button>
+              }
+            >
+              <Typography variant="body2" fontWeight="medium">
+                เซสชันจะหมดอายุใน {formatTimeRemaining(sessionRemainingTime)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                กรุณากดปุ่ม "ขยายเวลา" เพื่อต่ออายุเซสชันอีก 30 นาที
+              </Typography>
+            </Alert>
+          )}
+
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
             <Avatar
               src={userData.photoURL}
@@ -471,6 +700,30 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
             />
           </Box>
 
+          {/* Session Time Display */}
+          {sessionInitialized && (
+            <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <TimeIcon fontSize="small" color="action" />
+                  <Typography variant="subtitle2">เวลาเซสชันที่เหลือ</Typography>
+                </Box>
+                <Typography variant="body2" fontWeight="medium" color={getTimeProgressColor()}>
+                  {formatTimeRemaining(sessionRemainingTime)}
+                </Typography>
+              </Box>
+              <LinearProgress 
+                variant="determinate" 
+                value={getTimeProgressValue()} 
+                color={getTimeProgressColor()}
+                sx={{ height: 6, borderRadius: 3 }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                เซสชันจะหมดอายุอัตโนมัติหลังจาก 30 นาทีนับจากการเข้าสู่ระบบหรือการขยายเวลาล่าสุด
+              </Typography>
+            </Box>
+          )}
+
           <Divider sx={{ my: 2 }} />
 
           <Stack spacing={2}>
@@ -478,26 +731,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
               <PersonIcon color="action" fontSize="small" />
               <Box>
                 <Typography variant="subtitle2">ชื่อ-นามสกุล</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {userData.firstName} {userData.lastName}
-                </Typography>
-              </Box>
-            </Box>
-
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <BadgeIcon color="action" fontSize="small" />
-              <Box>
-                <Typography variant="subtitle2">รหัสนักศึกษา</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                  {userData.studentId}
-                </Typography>
-              </Box>
-            </Box>
-
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <SchoolIcon color="action" fontSize="small" />
-              <Box>
-                <Typography variant="subtitle2">ข้อมูลการศึกษา</Typography>
                 <Typography variant="body2" color="text.secondary">
                   ระดับ: {userData.degreeLevel}
                 </Typography>
@@ -541,22 +774,74 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
           <Divider sx={{ my: 2 }} />
 
+          <Stack spacing={1}>
+            {/* Extend Session Button (show when time is less than 15 minutes) */}
+            {sessionInitialized && sessionRemainingTime <= 15 && (
+              <Button
+                variant="outlined"
+                color="primary"
+                startIcon={extendingSession ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+                onClick={handleExtendSession}
+                disabled={extendingSession || disabled}
+                fullWidth
+              >
+                {extendingSession ? 'กำลังขยายเวลาเซสชัน...' : 'ขยายเวลาเซสชัน (+30 นาที)'}
+              </Button>
+            )}
+
+            {/* Logout Button */}
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<LogoutIcon />}
+              onClick={handleLogout}
+              fullWidth
+              disabled={disabled}
+            >
+              ออกจากระบบ
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Session expired state - show only when user exists but session is invalid
+  if (user && userData && !sessionValid) {
+    return (
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            <Typography variant="body1" fontWeight="medium">
+              เซสชันหมดอายุแล้ว
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              เซสชันการเข้าสู่ระบบของคุณหมดอายุแล้ว (30 นาที) กรุณาเข้าสู่ระบบใหม่เพื่อดำเนินการต่อ
+            </Typography>
+          </Alert>
+
           <Button
-            variant="outlined"
-            color="error"
-            startIcon={<LogoutIcon />}
-            onClick={handleLogout}
+            variant="contained"
+            size="large"
             fullWidth
-            disabled={disabled}
+            startIcon={<MicrosoftIcon />}
+            onClick={handleMicrosoftLogin}
+            disabled={disabled || loginLoading}
+            sx={{
+              bgcolor: '#0078d4',
+              '&:hover': {
+                bgcolor: '#106ebe'
+              }
+            }}
           >
-            ออกจากระบบ
+            {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบใหม่'}
           </Button>
         </CardContent>
       </Card>
     );
   }
 
-  // หน้าเข้าสู่ระบบ
+  // Login page - show when no user or no userData
   return (
     <>
       <Card sx={{ mb: 3 }}>
@@ -580,11 +865,17 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2">
               <strong>หมายเหตุ:</strong> กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น 
-              (อีเมลที่ลงท้ายด้วย @university.ac.th)
+              (อีเมลที่ลงท้ายด้วย @psu.ac.th)
             </Typography>
           </Alert>
 
-          {/* ลดข้อความเตือนให้สั้นลงและไม่น่ากลัว */}
+          <Alert severity="warning" sx={{ mb: 2 }} icon={<TimeIcon />}>
+            <Typography variant="body2">
+              <strong>เซสชันการใช้งาน:</strong> หลังจากเข้าสู่ระบบแล้ว คุณจะมีเวลาใช้งาน 30 นาที 
+              หากต้องการใช้งานต่อเนื่องสามารถขยายเวลาได้ก่อนหมดอายุ
+            </Typography>
+          </Alert>
+
           <Alert severity="info" sx={{ mb: 3 }}>
             <Typography variant="body2">
               <strong>เคล็ดลับ:</strong> หากเบราว์เซอร์บล็อก popup กรุณาคลิกที่ไอคอนการแจ้งเตือนในแถบที่อยู่และเลือก "อนุญาต"
