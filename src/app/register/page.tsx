@@ -12,8 +12,7 @@ import {
 import {
   Refresh as RefreshIcon
 } from '@mui/icons-material';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, addDoc, onSnapshot } from 'firebase/firestore';
-
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, addDoc, onSnapshot, setDoc } from 'firebase/firestore';
 // Import separated components
 import NavigationBar from '../../components/navigation/NavigationBar';
 import MicrosoftAuthSection from '../../components/auth/MicrosoftAuthSection';
@@ -166,14 +165,21 @@ const checkIPRestriction = async (userEmail: string): Promise<{ canLogin: boolea
   }
 };
 
-// Update user profile function (if not available in useAuth hook)
+// Update user profile function (ใช้ setDoc แทน updateDoc)
 const updateUserProfileInFirestore = async (uid: string, updatedData: Partial<UniversityUserProfile>): Promise<void> => {
   try {
+    console.log('เริ่มอัพเดทโปรไฟล์สำหรับผู้ใช้:', uid);
+    
     const userDocRef = doc(db, 'users', uid);
-    await updateDoc(userDocRef, {
+    
+    // ใช้ setDoc กับ merge: true แทน updateDoc
+    await setDoc(userDocRef, {
       ...updatedData,
       updatedAt: new Date()
-    });
+    }, { merge: true });
+    
+    console.log('อัพเดทโปรไฟล์สำเร็จ');
+    
   } catch (error) {
     console.error('Error updating user profile:', error);
     throw error;

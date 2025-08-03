@@ -11,7 +11,11 @@ import {
   Avatar,
   Divider,
   Stack,
-  Chip
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import {
   Microsoft as MicrosoftIcon,
@@ -22,14 +26,18 @@ import {
   Verified as VerifiedIcon,
   HourglassEmpty as HourglassIcon,
   Block as BlockIcon,
-  CheckCircle as CheckIcon
+  CheckCircle as CheckIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
 import { 
   signInWithPopup, 
   signOut, 
   onAuthStateChanged,
   User,
-  OAuthProvider
+  OAuthProvider,
+  linkWithCredential,
+  fetchSignInMethodsForEmail,
+  AuthError
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -74,6 +82,11 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   const [loading, setLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showAccountExistsDialog, setShowAccountExistsDialog] = useState(false);
+  const [existingMethods, setExistingMethods] = useState<string[]>([]);
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [showMultipleTabsDialog, setShowMultipleTabsDialog] = useState(false);
+  const [isCheckingTabs, setIsCheckingTabs] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -90,6 +103,62 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
     return () => unsubscribe();
   }, []);
+
+  // ตรวจสอบการเปิดแถบหลายแถบและการปิดหน้าต่าง
+  const checkMultipleTabs = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(() => {
+        // ตรวจสอบว่าผู้ใช้กำลังเปิดแถบอื่นอยู่หรือไม่
+        if (document.hidden) {
+          clearInterval(checkInterval);
+          setShowMultipleTabsDialog(true);
+          resolve(false);
+          return;
+        }
+      }, 500);
+
+      // หยุดการตรวจสอบหลังจาก 10 วินาที
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        resolve(true);
+      }, 10000);
+    });
+  };
+
+  // ตรวจสอบการปิดหน้าต่าง
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (loginLoading) {
+        e.preventDefault();
+        e.returnValue = 'กำลังดำเนินการเข้าสู่ระบบ คุณแน่ใจหรือไม่ว่าต้องการออกจากหน้านี้?';
+        return e.returnValue;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (loginLoading && document.hidden) {
+        setError('การเข้าสู่ระบบถูกขัดจังหวะเนื่องจากเปลี่ยนแถบ กรุณาลองใหม่อีกครั้ง');
+        setLoginLoading(false);
+      }
+    };
+
+    const handleFocus = () => {
+      if (isCheckingTabs) {
+        setIsCheckingTabs(false);
+        setShowMultipleTabsDialog(false);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [loginLoading, isCheckingTabs]);
 
   const loadUserData = async (uid: string) => {
     try {
@@ -109,22 +178,17 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   };
 
   const extractStudentInfoFromEmail = (email: string) => {
-    // สมมติว่า email มีรูปแบบ: studentId@university.ac.th
     const studentId = email.split('@')[0];
     
-    // สำหรับตัวอย่างนี้ ใช้รูปแบบรหัสนักศึกษาทั่วไป
-    // คุณสามารถปรับแต่งตามรูปแบบของมหาวิทยาลัยของคุณ
     let degreeLevel = 'ไม่ระบุ';
     let department = 'ไม่ระบุ';
     let faculty = 'ไม่ระบุ';
 
-    // ตัวอย่างการแยกข้อมูลจากรหัสนักศึกษา
     if (studentId.length >= 8) {
       const year = studentId.substring(0, 2);
       const facultyCode = studentId.substring(2, 4);
       const deptCode = studentId.substring(4, 6);
       
-      // แมปรหัสคณะ (ตัวอย่าง)
       const facultyMap: { [key: string]: string } = {
         '01': 'คณะวิศวกรรมศาสตร์',
         '02': 'คณะวิทยาศาสตร์',
@@ -136,7 +200,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         '08': 'คณะบริหารธุรกิจ'
       };
 
-      // แมปรหัสสาขา (ตัวอย่าง)
       const departmentMap: { [key: string]: string } = {
         '01': 'วิศวกรรมคอมพิวเตอร์',
         '02': 'วิศวกรรมไฟฟ้า',
@@ -151,7 +214,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       faculty = facultyMap[facultyCode] || 'ไม่ระบุ';
       department = departmentMap[deptCode] || 'ไม่ระบุ';
 
-      // กำหนดระดับปริญญาจากรหัส
       if (studentId.startsWith('67') || studentId.startsWith('66') || studentId.startsWith('65') || studentId.startsWith('64')) {
         degreeLevel = 'ปริญญาตรี';
       } else if (studentId.startsWith('M')) {
@@ -169,35 +231,57 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     };
   };
 
+  const getProviderDisplayName = (providerId: string): string => {
+    switch (providerId) {
+      case 'google.com':
+        return 'Google';
+      case 'microsoft.com':
+        return 'Microsoft';
+      case 'password':
+        return 'อีเมล/รหัสผ่าน';
+      default:
+        return providerId;
+    }
+  };
+
   const handleMicrosoftLogin = async () => {
+    let attemptedEmail = '';
+    
     try {
       setLoginLoading(true);
       setError('');
+      setIsCheckingTabs(true);
 
-      // สร้าง Microsoft OAuth provider
+      // ตรวจสอบแถบหลายแถบก่อนเริ่มกระบวนการ login
+      const canProceed = await checkMultipleTabs();
+      if (!canProceed) {
+        setLoginLoading(false);
+        setIsCheckingTabs(false);
+        return;
+      }
+
+      setIsCheckingTabs(false);
+
       const provider = new OAuthProvider('microsoft.com');
-      
-      // กำหนด scope สำหรับข้อมูลที่ต้องการ
       provider.addScope('openid');
       provider.addScope('email');
       provider.addScope('profile');
-      
-      // กำหนด tenant สำหรับมหาวิทยาลัย (ถ้ามี)
-      // provider.setCustomParameters({
-      //   tenant: 'your-university-tenant-id'
-      // });
 
+      console.log('Starting Microsoft login...');
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
+      console.log('Microsoft login successful:', firebaseUser.email);
+      
 
-      // ตรวจสอบว่าเป็น email ของมหาวิทยาลัย
+      // Store the email that was attempted
+      attemptedEmail = firebaseUser.email || '';
+
       if (!firebaseUser.email?.endsWith('@university.ac.th')) {
         await signOut(auth);
         setError('กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น (@university.ac.th)');
         return;
       }
 
-      // ตรวจสอบ IP restriction ก่อนเข้าสู่ระบบ (ถ้ามี)
       if (onPreLoginCheck) {
         const canProceed = await onPreLoginCheck(firebaseUser.email);
         if (!canProceed) {
@@ -206,81 +290,138 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         }
       }
 
-      // แยกข้อมูลจาก email และ display name
-      const { studentId, degreeLevel, department, faculty } = extractStudentInfoFromEmail(firebaseUser.email);
-      
-      // แยกชื่อ-นามสกุล (สมมติว่า displayName มีรูปแบบ "ชื่อ นามสกุล")
-      const nameParts = (firebaseUser.displayName || '').split(' ');
-      const firstName = nameParts[0] || 'ไม่ระบุ';
-      const lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
-
-      // ตรวจสอบข้อมูลผู้ใช้ที่มีอยู่
-      const userDocRef = doc(db, 'universityUsers', firebaseUser.uid);
-      const existingUser = await getDoc(userDocRef);
-
-      let finalUserData: UniversityUserData;
-
-      if (existingUser.exists()) {
-        // อัพเดทข้อมูลที่มีอยู่
-        const existingData = existingUser.data() as UniversityUserData;
-        finalUserData = {
-          ...existingData,
-          displayName: firebaseUser.displayName || existingData.displayName,
-          photoURL: firebaseUser.photoURL || existingData.photoURL,
-          updatedAt: serverTimestamp(),
-          lastLoginAt: serverTimestamp()
-        };
-        
-        await setDoc(userDocRef, finalUserData, { merge: true });
-      } else {
-        // สร้างข้อมูลใหม่
-        finalUserData = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName || '',
-          firstName,
-          lastName,
-          studentId,
-          degreeLevel,
-          department,
-          faculty,
-          photoURL: firebaseUser.photoURL || '',
-          isActive: true,
-          isVerified: false, // ต้องรอการอนุมัติ
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          lastLoginAt: serverTimestamp()
-        };
-        
-        await setDoc(userDocRef, finalUserData);
-      }
-
-      setUserData(finalUserData);
-      
-      if (onLoginSuccess) {
-        onLoginSuccess(finalUserData);
-      }
+      await handleSuccessfulLogin(firebaseUser);
 
     } catch (err: any) {
       console.error('Microsoft login error:', err);
+      console.error('Error code:', err.code);
+      console.error('Error customData:', err.customData);
+      await handleAuthError(err, attemptedEmail);
+    } finally {
+      setLoginLoading(false);
+      setIsCheckingTabs(false);
+    }
+  };
+
+  const handleAuthError = async (err: AuthError, attemptedEmail: string = '') => {
+    if (err.code === 'auth/account-exists-with-different-credential') {
+      // Try to get email from multiple sources
+      let email = '';
+      
+      // Method 1: From customData (may not always work)
+      if (err.customData?.email) {
+        email = err.customData.email as string;
+      }
+      // Method 2: From attempted email during login
+      else if (attemptedEmail) {
+        email = attemptedEmail;
+      }
+      // Method 3: From error message if it contains email
+      else if (err.message && err.message.includes('@')) {
+        const emailMatch = err.message.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+        if (emailMatch) {
+          email = emailMatch[1];
+        }
+      }
+
+      if (email) {
+        setPendingEmail(email);
+        try {
+          const methods = await fetchSignInMethodsForEmail(auth, email);
+          setExistingMethods(methods);
+          setShowAccountExistsDialog(true);
+        } catch (fetchError) {
+          console.error('Error fetching sign-in methods:', fetchError);
+          setError(`มีบัญชีผู้ใช้ที่ใช้อีเมล ${email} อยู่แล้ว กรุณาเข้าสู่ระบบด้วยวิธีการที่ใช้ในการสร้างบัญชี`);
+        }
+      } else {
+        setError('มีบัญชีผู้ใช้ที่ใช้อีเมลนี้อยู่แล้ว กรุณาเข้าสู่ระบบด้วยวิธีการที่ใช้ในการสร้างบัญชี หากไม่แน่ใจกรุณาติดต่อผู้ดูแลระบบ');
+      }
+    } else {
       let errorMessage = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
       
-      if (err.code === 'auth/popup-closed-by-user') {
-        errorMessage = 'การเข้าสู่ระบบถูกยกเลิก';
-      } else if (err.code === 'auth/popup-blocked') {
-        errorMessage = 'เบราว์เซอร์บล็อก popup กรุณาอนุญาต popup สำหรับเว็บไซต์นี้';
-      } else if (err.code === 'auth/network-request-failed') {
-        errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย กรุณาลองใหม่อีกครั้ง';
-      } else if (err.code === 'auth/too-many-requests') {
-        errorMessage = 'มีการพยายามเข้าสู่ระบบมากเกินไป กรุณารอสักครู่แล้วลองใหม่';
+      switch (err.code) {
+        case 'auth/popup-closed-by-user':
+          errorMessage = 'การเข้าสู่ระบบถูกยกเลิก';
+          break;
+        case 'auth/popup-blocked':
+          errorMessage = 'เบราว์เซอร์บล็อก popup กรุณาอนุญาต popup สำหรับเว็บไซต์นี้';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย กรุณาลองใหม่อีกครั้ง';
+          break;
+        case 'auth/too-many-requests':
+          errorMessage = 'มีการพยายามเข้าสู่ระบบมากเกินไป กรุณารอสักครู่แล้วลองใหม่';
+          break;
+        case 'auth/credential-already-in-use':
+          errorMessage = 'ข้อมูลประจำตัวนี้ถูกใช้งานแล้วในบัญชีอื่น';
+          break;
+        case 'auth/cancelled-popup-request':
+          errorMessage = 'การเข้าสู่ระบบถูกยกเลิก กรุณาลองใหม่อีกครั้ง';
+          break;
+        case 'auth/operation-not-allowed':
+          errorMessage = 'การเข้าสู่ระบบด้วย Microsoft ไม่ได้รับอนุญาต กรุณาติดต่อผู้ดูแลระบบ';
+          break;
+        default:
+          errorMessage = `เกิดข้อผิดพลาด: ${err.message || err.code}`;
       }
       
       setError(errorMessage);
       if (onLoginError) {
         onLoginError(errorMessage);
       }
-    } finally {
-      setLoginLoading(false);
+    }
+  };
+
+  const handleSuccessfulLogin = async (firebaseUser: User) => {
+    const { studentId, degreeLevel, department, faculty } = extractStudentInfoFromEmail(firebaseUser.email!);
+    
+    const nameParts = (firebaseUser.displayName || '').split(' ');
+    const firstName = nameParts[0] || 'ไม่ระบุ';
+    const lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
+
+    const userDocRef = doc(db, 'universityUsers', firebaseUser.uid);
+    const existingUser = await getDoc(userDocRef);
+
+    let finalUserData: UniversityUserData;
+
+    if (existingUser.exists()) {
+      const existingData = existingUser.data() as UniversityUserData;
+      finalUserData = {
+        ...existingData,
+        displayName: firebaseUser.displayName || existingData.displayName,
+        photoURL: firebaseUser.photoURL || existingData.photoURL,
+        updatedAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp()
+      };
+      
+      await setDoc(userDocRef, finalUserData, { merge: true });
+    } else {
+      finalUserData = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email!,
+        displayName: firebaseUser.displayName || '',
+        firstName,
+        lastName,
+        studentId,
+        degreeLevel,
+        department,
+        faculty,
+        photoURL: firebaseUser.photoURL || '',
+        isActive: true,
+        isVerified: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp()
+      };
+      
+      await setDoc(userDocRef, finalUserData);
+    }
+
+    setUserData(finalUserData);
+    
+    if (onLoginSuccess) {
+      onLoginSuccess(finalUserData);
     }
   };
 
@@ -297,6 +438,17 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       console.error('Logout error:', err);
       setError('เกิดข้อผิดพลาดในการออกจากระบบ');
     }
+  };
+
+  const handleCloseAccountExistsDialog = () => {
+    setShowAccountExistsDialog(false);
+    setPendingEmail('');
+    setExistingMethods([]);
+  };
+
+  const handleCloseMultipleTabsDialog = () => {
+    setShowMultipleTabsDialog(false);
+    setIsCheckingTabs(false);
   };
 
   const getStatusInfo = () => {
@@ -388,7 +540,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
               </Box>
             </Box>
 
-            {/* สถานะบัญชี */}
             <Box sx={{ 
               p: 2, 
               bgcolor: statusInfo.color === 'success' ? 'success.50' : 
@@ -437,64 +588,156 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
   // หน้าเข้าสู่ระบบ
   return (
-    <Card sx={{ mb: 3 }}>
-      <CardContent>
-        <Box sx={{ textAlign: 'center', mb: 3 }}>
-          <MicrosoftIcon sx={{ fontSize: 48, color: '#0078d4', mb: 2 }} />
-          <Typography variant="h6" gutterBottom>
-            เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            ใช้บัญชี Microsoft ของมหาวิทยาลัยเพื่อเข้าสู่ระบบ
-          </Typography>
-        </Box>
+    <>
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+            <MicrosoftIcon sx={{ fontSize: 48, color: '#0078d4', mb: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              ใช้บัญชี Microsoft ของมหาวิทยาลัยเพื่อเข้าสู่ระบบ
+            </Typography>
+          </Box>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              <strong>หมายเหตุ:</strong> กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น 
+              (อีเมลที่ลงท้ายด้วย @university.ac.th)
+            </Typography>
           </Alert>
-        )}
 
-        <Alert severity="info" sx={{ mb: 3 }}>
-          <Typography variant="body2">
-            <strong>หมายเหตุ:</strong> กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น 
-            (อีเมลที่ลงท้ายด้วย @university.ac.th)
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              <strong>ข้อควรระวัง:</strong> อย่าปิดหน้าต่างหรือเปลี่ยนแถบระหว่างการเข้าสู่ระบบ 
+              เพื่อป้องกันการขัดข้องของระบบ
+            </Typography>
+          </Alert>
+
+          <Button
+            variant="contained"
+            size="large"
+            fullWidth
+            startIcon={loginLoading || isCheckingTabs ? <CircularProgress size={20} /> : <MicrosoftIcon />}
+            onClick={handleMicrosoftLogin}
+            disabled={loginLoading || disabled || isCheckingTabs}
+            sx={{
+              bgcolor: '#0078d4',
+              '&:hover': {
+                bgcolor: '#106ebe'
+              },
+              '&:disabled': {
+                bgcolor: 'grey.400'
+              },
+              py: 1.5
+            }}
+          >
+            {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 
+             isCheckingTabs ? 'กำลังตรวจสอบ...' : 
+             'เข้าสู่ระบบด้วย Microsoft'}
+          </Button>
+
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
+            การเข้าสู่ระบบจะทำการบันทึกข้อมูลของคุณในระบบเพื่อใช้ในการลงทะเบียนกิจกรรม
           </Typography>
-        </Alert>
 
-        <Button
-          variant="contained"
-          size="large"
-          fullWidth
-          startIcon={loginLoading ? <CircularProgress size={20} /> : <MicrosoftIcon />}
-          onClick={handleMicrosoftLogin}
-          disabled={loginLoading || disabled}
-          sx={{
-            bgcolor: '#0078d4',
-            '&:hover': {
-              bgcolor: '#106ebe'
-            },
-            '&:disabled': {
-              bgcolor: 'grey.400'
-            },
-            py: 1.5
-          }}
-        >
-          {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Microsoft'}
-        </Button>
+          <Alert severity="warning" sx={{ mt: 2 }} icon={<HourglassIcon />}>
+            <Typography variant="body2">
+              <strong>สำหรับผู้ใช้ใหม่:</strong> บัญชีจะต้องได้รับการอนุมัติจากผู้ดูแลระบบก่อนสามารถลงทะเบียนกิจกรรมได้
+            </Typography>
+          </Alert>
+        </CardContent>
+      </Card>
 
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
-          การเข้าสู่ระบบจะทำการบันทึกข้อมูลของคุณในระบบเพื่อใช้ในการลงทะเบียนกิจกรรม
-        </Typography>
-
-        {/* ข้อมูลเพิ่มเติมเกี่ยวกับการยืนยันบัญชี */}
-        <Alert severity="warning" sx={{ mt: 2 }} icon={<HourglassIcon />}>
-          <Typography variant="body2">
-            <strong>สำหรับผู้ใช้ใหม่:</strong> บัญชีจะต้องได้รับการอนุมัติจากผู้ดูแลระบบก่อนสามารถลงทะเบียนกิจกรรมได้
+      {/* Dialog for multiple tabs warning */}
+      <Dialog 
+        open={showMultipleTabsDialog} 
+        onClose={handleCloseMultipleTabsDialog}
+        maxWidth="sm"
+        fullWidth
+        disableEscapeKeyDown
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="warning" />
+          กรุณาปิดแถบอื่น
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            ตรวจพบการเปิดแถบหรือหน้าต่างอื่นในขณะที่กำลังเข้าสู่ระบบ
           </Typography>
-        </Alert>
-      </CardContent>
-    </Card>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            เพื่อความปลอดภัยและความเสถียรของระบบ กรุณา:
+          </Typography>
+          <Box sx={{ pl: 2, mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>
+              • ปิดแถบหรือหน้าต่างอื่นทั้งหมด
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>
+              • มุ่งความสนใจที่หน้านี้เท่านั้น
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>
+              • ไม่เปลี่ยนแถบระหว่างการเข้าสู่ระบบ
+            </Typography>
+          </Box>
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              การเปลี่ยนแถบหรือเปิดหน้าต่างใหม่อาจทำให้การเข้าสู่ระบบล้มเหลว
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseMultipleTabsDialog} color="primary" variant="contained">
+            เข้าใจแล้ว ฉันจะอยู่ที่หน้านี้
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog for account exists with different credential */}
+      <Dialog 
+        open={showAccountExistsDialog} 
+        onClose={handleCloseAccountExistsDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="warning" />
+          บัญชีมีอยู่แล้ว
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            อีเมล <strong>{pendingEmail}</strong> มีบัญชีอยู่แล้วในระบบ
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            กรุณาเข้าสู่ระบบด้วยวิธีการที่ใช้ในการสร้างบัญชีครั้งแรก:
+          </Typography>
+          <Box sx={{ pl: 2 }}>
+            {existingMethods.map((method, index) => (
+              <Typography key={index} variant="body2" sx={{ mb: 0.5 }}>
+                • {getProviderDisplayName(method)}
+              </Typography>
+            ))}
+          </Box>
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              หากต้องการใช้ Microsoft แทน กรุณาติดต่อผู้ดูแลระบบเพื่อรวมบัญชี 
+              หรือลบบัญชีเดิมแล้วสร้างใหม่
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAccountExistsDialog} color="primary">
+            เข้าใจแล้ว
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 

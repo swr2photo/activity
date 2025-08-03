@@ -37,7 +37,8 @@ import {
   Badge as BadgeIcon,
   Security as SecurityIcon,
   Edit as EditIcon,
-  AccountCircle as AccountCircleIcon
+  AccountCircle as AccountCircleIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -79,8 +80,8 @@ interface ActivityRegistrationFormProps {
   activityCode: string;
   adminSettings: AdminSettings;
   onSuccess?: () => Promise<void>;
-  // รับข้อมูล Microsoft ที่ login แล้วมาจาก RegisterPage
-  existingUserProfile?: UserProfile; // Made optional with ?
+  // ทำให้ existingUserProfile เป็น optional
+  existingUserProfile?: UserProfile;
   existingAuthStatus: boolean;
 }
 
@@ -91,7 +92,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   existingUserProfile,
   existingAuthStatus
 }) => {
-  // เริ่มต้นที่ขั้นตอนกรอกข้อมูล (ข้าม Microsoft login)
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
@@ -110,14 +110,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     checkInRadius: 100
   });
 
-  // เพิ่ม state สำหรับควบคุมการบังคับโหลดหน้าใหม่
   const [forceRefreshEnabled, setForceRefreshEnabled] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [realtimeListener, setRealtimeListener] = useState<(() => void) | null>(null);
 
   // ฟังก์ชันดึงข้อมูลจาก Microsoft Profile
   function extractUserDataFromMicrosoft(profile?: UserProfile) {
-    // ตรวจสอบว่า profile มีค่าหรือไม่
     if (!profile) {
       return {
         studentId: '',
@@ -127,7 +125,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       };
     }
 
-    // พยายามดึงรหัสนักศึกษาจาก email หรือ displayName
     let studentId = '';
     
     // วิธีที่ 1: จากรูปแบบ email (เช่น 6412345678@university.edu)
@@ -146,11 +143,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       }
     }
 
-    // ตรวจสอบและดึงชื่อ-นามสกุล
     let firstName = profile.givenName || '';
     let lastName = profile.surname || '';
     
-    // ถ้าไม่มีชื่อแยก ลองแยกจาก displayName
     if (!firstName && !lastName && profile.displayName) {
       const nameParts = profile.displayName.trim().split(/\s+/);
       if (nameParts.length >= 2) {
@@ -161,10 +156,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       }
     }
 
-    // พยายามระบุสาขาจากข้อมูล Microsoft
     let department = '';
     if (profile.department) {
-      // หาสาขาที่ตรงกันหรือใกล้เคียง
       const matchedDept = defaultDepartments.find(dept => 
         dept.toLowerCase().includes(profile.department!.toLowerCase()) ||
         profile.department!.toLowerCase().includes(dept.toLowerCase())
@@ -180,7 +173,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     };
   }
 
-  // ตั้งค่า formData จากข้อมูล Microsoft ที่ได้รับมา
+  // ตั้งค่า formData - รองรับกรณีไม่มี existingUserProfile
   const [formData, setFormData] = useState(() => {
     const extractedData = extractUserDataFromMicrosoft(existingUserProfile);
     return {
@@ -191,10 +184,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     };
   });
 
-  // ขั้นตอนใหม่ (เอา Microsoft login ออก)
   const steps = ['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'];
 
-  // ข้อมูลสาขาเริ่มต้น
   const defaultDepartments = [
     'วิศวกรรมศาสตร์',
     'วิทยาศาสตร์',
@@ -228,7 +219,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }, 1500);
   };
 
-  // ตรวจสอบสถานะกิจกรรมจาก Firebase และตั้ง real-time listener
+  // ตรวจสอบสถานะกิจกรรมจาก Firebase
   const checkActivityStatus = async () => {
     try {
       setActivityStatusLoading(true);
@@ -323,7 +314,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
   };
 
-  // สร้างข้อมูลสาขาเริ่มต้นในฐานข้อมูล
   const initializeDepartments = async () => {
     try {
       console.log('Initializing departments in database...');
@@ -344,7 +334,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
   };
 
-  // ดึงข้อมูลสาขาจาก Firebase
   const fetchDepartments = async () => {
     try {
       setDepartmentsLoading(true);
@@ -395,7 +384,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
   };
 
-  // โหลดข้อมูลเมื่อ component mount
   useEffect(() => {
     const loadInitialData = async () => {
       await Promise.all([
@@ -446,7 +434,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     setError('');
   };
 
-  // ฟังก์ชันตรวจสอบรหัสนักศึกษาใหม่
   const validateNewStudentId = (studentId: string): boolean => {
     if (!/^\d{10}$/.test(studentId)) {
       return false;
@@ -547,7 +534,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         userCode: formData.userCode,
         email: formData.email,
         microsoftId: formData.microsoftId,
-        microsoftProfile: existingUserProfile
+        // Only include microsoftProfile if it exists and is not undefined
+        ...(existingUserProfile && { microsoftProfile: existingUserProfile })
       };
 
       await addDoc(collection(db, 'activityRecords'), {
@@ -587,25 +575,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       radius: activityStatus.checkInRadius || 100
     };
   };
-
-  // Show error if no user profile provided
-  if (!existingUserProfile) {
-    return (
-      <Grow in={true}>
-        <Card elevation={8} sx={{ borderRadius: 4, border: '2px solid', borderColor: 'error.main' }}>
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <ErrorIcon sx={{ fontSize: 100, color: 'error.main', mb: 3 }} />
-            <Typography variant="h3" color="error.main" gutterBottom fontWeight="bold">
-              ไม่พบข้อมูลผู้ใช้
-            </Typography>
-            <Typography variant="h6" paragraph color="text.secondary">
-              ไม่พบข้อมูลบัญชี Microsoft กรุณาเข้าสู่ระบบใหม่
-            </Typography>
-          </CardContent>
-        </Card>
-      </Grow>
-    );
-  }
 
   // แสดง Loading เมื่อกำลังโหลดหน้าใหม่
   if (isRefreshing) {
@@ -750,6 +719,36 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     );
   }
 
+  // แสดงหน้าเตือนถ้าต้องการ Microsoft Login แต่ไม่มีข้อมูล
+  if (activityStatus.requiresUniversityLogin && !existingUserProfile && !existingAuthStatus) {
+    return (
+      <Grow in={true}>
+        <Card elevation={8} sx={{ borderRadius: 4, border: '2px solid', borderColor: 'warning.main' }}>
+          <CardContent sx={{ textAlign: 'center', py: 8 }}>
+            <WarningIcon sx={{ fontSize: 100, color: 'warning.main', mb: 3 }} />
+            <Typography variant="h3" color="warning.main" gutterBottom fontWeight="bold">
+              จำเป็นต้องเข้าสู่ระบบ
+            </Typography>
+            <Typography variant="h6" paragraph color="text.secondary">
+              กิจกรรมนี้ต้องการให้เข้าสู่ระบบด้วยบัญชี Microsoft ของมหาวิทยาลัยก่อน
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+              กรุณากลับไปหน้าเข้าสู่ระบบและลงทะเบียนใหม่อีกครั้ง
+            </Typography>
+            <Button
+              variant="contained"
+              size="large"
+              onClick={() => window.history.back()}
+              sx={{ px: 4, py: 1.5, borderRadius: 3 }}
+            >
+              กลับไปเข้าสู่ระบบ
+            </Button>
+          </CardContent>
+        </Card>
+      </Grow>
+    );
+  }
+
   // แสดงหน้าสำเร็จ
   if (success) {
     return (
@@ -764,29 +763,31 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               ข้อมูลการเข้าร่วมกิจกรรมของคุณได้รับการบันทึกเรียบร้อยแล้ว
             </Typography>
 
-            {/* แสดงข้อมูลผู้ใช้ Microsoft */}
-            <Paper sx={{ 
-              p: 3, 
-              bgcolor: 'primary.50', 
-              border: '2px solid', 
-              borderColor: 'primary.200', 
-              mb: 3,
-              borderRadius: 3
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
-                <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
-                  <AccountCircleIcon />
-                </Avatar>
-                <Box>
-                  <Typography variant="h6" color="primary.main" fontWeight="bold">
-                    บัญชี Microsoft
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {existingUserProfile.email}
-                  </Typography>
+            {/* แสดงข้อมูลผู้ใช้ Microsoft ถ้ามี */}
+            {existingUserProfile && (
+              <Paper sx={{ 
+                p: 3, 
+                bgcolor: 'primary.50', 
+                border: '2px solid', 
+                borderColor: 'primary.200', 
+                mb: 3,
+                borderRadius: 3
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+                  <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
+                    <AccountCircleIcon />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="h6" color="primary.main" fontWeight="bold">
+                      บัญชี Microsoft
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {existingUserProfile.email}
+                    </Typography>
+                  </Box>
                 </Box>
-              </Box>
-            </Paper>
+              </Paper>
+            )}
             
             <Paper sx={{ 
               p: 4, 
@@ -943,38 +944,50 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           {activeStep === 0 && (
             <Grow in={true}>
               <Box>
-                {/* แสดงข้อมูลผู้ใช้ Microsoft */}
-                <Paper sx={{ 
-                  p: 3, 
-                  bgcolor: 'success.50', 
-                  border: '2px solid', 
-                  borderColor: 'success.200', 
-                  mb: 4,
-                  borderRadius: 3
-                }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <Avatar sx={{ bgcolor: 'success.main', mr: 2 }}>
-                      <AccountCircleIcon />
-                    </Avatar>
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" color="success.main" fontWeight="bold">
-                        ✅ ใช้บัญชี Microsoft ที่เข้าสู่ระบบแล้ว
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {existingUserProfile.displayName} ({existingUserProfile.email})
-                      </Typography>
-                      <Typography variant="caption" color="success.main" sx={{ mt: 1, display: 'block' }}>
-                        📝 ข้อมูลด้านล่างถูกดึงจาก Microsoft อัตโนมัติและไม่สามารถแก้ไขได้
-                      </Typography>
+                {/* แสดงข้อมูลผู้ใช้ Microsoft ถ้ามี */}
+                {existingUserProfile && (
+                  <Paper sx={{ 
+                    p: 3, 
+                    bgcolor: 'success.50', 
+                    border: '2px solid', 
+                    borderColor: 'success.200', 
+                    mb: 4,
+                    borderRadius: 3
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      <Avatar sx={{ bgcolor: 'success.main', mr: 2 }}>
+                        <AccountCircleIcon />
+                      </Avatar>
+                      <Box sx={{ flexGrow: 1 }}>
+                        <Typography variant="h6" color="success.main" fontWeight="bold">
+                          ✅ ใช้บัญชี Microsoft ที่เข้าสู่ระบบแล้ว
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {existingUserProfile.displayName} ({existingUserProfile.email})
+                        </Typography>
+                        <Typography variant="caption" color="success.main" sx={{ mt: 1, display: 'block' }}>
+                          📝 ข้อมูลด้านล่างถูกดึงจาก Microsoft อัตโนมัติ
+                        </Typography>
+                      </Box>
                     </Box>
-                  </Box>
-                  
-                  <Divider sx={{ my: 2 }} />
-                  
-                  <Typography variant="body2" color="text.secondary">
-                    ข้อมูลส่วนตัวจะถูกป้องกันและใช้เฉพาะการลงทะเบียนกิจกรรมนี้เท่านั้น
-                  </Typography>
-                </Paper>
+                    
+                    <Divider sx={{ my: 2 }} />
+                    
+                    <Typography variant="body2" color="text.secondary">
+                      ข้อมูลส่วนตัวจะถูกป้องกันและใช้เฉพาะการลงทะเบียนกิจกรรมนี้เท่านั้น
+                    </Typography>
+                  </Paper>
+                )}
+
+                {/* แสดงข้อความเตือนถ้าไม่มีข้อมูล Microsoft */}
+                {!existingUserProfile && (
+                  <Alert severity="info" sx={{ mb: 4 }}>
+                    <Typography variant="body2">
+                      <strong>ข้อมูล:</strong> คุณสามารถกรอกข้อมูลด้วยตนเองได้ แต่หากต้องการความสะดวก 
+                      แนะนำให้เข้าสู่ระบบด้วยบัญชี Microsoft ของมหาวิทยาลัยก่อน
+                    </Typography>
+                  </Alert>
+                )}
 
                 <Grid container spacing={3}>
                   <Grid item xs={12}>
@@ -985,8 +998,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       onChange={handleInputChange('studentId')}
                       required
                       placeholder="เช่น 6412345678"
-                      helperText="รหัสนักศึกษา 10 หลัก ขึ้นต้นด้วย 64-69 (ดึงจาก Microsoft อัตโนมัติ)"
-                      disabled={true} // ไม่สามารถแก้ไขได้
+                      helperText={existingUserProfile 
+                        ? "รหัสนักศึกษา 10 หลัก ขึ้นต้นด้วย 64-69 (ดึงจาก Microsoft อัตโนมัติ)"
+                        : "รหัสนักศึกษา 10 หลัก ขึ้นต้นด้วย 64-69"
+                      }
+                      disabled={!!existingUserProfile}
                       inputProps={{
                         maxLength: 10,
                         pattern: '[0-9]*'
@@ -997,7 +1013,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       sx={{
                         '& .MuiOutlinedInput-root': {
                           borderRadius: 2,
-                          bgcolor: 'action.hover', // สีพื้นหลังแสดงว่าไม่สามารถแก้ไขได้
+                          bgcolor: existingUserProfile ? 'action.hover' : 'background.paper',
                           '&.Mui-focused fieldset': {
                             borderWidth: 2
                           }
@@ -1013,15 +1029,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       onChange={handleInputChange('firstName')}
                       required
                       placeholder="ชื่อจริง"
-                      disabled={true} // ไม่สามารถแก้ไขได้
-                      helperText="ดึงจาก Microsoft อัตโนมัติ"
+                      disabled={!!existingUserProfile}
+                      helperText={existingUserProfile ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
                       InputProps={{
                         startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
                       }}
                       sx={{
                         '& .MuiOutlinedInput-root': {
                           borderRadius: 2,
-                          bgcolor: 'action.hover', // สีพื้นหลังแสดงว่าไม่สามารถแก้ไขได้
+                          bgcolor: existingUserProfile ? 'action.hover' : 'background.paper',
                           '&.Mui-focused fieldset': {
                             borderWidth: 2
                           }
@@ -1037,15 +1053,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       onChange={handleInputChange('lastName')}
                       required
                       placeholder="นามสกุลจริง"
-                      disabled={true} // ไม่สามารถแก้ไขได้
-                      helperText="ดึงจาก Microsoft อัตโนมัติ"
+                      disabled={!!existingUserProfile}
+                      helperText={existingUserProfile ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
                       InputProps={{
                         startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
                       }}
                       sx={{
                         '& .MuiOutlinedInput-root': {
                           borderRadius: 2,
-                          bgcolor: 'action.hover', // สีพื้นหลังแสดงว่าไม่สามารถแก้ไขได้
+                          bgcolor: existingUserProfile ? 'action.hover' : 'background.paper',
                           '&.Mui-focused fieldset': {
                             borderWidth: 2
                           }
@@ -1054,7 +1070,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     />
                   </Grid>
                   <Grid item xs={12}>
-                    <FormControl fullWidth required disabled={true}>
+                    <FormControl fullWidth required disabled={!!existingUserProfile && !!formData.department}>
                       <InputLabel>สาขา</InputLabel>
                       <Select
                         value={formData.department}
@@ -1062,22 +1078,35 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         onChange={handleSelectChange('department')}
                         sx={{
                           borderRadius: 2,
-                          bgcolor: 'action.hover', // สีพื้นหลังแสดงว่าไม่สามารถแก้ไขได้
+                          bgcolor: (existingUserProfile && formData.department) ? 'action.hover' : 'background.paper',
                           '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                             borderWidth: 2
                           }
                         }}
                       >
-                        <MenuItem value={formData.department}>
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
-                            {formData.department}
-                          </Box>
-                        </MenuItem>
+                        {(existingUserProfile && formData.department) ? (
+                          <MenuItem value={formData.department}>
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
+                              {formData.department}
+                            </Box>
+                          </MenuItem>
+                        ) : (
+                          departments.map((dept) => (
+                            <MenuItem key={dept.id} value={dept.name}>
+                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
+                                {dept.name}
+                              </Box>
+                            </MenuItem>
+                          ))
+                        )}
                       </Select>
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                        ดึงจาก Microsoft อัตโนมัติ
-                      </Typography>
+                      {(existingUserProfile && formData.department) && (
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                          ดึงจาก Microsoft อัตโนมัติ
+                        </Typography>
+                      )}
                     </FormControl>
                   </Grid>
                   <Grid item xs={12}>
@@ -1092,7 +1121,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       disabled={forceRefreshEnabled}
                       InputProps={{
                         startAdornment: (
-                          <PersonIcon sx={{ mr: 1, color: 'primary.main' }} />
+                          <SecurityIcon sx={{ mr: 1, color: 'primary.main' }} />
                         )
                       }}
                       sx={{

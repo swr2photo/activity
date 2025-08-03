@@ -40,7 +40,13 @@ import {
   Toolbar,
   Container,
   Fade,
-  Skeleton
+  Skeleton,
+  Checkbox,
+  FormControl,
+  InputLabel,
+  Select,
+  OutlinedInput,
+  ListItemText
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -62,7 +68,9 @@ import {
   Security as SecurityIcon,
   Sync as SyncIcon,
   CheckCircle as CheckCircleIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  GetApp as GetAppIcon,
+  FilterAlt as FilterAltIcon
 } from '@mui/icons-material';
 import {
   collection,
@@ -74,7 +82,8 @@ import {
   doc,
   deleteDoc,
   serverTimestamp,
-  where
+  where,
+  increment
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { AdminSettings, ActivityRecord } from '../types';
@@ -85,6 +94,17 @@ import LocationPicker from './LocationPicker';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+
+interface FilterState {
+  search: string;
+  activities: string[];
+  departments: string[];
+  faculties: string[];
+  dateRange: {
+    start: Date | null;
+    end: Date | null;
+  };
+}
 
 const AdminPanel: React.FC = () => {
   const [adminSettings, setAdminSettings] = useState<AdminSettings>({
@@ -102,14 +122,32 @@ const AdminPanel: React.FC = () => {
 
   const [records, setRecords] = useState<ActivityRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<ActivityRecord[]>([]);
+  const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
   const [selectedRecord, setSelectedRecord] = useState<ActivityRecord | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [filterActivityCode, setFilterActivityCode] = useState('');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [filterMenuAnchor, setFilterMenuAnchor] = useState<null | HTMLElement>(null);
+
+  // Enhanced filtering state
+  const [filters, setFilters] = useState<FilterState>({
+    search: '',
+    activities: [],
+    departments: [],
+    faculties: [],
+    dateRange: {
+      start: null,
+      end: null
+    }
+  });
+
+  // Available filter options
+  const [availableActivities, setAvailableActivities] = useState<string[]>([]);
+  const [availableDepartments, setAvailableDepartments] = useState<string[]>([]);
+  const [availableFaculties, setAvailableFaculties] = useState<string[]>([]);
 
   const [stats, setStats] = useState({
     totalRecords: 0,
@@ -126,7 +164,8 @@ const AdminPanel: React.FC = () => {
   useEffect(() => {
     filterRecords();
     calculateStats();
-  }, [records, filterActivityCode]);
+    updateFilterOptions();
+  }, [records, filters]);
 
   const showMessage = (msg: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
     setMessage(msg);
@@ -181,49 +220,112 @@ const AdminPanel: React.FC = () => {
     setTimeout(() => setLoadingProgress(0), 1000);
   };
 
+  const updateFilterOptions = () => {
+    const activities = [...new Set(records.map(r => r.activityCode))].sort();
+    const departments = [...new Set(records.map(r => r.department))].sort();
+    const faculties = [...new Set(records.map(r => (r as any).faculty || 'ไม่ระบุ'))].sort();
+    
+    setAvailableActivities(activities);
+    setAvailableDepartments(departments);
+    setAvailableFaculties(faculties);
+  };
+
   const filterRecords = () => {
-    if (!filterActivityCode) {
-      setFilteredRecords(records);
-    } else {
-      setFilteredRecords(
-        records.filter(record => 
-          record.activityCode.toLowerCase().includes(filterActivityCode.toLowerCase()) ||
-          record.studentId.includes(filterActivityCode) ||
-          record.firstName.toLowerCase().includes(filterActivityCode.toLowerCase()) ||
-          record.lastName.toLowerCase().includes(filterActivityCode.toLowerCase())
-        )
+    let filtered = records;
+
+    // Search filter
+    if (filters.search) {
+      const searchTerm = filters.search.toLowerCase();
+      filtered = filtered.filter(record => 
+        record.activityCode.toLowerCase().includes(searchTerm) ||
+        record.studentId.includes(searchTerm) ||
+        record.firstName.toLowerCase().includes(searchTerm) ||
+        record.lastName.toLowerCase().includes(searchTerm) ||
+        record.department.toLowerCase().includes(searchTerm) ||
+        ((record as any).faculty && (record as any).faculty.toLowerCase().includes(searchTerm))
       );
     }
+
+    // Activity filter
+    if (filters.activities.length > 0) {
+      filtered = filtered.filter(record => 
+        filters.activities.includes(record.activityCode)
+      );
+    }
+
+    // Department filter
+    if (filters.departments.length > 0) {
+      filtered = filtered.filter(record => 
+        filters.departments.includes(record.department)
+      );
+    }
+
+    // Faculty filter
+    if (filters.faculties.length > 0) {
+      filtered = filtered.filter(record => 
+        filters.faculties.includes((record as any).faculty || 'ไม่ระบุ')
+      );
+    }
+
+    // Date range filter
+    if (filters.dateRange.start || filters.dateRange.end) {
+      filtered = filtered.filter(record => {
+        const recordDate = new Date(record.timestamp);
+        const start = filters.dateRange.start;
+        const end = filters.dateRange.end;
+        
+        if (start && end) {
+          return recordDate >= start && recordDate <= end;
+        } else if (start) {
+          return recordDate >= start;
+        } else if (end) {
+          return recordDate <= end;
+        }
+        return true;
+      });
+    }
+
+    setFilteredRecords(filtered);
   };
 
   const calculateStats = () => {
-    const uniqueStudents = new Set(records.map(r => r.studentId)).size;
-    const uniqueActivities = new Set(records.map(r => r.activityCode)).size;
+    const uniqueStudents = new Set(filteredRecords.map(r => r.studentId)).size;
+    const uniqueActivities = new Set(filteredRecords.map(r => r.activityCode)).size;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayRecords = records.filter(r => {
+    const todayRecords = filteredRecords.filter(r => {
       const recordDate = new Date(r.timestamp);
       recordDate.setHours(0, 0, 0, 0);
       return recordDate.getTime() === today.getTime();
     }).length;
 
     setStats({
-      totalRecords: records.length,
+      totalRecords: filteredRecords.length,
       uniqueStudents,
       uniqueActivities,
       todayRecords
     });
   };
 
-  const exportToCSV = () => {
-    const headers = ['วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'สาขา', 'รหัสกิจกรรม'];
+  const exportToCSV = (selectedOnly: boolean = false) => {
+    const dataToExport = selectedOnly 
+      ? filteredRecords.filter(record => selectedRecords.includes(record.id))
+      : filteredRecords;
+
+    if (selectedOnly && dataToExport.length === 0) {
+      showMessage('กรุณาเลือกรายการที่ต้องการส่งออก', 'warning');
+      return;
+    }
+
+    const headers = ['วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'คณะ', 'สาขา', 'รหัสกิจกรรม'];
     const csvContent = [
       headers.join(','),
-      ...filteredRecords.map(record => [
+      ...dataToExport.map(record => [
         record.timestamp.toLocaleString('th-TH'),
         record.studentId,
         record.firstName,
         record.lastName,
+        (record as any).faculty || 'ไม่ระบุ',
         record.department,
         record.activityCode
       ].join(','))
@@ -233,19 +335,44 @@ const AdminPanel: React.FC = () => {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `activity_records_${new Date().toISOString().split('T')[0]}.csv`);
+    const filename = selectedOnly 
+      ? `selected_records_${new Date().toISOString().split('T')[0]}.csv`
+      : `activity_records_${new Date().toISOString().split('T')[0]}.csv`;
+    link.setAttribute('download', filename);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showMessage(`ส่งออกข้อมูล ${filteredRecords.length} รายการสำเร็จ 📊`, 'success');
+    
+    const exportType = selectedOnly ? 'ที่เลือก' : 'ทั้งหมด';
+    showMessage(`ส่งออกข้อมูล${exportType} ${dataToExport.length} รายการสำเร็จ 📊`, 'success');
   };
 
   const deleteRecord = async (recordId: string) => {
     if (window.confirm('คุณแน่ใจหรือไม่ที่จะลบรายการนี้?')) {
       try {
+        const recordToDelete = records.find(r => r.id === recordId);
+        
+        // Delete the record
         await deleteDoc(doc(db, 'activityRecords', recordId));
-        showMessage('ลบรายการสำเร็จ 🗑️', 'success');
+        
+        // Update currentParticipants count for the activity
+        if (recordToDelete) {
+          const activityQuery = query(
+            collection(db, 'activities'),
+            where('code', '==', recordToDelete.activityCode)
+          );
+          const activitySnapshot = await getDocs(activityQuery);
+          
+          if (!activitySnapshot.empty) {
+            const activityDoc = activitySnapshot.docs[0];
+            await updateDoc(doc(db, 'activities', activityDoc.id), {
+              currentParticipants: increment(-1)
+            });
+          }
+        }
+        
+        showMessage('ลบรายการสำเร็จและอัปเดตจำนวนผู้เข้าร่วมแล้ว 🗑️', 'success');
         loadRecords();
       } catch (error) {
         console.error('Error deleting record:', error);
@@ -254,13 +381,89 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  const deleteSelectedRecords = async () => {
+    if (selectedRecords.length === 0) {
+      showMessage('กรุณาเลือกรายการที่ต้องการลบ', 'warning');
+      return;
+    }
+
+    if (window.confirm(`คุณแน่ใจหรือไม่ที่จะลบรายการที่เลือก ${selectedRecords.length} รายการ?`)) {
+      try {
+        setLoading(true);
+        
+        // Group records by activity code for batch updating
+        const activityCounts: { [key: string]: number } = {};
+        
+        for (const recordId of selectedRecords) {
+          const recordToDelete = records.find(r => r.id === recordId);
+          if (recordToDelete) {
+            activityCounts[recordToDelete.activityCode] = 
+              (activityCounts[recordToDelete.activityCode] || 0) + 1;
+          }
+          
+          await deleteDoc(doc(db, 'activityRecords', recordId));
+        }
+        
+        // Update currentParticipants for each affected activity
+        for (const [activityCode, count] of Object.entries(activityCounts)) {
+          const activityQuery = query(
+            collection(db, 'activities'),
+            where('code', '==', activityCode)
+          );
+          const activitySnapshot = await getDocs(activityQuery);
+          
+          if (!activitySnapshot.empty) {
+            const activityDoc = activitySnapshot.docs[0];
+            await updateDoc(doc(db, 'activities', activityDoc.id), {
+              currentParticipants: increment(-count)
+            });
+          }
+        }
+        
+        setSelectedRecords([]);
+        showMessage(`ลบรายการ ${selectedRecords.length} รายการสำเร็จและอัปเดตจำนวนผู้เข้าร่วมแล้ว`, 'success');
+        loadRecords();
+      } catch (error) {
+        console.error('Error deleting selected records:', error);
+        showMessage('เกิดข้อผิดพลาดในการลบรายการที่เลือก', 'error');
+      }
+      setLoading(false);
+    }
+  };
+
   const viewRecordDetails = (record: ActivityRecord) => {
     setSelectedRecord(record);
     setDialogOpen(true);
   };
 
-  const clearFilter = () => {
-    setFilterActivityCode('');
+  const clearAllFilters = () => {
+    setFilters({
+      search: '',
+      activities: [],
+      departments: [],
+      faculties: [],
+      dateRange: {
+        start: null,
+        end: null
+      }
+    });
+    setSelectedRecords([]);
+  };
+
+  const handleSelectAll = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      setSelectedRecords(filteredRecords.map(record => record.id));
+    } else {
+      setSelectedRecords([]);
+    }
+  };
+
+  const handleSelectRecord = (recordId: string) => {
+    setSelectedRecords(prev => 
+      prev.includes(recordId)
+        ? prev.filter(id => id !== recordId)
+        : [...prev, recordId]
+    );
   };
 
   const StatCard = ({ title, value, icon, color, subtitle }: any) => (
@@ -284,7 +487,6 @@ const AdminPanel: React.FC = () => {
           position: 'relative',
           overflow: 'hidden'
         }}>
-          {/* Background decoration */}
           <Box sx={{
             position: 'absolute',
             top: -20,
@@ -485,7 +687,7 @@ const AdminPanel: React.FC = () => {
             <QRCodeGenerator baseUrl={typeof window !== 'undefined' ? window.location.origin : ''} />
           </Grid>
 
-          {/* Additional Analytics Card */}
+          {/* Enhanced Filter Panel */}
           <Grid item xs={12} lg={6}>
             <Card sx={{ 
               height: '100%',
@@ -498,46 +700,152 @@ const AdminPanel: React.FC = () => {
               <CardContent sx={{ p: 4 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
                   <Avatar sx={{ 
-                    bgcolor: 'primary.main', 
+                    bgcolor: 'secondary.main', 
                     mr: 2,
                     width: 48,
                     height: 48
                   }}>
-                    <AnalyticsIcon />
+                    <FilterAltIcon />
                   </Avatar>
-                  <Typography variant="h5" fontWeight="bold" color="primary">
-                    สถิติด่วน
+                  <Typography variant="h5" fontWeight="bold" color="secondary">
+                    ตัวกรองข้อมูล
                   </Typography>
                 </Box>
                 
-                <Grid container spacing={3}>
-                  <Grid item xs={6}>
-                    <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                      <Typography variant="h4" color="success.main" fontWeight="bold">
-                        {stats.todayRecords}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        เข้าร่วมวันนี้
-                      </Typography>
-                    </Box>
+                <Grid container spacing={2}>
+                  {/* Search Filter */}
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="ค้นหา"
+                      value={filters.search}
+                      onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                      placeholder="รหัสกิจกรรม, นักศึกษา, ชื่อ, สาขา..."
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon color="action" />
+                          </InputAdornment>
+                        ),
+                        endAdornment: filters.search && (
+                          <InputAdornment position="end">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => setFilters(prev => ({ ...prev, search: '' }))}
+                            >
+                              <ClearIcon />
+                            </IconButton>
+                          </InputAdornment>
+                        )
+                      }}
+                    />
                   </Grid>
-                  <Grid item xs={6}>
-                    <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                      <Typography variant="h4" color="info.main" fontWeight="bold">
-                        {Math.round((stats.todayRecords / stats.totalRecords) * 100) || 0}%
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        สัดส่วนวันนี้
-                      </Typography>
-                    </Box>
+
+                  {/* Activity Filter */}
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>กิจกรรม</InputLabel>
+                      <Select
+                        multiple
+                        value={filters.activities}
+                        onChange={(e) => setFilters(prev => ({ 
+                          ...prev, 
+                          activities: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value 
+                        }))}
+                        input={<OutlinedInput label="กิจกรรม" />}
+                        renderValue={(selected) => (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                            {selected.map((value) => (
+                              <Chip key={value} size="small" label={value} />
+                            ))}
+                          </Box>
+                        )}
+                      >
+                        {availableActivities.map((activity) => (
+                          <MenuItem key={activity} value={activity}>
+                            <Checkbox checked={filters.activities.indexOf(activity) > -1} />
+                            <ListItemText primary={activity} />
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Department Filter */}
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>สาขา</InputLabel>
+                      <Select
+                        multiple
+                        value={filters.departments}
+                        onChange={(e) => setFilters(prev => ({ 
+                          ...prev, 
+                          departments: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value 
+                        }))}
+                        input={<OutlinedInput label="สาขา" />}
+                        renderValue={(selected) => (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                            {selected.map((value) => (
+                              <Chip key={value} size="small" label={value} />
+                            ))}
+                          </Box>
+                        )}
+                      >
+                        {availableDepartments.map((dept) => (
+                          <MenuItem key={dept} value={dept}>
+                            <Checkbox checked={filters.departments.indexOf(dept) > -1} />
+                            <ListItemText primary={dept} />
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Faculty Filter */}
+                  <Grid item xs={12}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>คณะ</InputLabel>
+                      <Select
+                        multiple
+                        value={filters.faculties}
+                        onChange={(e) => setFilters(prev => ({ 
+                          ...prev, 
+                          faculties: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value 
+                        }))}
+                        input={<OutlinedInput label="คณะ" />}
+                        renderValue={(selected) => (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                            {selected.map((value) => (
+                              <Chip key={value} size="small" label={value} />
+                            ))}
+                          </Box>
+                        )}
+                      >
+                        {availableFaculties.map((faculty) => (
+                          <MenuItem key={faculty} value={faculty}>
+                            <Checkbox checked={filters.faculties.indexOf(faculty) > -1} />
+                            <ListItemText primary={faculty} />
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Clear Filters Button */}
+                  <Grid item xs={12}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      color="secondary"
+                      startIcon={<ClearIcon />}
+                      onClick={clearAllFilters}
+                      sx={{ mt: 1 }}
+                    >
+                      ล้างตัวกรองทั้งหมด
+                    </Button>
                   </Grid>
                 </Grid>
-                
-                <Divider sx={{ my: 3 }} />
-                
-                <Typography variant="body1" color="text.secondary" textAlign="center">
-                  ข้อมูลการเข้าร่วมกิจกรรมแบบเรียลไทม์
-                </Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -570,38 +878,16 @@ const AdminPanel: React.FC = () => {
                       color="primary" 
                       sx={{ ml: 3, fontWeight: 600 }} 
                     />
+                    {selectedRecords.length > 0 && (
+                      <Chip 
+                        label={`เลือก ${selectedRecords.length} รายการ`} 
+                        color="secondary" 
+                        sx={{ ml: 1, fontWeight: 600 }} 
+                      />
+                    )}
                   </Box>
 
                   <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                    <TextField
-                      size="small"
-                      label="ค้นหา"
-                      value={filterActivityCode}
-                      onChange={(e) => setFilterActivityCode(e.target.value)}
-                      placeholder="รหัสกิจกรรม, นักศึกษา, ชื่อ..."
-                      sx={{ 
-                        minWidth: 300,
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 2,
-                          bgcolor: 'rgba(255, 255, 255, 0.8)'
-                        }
-                      }}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <SearchIcon color="action" />
-                          </InputAdornment>
-                        ),
-                        endAdornment: filterActivityCode && (
-                          <InputAdornment position="end">
-                            <IconButton size="small" onClick={clearFilter}>
-                              <ClearIcon />
-                            </IconButton>
-                          </InputAdornment>
-                        )
-                      }}
-                    />
-                    
                     <ButtonGroup variant="contained" sx={{ borderRadius: 2 }}>
                       <Tooltip title="รีเฟรช">
                         <span>
@@ -618,17 +904,47 @@ const AdminPanel: React.FC = () => {
                           </Button>
                         </span>
                       </Tooltip>
-                      <Tooltip title="ส่งออก CSV">
+                      <Tooltip title="ส่งออกทั้งหมด">
                         <Button 
-                          onClick={exportToCSV}
+                          onClick={() => exportToCSV(false)}
                           startIcon={<DownloadIcon />}
                           sx={{ 
                             bgcolor: 'success.main',
                             '&:hover': { bgcolor: 'success.dark' }
                           }}
                         >
-                          ส่งออก
+                          ส่งออกทั้งหมด
                         </Button>
+                      </Tooltip>
+                      <Tooltip title="ส่งออกที่เลือก">
+                        <span>
+                          <Button 
+                            onClick={() => exportToCSV(true)}
+                            disabled={selectedRecords.length === 0}
+                            startIcon={<GetAppIcon />}
+                            sx={{ 
+                              bgcolor: 'info.main',
+                              '&:hover': { bgcolor: 'info.dark' }
+                            }}
+                          >
+                            ส่งออกที่เลือก
+                          </Button>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title="ลบที่เลือก">
+                        <span>
+                          <Button 
+                            onClick={deleteSelectedRecords}
+                            disabled={selectedRecords.length === 0}
+                            startIcon={<DeleteIcon />}
+                            sx={{ 
+                              bgcolor: 'error.main',
+                              '&:hover': { bgcolor: 'error.dark' }
+                            }}
+                          >
+                            ลบที่เลือก
+                          </Button>
+                        </span>
                       </Tooltip>
                     </ButtonGroup>
                   </Box>
@@ -648,9 +964,17 @@ const AdminPanel: React.FC = () => {
                   <Table stickyHeader>
                     <TableHead>
                       <TableRow>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.95rem' }}>
+                          <Checkbox
+                            indeterminate={selectedRecords.length > 0 && selectedRecords.length < filteredRecords.length}
+                            checked={filteredRecords.length > 0 && selectedRecords.length === filteredRecords.length}
+                            onChange={handleSelectAll}
+                          />
+                        </TableCell>
                         <TableCell sx={{ fontWeight: 700, fontSize: '0.95rem' }}>วันที่/เวลา</TableCell>
                         <TableCell sx={{ fontWeight: 700, fontSize: '0.95rem' }}>รหัสนักศึกษา</TableCell>
                         <TableCell sx={{ fontWeight: 700, fontSize: '0.95rem' }}>ชื่อ-นามสกุล</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.95rem' }}>คณะ</TableCell>
                         <TableCell sx={{ fontWeight: 700, fontSize: '0.95rem' }}>สาขา</TableCell>
                         <TableCell sx={{ fontWeight: 700, fontSize: '0.95rem' }}>รหัสกิจกรรม</TableCell>
                         <TableCell sx={{ fontWeight: 700, fontSize: '0.95rem' }}>การดำเนินการ</TableCell>
@@ -660,7 +984,7 @@ const AdminPanel: React.FC = () => {
                       {loading ? (
                         Array.from(new Array(5)).map((_, index) => (
                           <TableRow key={index}>
-                            {Array.from(new Array(6)).map((_, cellIndex) => (
+                            {Array.from(new Array(8)).map((_, cellIndex) => (
                               <TableCell key={cellIndex}>
                                 <Skeleton variant="text" height={40} />
                               </TableCell>
@@ -677,9 +1001,16 @@ const AdminPanel: React.FC = () => {
                                 bgcolor: 'rgba(25, 118, 210, 0.04)',
                                 transform: 'scale(1.001)',
                                 transition: 'all 0.2s ease'
-                              }
+                              },
+                              bgcolor: selectedRecords.includes(record.id) ? 'rgba(25, 118, 210, 0.08)' : 'inherit'
                             }}
                           >
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedRecords.includes(record.id)}
+                                onChange={() => handleSelectRecord(record.id)}
+                              />
+                            </TableCell>
                             <TableCell>
                               <Box>
                                 <Typography variant="body2" fontWeight="medium">
@@ -699,6 +1030,15 @@ const AdminPanel: React.FC = () => {
                               <Typography variant="body2" fontWeight="medium">
                                 {record.firstName} {record.lastName}
                               </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={(record as any).faculty || 'ไม่ระบุ'} 
+                                size="small" 
+                                variant="outlined"
+                                color="info"
+                                sx={{ fontWeight: 500 }}
+                              />
                             </TableCell>
                             <TableCell>
                               <Chip 
@@ -762,6 +1102,24 @@ const AdminPanel: React.FC = () => {
                     </TableBody>
                   </Table>
                 </TableContainer>
+
+                {/* Summary Row */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  mt: 3, 
+                  p: 2, 
+                  bgcolor: 'grey.50', 
+                  borderRadius: 2 
+                }}>
+                  <Typography variant="body2" color="text.secondary">
+                    แสดง {filteredRecords.length} รายการจากทั้งหมด {records.length} รายการ
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    เลือกแล้ว {selectedRecords.length} รายการ
+                  </Typography>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
@@ -772,7 +1130,7 @@ const AdminPanel: React.FC = () => {
       <Dialog 
         open={dialogOpen} 
         onClose={() => setDialogOpen(false)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
         PaperProps={{
           sx: {
@@ -796,8 +1154,8 @@ const AdminPanel: React.FC = () => {
               </Avatar>
               รายละเอียดการลงทะเบียน
             </DialogTitle>
-            <DialogContent sx={{ p: 3 }}>
-              <Grid container spacing={3} sx={{ mt: 1 }}>
+            <DialogContent sx={{ p: 4 }}>
+              <Grid container spacing={4} sx={{ mt: 1 }}>
                 <Grid item xs={12} sm={6}>
                   <Typography variant="body2" color="text.secondary" gutterBottom>
                     รหัสนักศึกษา
@@ -826,6 +1184,14 @@ const AdminPanel: React.FC = () => {
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Typography variant="body2" color="text.secondary" gutterBottom>
+                    คณะ
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium">
+                    {(selectedRecord as any).faculty || 'ไม่ระบุ'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
                     สาขาวิชา
                   </Typography>
                   <Typography variant="body1" fontWeight="medium">
@@ -837,7 +1203,15 @@ const AdminPanel: React.FC = () => {
                     วันที่ลงทะเบียน
                   </Typography>
                   <Typography variant="body1" fontWeight="medium">
-                    {selectedRecord.timestamp.toLocaleDateString('th-TH')} เวลา {selectedRecord.timestamp.toLocaleTimeString('th-TH')}
+                    {selectedRecord.timestamp.toLocaleDateString('th-TH')}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    เวลาลงทะเบียน
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium">
+                    {selectedRecord.timestamp.toLocaleTimeString('th-TH')}
                   </Typography>
                 </Grid>
               </Grid>
@@ -851,7 +1225,10 @@ const AdminPanel: React.FC = () => {
                 ปิด
               </Button>
               <Button 
-                onClick={() => deleteRecord(selectedRecord.id)}
+                onClick={() => {
+                  deleteRecord(selectedRecord.id);
+                  setDialogOpen(false);
+                }}
                 color="error"
                 variant="contained"
                 startIcon={<DeleteIcon />}
