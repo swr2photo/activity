@@ -20,57 +20,108 @@ import { db } from './firebase';
 import { AdminSettings, ActivityRecord, Department } from '../types';
 
 /**
+ * ฟังก์ชันสำหรับลบ undefined values ออกจาก object
+ */
+const removeUndefinedFields = (obj: any): any => {
+  if (obj === null || obj === undefined) return null;
+  
+  if (typeof obj !== 'object' || Array.isArray(obj)) {
+    return obj === undefined ? null : obj;
+  }
+  
+  const cleaned: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        const cleanedValue = removeUndefinedFields(value);
+        if (cleanedValue !== null && Object.keys(cleanedValue).length > 0) {
+          cleaned[key] = cleanedValue;
+        }
+      } else {
+        cleaned[key] = value;
+      }
+    }
+  }
+  return Object.keys(cleaned).length > 0 ? cleaned : null;
+};
+
+/**
  * ดึงการตั้งค่าแอดมิน
  */
 export const getAdminSettings = async (): Promise<AdminSettings | null> => {
   try {
+    console.log('กำลังโหลดการตั้งค่าผู้ดูแลระบบ...');
+    
     const docRef = doc(db, 'adminSettings', 'main');
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
+      console.log('พบการตั้งค่าผู้ดูแลระบบในฐานข้อมูล');
+      const data = docSnap.data();
+      
+      // ตรวจสอบและแก้ไขข้อมูลที่อาจมี undefined
+      const cleanedData = removeUndefinedFields(data);
+      
       return {
         id: docSnap.id,
-        ...docSnap.data()
+        ...cleanedData
       } as AdminSettings;
     } else {
-      console.log('No admin settings found, creating default...');
+      console.log('ไม่พบการตั้งค่าผู้ดูแลระบบ กำลังสร้างการตั้งค่าเริ่มต้น...');
       return await createDefaultAdminSettings();
     }
   } catch (error) {
     console.error('Error getting admin settings:', error);
-    throw error;
+    
+    // ถ้าเกิด error ให้ return การตั้งค่าเริ่มต้น
+    return getDefaultSettings();
   }
 };
 
 /**
- * สร้างการตั้งค่าแอดมินเริ่มต้น
+ * สร้างการตั้งค่าเริ่มต้น (ไม่บันทึกลงฐานข้อมูล)
  */
-export const createDefaultAdminSettings = async (): Promise<AdminSettings> => {
-  const defaultSettings: AdminSettings = {
+const getDefaultSettings = (): AdminSettings => {
+  return {
     id: 'main',
     allowedLocation: {
       latitude: 7.007373066216206, // พิกัดมหาวิทยาลัยสงขลานครินทร์
       longitude: 100.4925,
-      radius: 100 // 100 เมตร
-      ,
-      endTime: undefined,
-      startTime: undefined
+      radius: 100, // 100 เมตร
+      // ไม่ใส่ endTime และ startTime หรือใส่เป็น null
+      endTime: null,
+      startTime: null
     },
     adminCode: 'ADMIN123',
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date()
   };
+};
+
+/**
+ * สร้างการตั้งค่าแอดมินเริ่มต้น
+ */
+export const createDefaultAdminSettings = async (): Promise<AdminSettings> => {
+  const defaultSettings = getDefaultSettings();
 
   try {
     const docRef = doc(db, 'adminSettings', 'main');
-    await setDoc(docRef, {
+    
+    // ลบ undefined fields ออกก่อนบันทึก
+    const cleanedSettings = removeUndefinedFields({
       ...defaultSettings,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
     
-    console.log('✅ Default admin settings created');
+    if (!cleanedSettings) {
+      throw new Error('ไม่สามารถสร้างการตั้งค่าเริ่มต้นได้');
+    }
+    
+    await setDoc(docRef, cleanedSettings);
+    
+    console.log('✅ สร้างการตั้งค่าผู้ดูแลระบบเริ่มต้นสำเร็จ');
     return defaultSettings;
   } catch (error) {
     console.error('Error creating default admin settings:', error);
@@ -84,13 +135,47 @@ export const createDefaultAdminSettings = async (): Promise<AdminSettings> => {
 export const updateAdminSettings = async (settings: Partial<AdminSettings>): Promise<void> => {
   try {
     const docRef = doc(db, 'adminSettings', 'main');
-    await updateDoc(docRef, {
+    
+    // ลบ undefined fields ออกก่อนบันทึก
+    const cleanedSettings = removeUndefinedFields({
       ...settings,
       updatedAt: serverTimestamp()
     });
-    console.log('✅ Admin settings updated');
+    
+    if (!cleanedSettings) {
+      throw new Error('ไม่มีข้อมูลที่ถูกต้องสำหรับการอัพเดท');
+    }
+    
+    await updateDoc(docRef, cleanedSettings);
+    console.log('✅ อัพเดทการตั้งค่าผู้ดูแลระบบสำเร็จ');
   } catch (error) {
     console.error('Error updating admin settings:', error);
+    throw error;
+  }
+};
+
+/**
+ * รีเซ็ตการตั้งค่าเป็นค่าเริ่มต้น
+ */
+export const resetAdminSettings = async (): Promise<AdminSettings> => {
+  try {
+    console.log('กำลังรีเซ็ตการตั้งค่าเป็นค่าเริ่มต้น...');
+    
+    const docRef = doc(db, 'adminSettings', 'main');
+    const defaultSettings = getDefaultSettings();
+    
+    const cleanedSettings = removeUndefinedFields({
+      ...defaultSettings,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    
+    await setDoc(docRef, cleanedSettings);
+    console.log('✅ รีเซ็ตการตั้งค่าสำเร็จ');
+    
+    return defaultSettings;
+  } catch (error) {
+    console.error('Error resetting admin settings:', error);
     throw error;
   }
 };
@@ -100,12 +185,19 @@ export const updateAdminSettings = async (settings: Partial<AdminSettings>): Pro
  */
 export const saveActivityRecord = async (record: Omit<ActivityRecord, 'id' | 'timestamp'>): Promise<string> => {
   try {
-    const docRef = await addDoc(collection(db, 'activityRecords'), {
+    // ลบ undefined fields ออกก่อนบันทึก
+    const cleanedRecord = removeUndefinedFields({
       ...record,
       timestamp: serverTimestamp()
     });
     
-    console.log('✅ Activity record saved with ID:', docRef.id);
+    if (!cleanedRecord) {
+      throw new Error('ไม่มีข้อมูลที่ถูกต้องสำหรับการบันทึก');
+    }
+    
+    const docRef = await addDoc(collection(db, 'activityRecords'), cleanedRecord);
+    
+    console.log('✅ บันทึกข้อมูลกิจกรรมสำเร็จ ID:', docRef.id);
     return docRef.id;
   } catch (error) {
     console.error('Error saving activity record:', error);
@@ -206,14 +298,16 @@ export const createDepartment = async (name: string): Promise<void> => {
     const departmentId = name.replace(/\s+/g, '_');
     const docRef = doc(db, 'departments', departmentId);
     
-    await setDoc(docRef, {
+    const departmentData = removeUndefinedFields({
       name,
       isActive: true,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
     
-    console.log('✅ Department created:', name);
+    await setDoc(docRef, departmentData);
+    
+    console.log('✅ สร้างสาขาใหม่สำเร็จ:', name);
   } catch (error) {
     console.error('Error creating department:', error);
     throw error;
@@ -246,7 +340,7 @@ export const initializeDefaultDepartments = async (): Promise<void> => {
     for (const deptName of defaultDepartments) {
       await createDepartment(deptName);
     }
-    console.log('✅ All default departments initialized');
+    console.log('✅ สร้างสาขาเริ่มต้นทั้งหมดสำเร็จ');
   } catch (error) {
     console.error('Error initializing departments:', error);
     throw error;
@@ -260,7 +354,7 @@ export const deleteActivityRecord = async (recordId: string): Promise<void> => {
   try {
     const docRef = doc(db, 'activityRecords', recordId);
     await deleteDoc(docRef);
-    console.log('✅ Activity record deleted:', recordId);
+    console.log('✅ ลบข้อมูลการลงทะเบียนสำเร็จ:', recordId);
   } catch (error) {
     console.error('Error deleting activity record:', error);
     throw error;
@@ -390,10 +484,10 @@ export const testFirebaseConnection = async (): Promise<boolean> => {
   try {
     const testDoc = doc(db, 'test', 'connection');
     await getDoc(testDoc);
-    console.log('✅ Firebase connection successful');
+    console.log('✅ การเชื่อมต่อ Firebase สำเร็จ');
     return true;
   } catch (error) {
-    console.error('❌ Firebase connection failed:', error);
+    console.error('❌ การเชื่อมต่อ Firebase ล้มเหลว:', error);
     return false;
   }
 };
