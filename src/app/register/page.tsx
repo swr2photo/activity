@@ -57,6 +57,7 @@ interface ActivityData {
   bannerUrl?: string;
   createdAt?: any;
   updatedAt?: any;
+  singleUserMode?: boolean; // เพิ่มฟิลด์นี้
 }
 
 interface IPLoginRecord {
@@ -112,6 +113,67 @@ const checkDuplicateRegistration = async (activityCode: string, userEmail: strin
   } catch (error) {
     console.error('Error checking duplicate registration:', error);
     return { isDuplicate: false };
+  }
+};
+
+// ฟังก์ชันตรวจสอบ Single User Mode สำหรับกิจกรรม
+const checkSingleUserModeForActivity = async (activityCode: string, userEmail: string): Promise<{ 
+  canRegister: boolean; 
+  message?: string; 
+  registeredUser?: string 
+}> => {
+  try {
+    // ตรวจสอบว่ากิจกรรมเปิด Single User Mode หรือไม่
+    const activityQuery = query(
+      collection(db, 'activityQRCodes'),
+      where('activityCode', '==', activityCode)
+    );
+    const activitySnapshot = await getDocs(activityQuery);
+    
+    if (activitySnapshot.empty) {
+      return { canRegister: true };
+    }
+    
+    const activityData = activitySnapshot.docs[0].data();
+    
+    // ถ้าไม่ได้เปิด Single User Mode ให้ผ่านไป
+    if (!activityData.singleUserMode) {
+      return { canRegister: true };
+    }
+    
+    console.log('Activity has single user mode enabled, checking existing registrations...');
+    
+    // ตรวจสอบการลงทะเบียนที่มีอยู่
+    const registrationQuery = query(
+      collection(db, 'activityRecords'),
+      where('activityCode', '==', activityCode)
+    );
+    const registrationSnapshot = await getDocs(registrationQuery);
+    
+    if (!registrationSnapshot.empty) {
+      const existingRecord = registrationSnapshot.docs[0].data();
+      const registeredEmail = existingRecord.email;
+      
+      if (registeredEmail && registeredEmail !== userEmail) {
+        // มีคนอื่นลงทะเบียนแล้ว
+        return {
+          canRegister: false,
+          message: `กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียว และมีผู้ใช้ ${registeredEmail} ลงทะเบียนไปแล้ว`,
+          registeredUser: registeredEmail
+        };
+      } else if (registeredEmail === userEmail) {
+        // ผู้ใช้คนเดียวกันลงทะเบียนแล้ว
+        return {
+          canRegister: false,
+          message: 'คุณได้ลงทะเบียนกิจกรรมนี้แล้ว'
+        };
+      }
+    }
+    
+    return { canRegister: true };
+  } catch (error) {
+    console.error('Error checking single user mode:', error);
+    return { canRegister: true }; // ถ้า error ให้ผ่านไป
   }
 };
 
@@ -219,6 +281,10 @@ const RegisterPageContent: React.FC = () => {
   // Profile edit dialog state
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
+
+  // Single User Mode states
+  const [singleUserBlocked, setSingleUserBlocked] = useState(false);
+  const [singleUserMessage, setSingleUserMessage] = useState('');
 
   // Initial session validation when user is detected
   useEffect(() => {
@@ -356,11 +422,12 @@ const RegisterPageContent: React.FC = () => {
     if (ipBlocked) return false;
     if (isDuplicateRegistration) return false;
     if (needsProfileSetup) return false;
+    if (singleUserBlocked) return false;
     return true;
   };
 
   const shouldShowMicrosoftLogin = () => {
-    return (!user || sessionExpired) && !ipBlocked && !isDuplicateRegistration;
+    return (!user || sessionExpired) && !ipBlocked && !isDuplicateRegistration && !singleUserBlocked;
   };
 
   // Determine existing auth status for ActivityRegistrationForm
@@ -376,6 +443,7 @@ const RegisterPageContent: React.FC = () => {
   useEffect(() => {
     if (user && activityCode && !isDuplicateRegistration && !sessionExpired && !sessionValidating) {
       checkForDuplicateRegistration();
+      checkForSingleUserMode();
     }
   }, [user, activityCode, sessionExpired, sessionValidating]);
 
@@ -398,7 +466,8 @@ const RegisterPageContent: React.FC = () => {
           setActivityData(prev => prev ? {
             ...prev,
             currentParticipants: data.currentParticipants || 0,
-            isActive: data.isActive !== undefined ? data.isActive : true
+            isActive: data.isActive !== undefined ? data.isActive : true,
+            singleUserMode: data.singleUserMode || false
           } : prev);
         }
       });
@@ -451,7 +520,8 @@ const RegisterPageContent: React.FC = () => {
           longitude: docData.longitude || 100.5018,
           checkInRadius: docData.checkInRadius || 100,
           userCode: docData.userCode || '',
-          requiresUniversityLogin: docData.requiresUniversityLogin || false
+          requiresUniversityLogin: docData.requiresUniversityLogin || false,
+          singleUserMode: docData.singleUserMode || false
         } as ActivityData;
 
         setActivityData(activity);
@@ -483,6 +553,25 @@ const RegisterPageContent: React.FC = () => {
       }
     } catch (error) {
       console.error('Error checking duplicate registration:', error);
+    }
+  };
+
+  const checkForSingleUserMode = async () => {
+    if (!user?.email || !activityCode) return;
+
+    try {
+      const result = await checkSingleUserModeForActivity(activityCode, user.email);
+      
+      if (!result.canRegister) {
+        setSingleUserBlocked(true);
+        setSingleUserMessage(result.message || 'ไม่สามารถลงทะเบียนได้');
+        setError(result.message || 'ไม่สามารถลงทะเบียนได้');
+      } else {
+        setSingleUserBlocked(false);
+        setSingleUserMessage('');
+      }
+    } catch (error) {
+      console.error('Error checking single user mode:', error);
     }
   };
 
@@ -540,6 +629,7 @@ const RegisterPageContent: React.FC = () => {
       if (activityCode) {
         setTimeout(() => {
           checkForDuplicateRegistration();
+          checkForSingleUserMode();
         }, 1000);
       }
     } catch (error) {
@@ -569,6 +659,8 @@ const RegisterPageContent: React.FC = () => {
       setSessionWarning('');
       setSessionRemainingTime(0);
       setSessionValidating(false);
+      setSingleUserBlocked(false);
+      setSingleUserMessage('');
     } catch (error) {
       console.error('Logout error:', error);
       setError('เกิดข้อผิดพลาดในการออกจากระบบ');
@@ -654,7 +746,7 @@ const RegisterPageContent: React.FC = () => {
   }
 
   // Render error state (non-recoverable errors)
-  if (error && !ipBlocked && !isDuplicateRegistration && !successMessage && !sessionExpired && !sessionWarning) {
+  if (error && !ipBlocked && !isDuplicateRegistration && !successMessage && !sessionExpired && !sessionWarning && !singleUserBlocked) {
     return (
       <Alert severity="error" sx={{ mt: 2 }}>
         {error}
@@ -722,7 +814,7 @@ const RegisterPageContent: React.FC = () => {
       )}
 
       {/* Activity Banner */}
-      {activityData && !ipBlocked && (
+      {activityData && !ipBlocked && !singleUserBlocked && (
         <ActivityBanner activity={activityData} />
       )}
 
@@ -734,13 +826,47 @@ const RegisterPageContent: React.FC = () => {
         />
       )}
 
+      {/* Single User Mode Blocked Alert */}
+      {singleUserBlocked && user && !sessionExpired && (
+        <Alert 
+          severity="error" 
+          sx={{ mt: 2 }}
+          icon={<WarningIcon />}
+        >
+          <Typography variant="body1" fontWeight="medium">
+            ไม่สามารถลงทะเบียนได้
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {singleUserMessage}
+          </Typography>
+          <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+            <Button 
+              color="inherit" 
+              size="small" 
+              onClick={handleLogout}
+              variant="outlined"
+            >
+              ออกจากระบบ
+            </Button>
+            <Button 
+              color="inherit" 
+              size="small" 
+              onClick={() => window.close()}
+              variant="outlined"
+            >
+              ปิดหน้าต่าง
+            </Button>
+          </Box>
+        </Alert>
+      )}
+
       {/* Duplicate Registration Alert */}
-      {isDuplicateRegistration && user && !sessionExpired && (
+      {isDuplicateRegistration && user && !sessionExpired && !singleUserBlocked && (
         <DuplicateRegistrationAlert />
       )}
 
       {/* Activity Status Alert (for non-active activities) */}
-      {activityData && activityStatus && activityStatus.status !== 'active' && !ipBlocked && (
+      {activityData && activityStatus && activityStatus.status !== 'active' && !ipBlocked && !singleUserBlocked && (
         <ActivityStatusAlert
           status={activityStatus.status}
           message={activityStatus.message}
@@ -761,12 +887,12 @@ const RegisterPageContent: React.FC = () => {
       )}
 
       {/* Profile Setup Alert */}
-      {user && needsProfileSetup && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && (
+      {user && needsProfileSetup && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && !singleUserBlocked && (
         <ProfileSetupAlert onEditProfile={handleEditProfile} />
       )}
 
       {/* Activity Information Card */}
-      {activityData && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && (
+      {activityData && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && !singleUserBlocked && (
         <ActivityInfoCard 
           activity={activityData}
           showRegistrationButton={canProceedToRegistration()}
@@ -779,7 +905,15 @@ const RegisterPageContent: React.FC = () => {
           activityCode={activityCode}
           adminSettings={adminSettings}
           existingAuthStatus={getExistingAuthStatus()}
+          existingUserProfile={user ? {
+            id: user.uid,
+            email: user.email || '',
+            displayName: user.displayName || '',
+            givenName: userData?.firstName || '',
+            surname: userData?.lastName || ''
+          } : undefined}
           onSuccess={handleRegistrationSuccess}
+          onLogout={handleLogout}
         />
       )}
 

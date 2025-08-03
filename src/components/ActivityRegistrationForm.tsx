@@ -39,7 +39,8 @@ import {
   Edit as EditIcon,
   AccountCircle as AccountCircleIcon,
   Warning as WarningIcon,
-  Lock as LockIcon
+  Lock as LockIcon,
+  ExitToApp as LogoutIcon
 } from '@mui/icons-material';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -63,6 +64,7 @@ interface ActivityStatus {
   latitude?: number;
   longitude?: number;
   checkInRadius?: number;
+  singleUserMode?: boolean;
 }
 
 interface UserProfile {
@@ -83,9 +85,10 @@ interface ActivityRegistrationFormProps {
   onSuccess?: () => Promise<void>;
   existingUserProfile?: UserProfile;
   existingAuthStatus: boolean;
+  onLogout?: () => Promise<void>;
 }
 
-// PSU Faculties (same as NavigationBar)
+// PSU Faculties
 const PSU_FACULTIES = [
   { name: 'คณะวิศวกรรมศาสตร์', code: '01' },
   { name: 'คณะวิทยาศาสตร์', code: '02' },
@@ -145,7 +148,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   adminSettings,
   onSuccess,
   existingUserProfile,
-  existingAuthStatus
+  existingAuthStatus,
+  onLogout
 }) => {
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -162,12 +166,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     requiresUniversityLogin: false,
     latitude: 0,
     longitude: 0,
-    checkInRadius: 100
+    checkInRadius: 100,
+    singleUserMode: false
   });
 
   const [forceRefreshEnabled, setForceRefreshEnabled] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [realtimeListener, setRealtimeListener] = useState<(() => void) | null>(null);
+
+  // สถานะการควบคุม Single User Mode
+  const [singleUserViolation, setSingleUserViolation] = useState(false);
+  const [currentRegisteredUser, setCurrentRegisteredUser] = useState<string>('');
 
   // Enhanced function to extract information from Microsoft display name
   const extractMicrosoftUserInfo = (displayName: string) => {
@@ -354,6 +363,63 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }, 1500);
   };
 
+  // ฟังก์ชันสำหรับ logout
+  const handleLogout = async () => {
+    if (onLogout) {
+      try {
+        await onLogout();
+      } catch (error) {
+        console.error('Error during logout:', error);
+      }
+    }
+  };
+
+  // ตรวจสอบ Single User Mode
+  const checkSingleUserMode = async () => {
+    if (!activityStatus.singleUserMode || !existingUserProfile?.email) {
+      return true; // ไม่มีการจำกัด หรือไม่มีข้อมูลผู้ใช้
+    }
+
+    try {
+      console.log('Checking single user mode for:', existingUserProfile.email);
+      
+      // ตรวจสอบการลงทะเบียนที่มีอยู่
+      const q = query(
+        collection(db, 'activityRecords'),
+        where('activityCode', '==', activityCode)
+      );
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        // มีการลงทะเบียนแล้ว ตรวจสอบว่าเป็นคนเดียวกันหรือไม่
+        const existingRecord = querySnapshot.docs[0].data();
+        const registeredEmail = existingRecord.email;
+        
+        if (registeredEmail && registeredEmail !== existingUserProfile.email) {
+          // มีคนอื่นลงทะเบียนแล้ว
+          console.log('Single user mode violation detected:', {
+            currentUser: existingUserProfile.email,
+            registeredUser: registeredEmail
+          });
+          
+          setSingleUserViolation(true);
+          setCurrentRegisteredUser(registeredEmail);
+          setError(`กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียว และมีผู้ใช้ ${registeredEmail} ลงทะเบียนไปแล้ว`);
+          return false;
+        } else if (registeredEmail === existingUserProfile.email) {
+          // ผู้ใช้คนเดียวกันลงทะเบียนแล้ว
+          setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+          return false;
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error checking single user mode:', error);
+      return true; // ถ้า error ให้ผ่านไป
+    }
+  };
+
   // ตรวจสอบสถานะกิจกรรมจาก Firebase
   const checkActivityStatus = async () => {
     try {
@@ -376,7 +442,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           requiresUniversityLogin: false,
           latitude: 0,
           longitude: 0,
-          checkInRadius: 100
+          checkInRadius: 100,
+          singleUserMode: false
         });
       } else {
         const activityDoc = querySnapshot.docs[0];
@@ -392,10 +459,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           requiresUniversityLogin: data.requiresUniversityLogin || false,
           latitude: data.latitude || 13.7563,
           longitude: data.longitude || 100.5018,
-          checkInRadius: data.checkInRadius || 100
+          checkInRadius: data.checkInRadius || 100,
+          singleUserMode: data.singleUserMode || false
         });
 
         setForceRefreshEnabled(data.forceRefresh === true);
+
+        // ตรวจสอบ Single User Mode
+        const canProceed = await checkSingleUserMode();
+        if (!canProceed) {
+          return;
+        }
 
         // ตั้ง real-time listener
         const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityDoc.id), (docSnapshot) => {
@@ -411,7 +485,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               requiresUniversityLogin: updatedData.requiresUniversityLogin || false,
               latitude: updatedData.latitude || prev.latitude,
               longitude: updatedData.longitude || prev.longitude,
-              checkInRadius: updatedData.checkInRadius || prev.checkInRadius
+              checkInRadius: updatedData.checkInRadius || prev.checkInRadius,
+              singleUserMode: updatedData.singleUserMode || false
             }));
 
             const newForceRefresh = updatedData.forceRefresh === true;
@@ -442,7 +517,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         requiresUniversityLogin: false,
         latitude: 0,
         longitude: 0,
-        checkInRadius: 100
+        checkInRadius: 100,
+        singleUserMode: false
       });
     } finally {
       setActivityStatusLoading(false);
@@ -635,6 +711,14 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       }
     } catch (error) {
       console.error('Error checking duplicate:', error);
+    }
+
+    // ตรวจสอบ Single User Mode อีกครั้งก่อนส่งข้อมูล
+    if (activityStatus.singleUserMode) {
+      const canProceed = await checkSingleUserMode();
+      if (!canProceed) {
+        return false;
+      }
     }
 
     return true;
@@ -875,6 +959,48 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     );
   }
 
+  // แสดงข้อความเมื่อละเมิด Single User Mode
+  if (singleUserViolation) {
+    return (
+      <Grow in={true}>
+        <Card elevation={8} sx={{ borderRadius: 4, border: '2px solid', borderColor: 'error.main' }}>
+          <CardContent sx={{ textAlign: 'center', py: 8 }}>
+            <LockIcon sx={{ fontSize: 100, color: 'error.main', mb: 3 }} />
+            <Typography variant="h3" color="error.main" gutterBottom fontWeight="bold">
+              ไม่สามารถลงทะเบียนได้
+            </Typography>
+            <Typography variant="h6" paragraph color="text.secondary">
+              กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียวเท่านั้น
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+              มีผู้ใช้ <strong>{currentRegisteredUser}</strong> ลงทะเบียนไปแล้ว
+            </Typography>
+            
+            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={handleLogout}
+                startIcon={<LogoutIcon />}
+                sx={{ px: 4, py: 1.5, borderRadius: 3 }}
+              >
+                ออกจากระบบ
+              </Button>
+              <Button
+                variant="outlined"
+                size="large"
+                onClick={() => window.close()}
+                sx={{ px: 4, py: 1.5, borderRadius: 3 }}
+              >
+                ปิดหน้าต่าง
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grow>
+    );
+  }
+
   // แสดงหน้าเตือนถ้าต้องการ Microsoft Login แต่ไม่มีข้อมูล
   if (activityStatus.requiresUniversityLogin && !existingUserProfile && !existingAuthStatus) {
     return (
@@ -943,6 +1069,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   </Box>
                 </Box>
               </Paper>
+            )}
+
+            {/* แสดงข้อความสำหรับ Single User Mode */}
+            {activityStatus.singleUserMode && (
+              <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
+                <Typography variant="body2" fontWeight="medium">
+                  🔒 กิจกรรมนี้เป็นโหมดผู้ใช้เดียว - การลงทะเบียนของบัญชีอื่นจะถูกปฏิเสธ
+                </Typography>
+              </Alert>
             )}
             
             <Paper sx={{ 
@@ -1029,24 +1164,27 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               >
                 ปิดหน้าต่าง
               </Button>
-              <Button
-                variant="outlined"
-                size="large"
-                onClick={() => {
-                  setSuccess(false);
-                  setActiveStep(0);
-                  const extractedData = extractAndGenerateUserData(existingUserProfile);
-                  setFormData({
-                    ...extractedData,
-                    userCode: '',
-                    email: existingUserProfile?.email || '',
-                    microsoftId: existingUserProfile?.id || ''
-                  });
-                }}
-                sx={{ px: 4, py: 1.5, borderRadius: 3 }}
-              >
-                ลงทะเบียนคนอื่น
-              </Button>
+              {/* ปุ่มลงทะเบียนคนอื่นจะแสดงเฉพาะเมื่อไม่ใช่ Single User Mode */}
+              {!activityStatus.singleUserMode && (
+                <Button
+                  variant="outlined"
+                  size="large"
+                  onClick={() => {
+                    setSuccess(false);
+                    setActiveStep(0);
+                    const extractedData = extractAndGenerateUserData(existingUserProfile);
+                    setFormData({
+                      ...extractedData,
+                      userCode: '',
+                      email: existingUserProfile?.email || '',
+                      microsoftId: existingUserProfile?.id || ''
+                    });
+                  }}
+                  sx={{ px: 4, py: 1.5, borderRadius: 3 }}
+                >
+                  ลงทะเบียนคนอื่น
+                </Button>
+              )}
             </Box>
           </CardContent>
         </Card>
@@ -1063,6 +1201,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h3" gutterBottom fontWeight="bold" color="primary.main">
               ลงทะเบียนกิจกรรม
             </Typography>
+            {/* แสดงสถานะ Single User Mode */}
+            {activityStatus.singleUserMode && (
+              <Alert severity="warning" sx={{ mt: 2, mb: 2, borderRadius: 2 }}>
+                <Typography variant="body2" fontWeight="medium">
+                  🔒 <strong>โหมดผู้ใช้เดียว:</strong> กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงบัญชีเดียวเท่านั้น
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  หลังจากมีการลงทะเบียนแล้ว บัญชีอื่นจะไม่สามารถลงทะเบียนได้
+                </Typography>
+              </Alert>
+            )}
           </Box>
 
           <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
@@ -1154,6 +1303,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     <Typography variant="body2" color="success.main" fontWeight="medium" sx={{ mt: 1 }}>
                       ⚠️ ข้อมูลที่มีไอคอน <LockIcon sx={{ fontSize: 16, mx: 0.5 }} /> ไม่สามารถแก้ไขได้
                     </Typography>
+                    
+                    {/* แสดงข้อมูลของผู้ใช้เพิ่มเติมสำหรับ Single User Mode */}
+                    {activityStatus.singleUserMode && (
+                      <Box sx={{ mt: 2, p: 2, bgcolor: 'warning.50', borderRadius: 2, border: '1px solid', borderColor: 'warning.200' }}>
+                        <Typography variant="body2" color="warning.dark" fontWeight="medium">
+                          🔒 <strong>ข้อมูลสำคัญ:</strong> บัญชี {existingUserProfile.email} จะเป็นเจ้าของกิจกรรมนี้
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          หลังจากลงทะเบียนแล้ว บัญชีอื่นจะไม่สามารถลงทะเบียนในกิจกรรมนี้ได้อีก
+                        </Typography>
+                      </Box>
+                    )}
                   </Paper>
                 )}
 
@@ -1229,66 +1390,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         '& .MuiInputBase-input': {
                           fontFamily: 'monospace',
                           fontWeight: isFieldReadOnly('studentId') ? 'bold' : 'normal',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="ชื่อ"
-                      value={formData.firstName}
-                      onChange={handleInputChange('firstName')}
-                      required
-                      placeholder="ชื่อจริง"
-                      disabled={isFieldReadOnly('firstName')}
-                      helperText={isFieldReadOnly('firstName') ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
-                      InputProps={{
-                        startAdornment: isFieldReadOnly('firstName') 
-                          ? <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
-                          : <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 2,
-                          bgcolor: isFieldReadOnly('firstName') ? 'action.hover' : 'background.paper',
-                          '&.Mui-focused fieldset': {
-                            borderWidth: 2
-                          }
-                        },
-                        '& .MuiInputBase-input.Mui-disabled': {
-                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
-                        },
-                      }}
-                    />
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="นามสกุล"
-                      value={formData.lastName}
-                      onChange={handleInputChange('lastName')}
-                      required
-                      placeholder="นามสกุลจริง"
-                      disabled={isFieldReadOnly('lastName')}
-                      helperText={isFieldReadOnly('lastName') ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
-                      InputProps={{
-                        startAdornment: isFieldReadOnly('lastName') 
-                          ? <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
-                          : <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 2,
-                          bgcolor: isFieldReadOnly('lastName') ? 'action.hover' : 'background.paper',
-                          '&.Mui-focused fieldset': {
-                            borderWidth: 2
-                          }
-                        },
-                        '& .MuiInputBase-input.Mui-disabled': {
-                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
                         },
                       }}
                     />
@@ -1425,6 +1526,66 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                             borderWidth: 2
                           }
                         }
+                      }}
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="ชื่อ"
+                      value={formData.firstName}
+                      onChange={handleInputChange('firstName')}
+                      required
+                      placeholder="ชื่อจริง"
+                      disabled={isFieldReadOnly('firstName')}
+                      helperText={isFieldReadOnly('firstName') ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
+                      InputProps={{
+                        startAdornment: isFieldReadOnly('firstName') 
+                          ? <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                          : <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          bgcolor: isFieldReadOnly('firstName') ? 'action.hover' : 'background.paper',
+                          '&.Mui-focused fieldset': {
+                            borderWidth: 2
+                          }
+                        },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="นามสกุล"
+                      value={formData.lastName}
+                      onChange={handleInputChange('lastName')}
+                      required
+                      placeholder="นามสกุลจริง"
+                      disabled={isFieldReadOnly('lastName')}
+                      helperText={isFieldReadOnly('lastName') ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
+                      InputProps={{
+                        startAdornment: isFieldReadOnly('lastName') 
+                          ? <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                          : <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          bgcolor: isFieldReadOnly('lastName') ? 'action.hover' : 'background.paper',
+                          '&.Mui-focused fieldset': {
+                            borderWidth: 2
+                          }
+                        },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
+                        },
                       }}
                     />
                   </Grid>
