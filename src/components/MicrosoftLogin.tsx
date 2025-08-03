@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Button,
@@ -85,8 +85,10 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   const [showAccountExistsDialog, setShowAccountExistsDialog] = useState(false);
   const [existingMethods, setExistingMethods] = useState<string[]>([]);
   const [pendingEmail, setPendingEmail] = useState('');
-  const [showMultipleTabsDialog, setShowMultipleTabsDialog] = useState(false);
-  const [isCheckingTabs, setIsCheckingTabs] = useState(false);
+  
+  // ใช้ ref เพื่อติดตามสถานะการล็อกอิน
+  const loginInProgressRef = useRef(false);
+  const popupWindowRef = useRef<Window | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -104,61 +106,32 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // ตรวจสอบการเปิดแถบหลายแถบและการปิดหน้าต่าง
-  const checkMultipleTabs = (): Promise<boolean> => {
-    return new Promise((resolve) => {
-      const checkInterval = setInterval(() => {
-        // ตรวจสอบว่าผู้ใช้กำลังเปิดแถบอื่นอยู่หรือไม่
-        if (document.hidden) {
-          clearInterval(checkInterval);
-          setShowMultipleTabsDialog(true);
-          resolve(false);
-          return;
-        }
-      }, 500);
-
-      // หยุดการตรวจสอบหลังจาก 10 วินาที
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        resolve(true);
-      }, 10000);
-    });
-  };
-
-  // ตรวจสอบการปิดหน้าต่าง
+  // ปรับปรุงการตรวจสอบการปิดหน้าต่าง - ลดความซับซ้อน
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (loginLoading) {
+      if (loginInProgressRef.current) {
         e.preventDefault();
         e.returnValue = 'กำลังดำเนินการเข้าสู่ระบบ คุณแน่ใจหรือไม่ว่าต้องการออกจากหน้านี้?';
         return e.returnValue;
       }
     };
 
+    // ตรวจสอบการเปลี่ยนแถบแบบเบา
     const handleVisibilityChange = () => {
-      if (loginLoading && document.hidden) {
-        setError('การเข้าสู่ระบบถูกขัดจังหวะเนื่องจากเปลี่ยนแถบ กรุณาลองใหม่อีกครั้ง');
-        setLoginLoading(false);
-      }
-    };
-
-    const handleFocus = () => {
-      if (isCheckingTabs) {
-        setIsCheckingTabs(false);
-        setShowMultipleTabsDialog(false);
+      if (loginInProgressRef.current && document.hidden) {
+        // แทนที่จะหยุดการล็อกอิน ให้แสดงการเตือนเบาๆ
+        console.warn('Tab changed during login process');
       }
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
     };
-  }, [loginLoading, isCheckingTabs]);
+  }, []);
 
   const loadUserData = async (uid: string) => {
     try {
@@ -244,35 +217,37 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     }
   };
 
+  // ปรับปรุงการจัดการ Popup - ลดการบล็อกและเพิ่มความเร็ว
   const handleMicrosoftLogin = async () => {
     let attemptedEmail = '';
     
     try {
       setLoginLoading(true);
       setError('');
-      setIsCheckingTabs(true);
+      loginInProgressRef.current = true;
 
-      // ตรวจสอบแถบหลายแถบก่อนเริ่มกระบวนการ login
-      const canProceed = await checkMultipleTabs();
-      if (!canProceed) {
-        setLoginLoading(false);
-        setIsCheckingTabs(false);
-        return;
-      }
-
-      setIsCheckingTabs(false);
-
+      // ตั้งค่า provider ก่อนสร้าง popup
       const provider = new OAuthProvider('microsoft.com');
       provider.addScope('openid');
       provider.addScope('email');
       provider.addScope('profile');
+      
+      // เพิ่ม custom parameters เพื่อปรับปรุงประสิทธิภาพ
+      provider.setCustomParameters({
+        prompt: 'select_account',
+        // ลดเวลาการโหลด
+        response_mode: 'fragment'
+      });
 
       console.log('Starting Microsoft login...');
+      
+      // ใช้ setTimeout เพื่อให้ UI อัพเดทก่อน
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       const result = await signInWithPopup(auth, provider);
       const firebaseUser = result.user;
       console.log('Microsoft login successful:', firebaseUser.email);
       
-
       // Store the email that was attempted
       attemptedEmail = firebaseUser.email || '';
 
@@ -294,30 +269,23 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
     } catch (err: any) {
       console.error('Microsoft login error:', err);
-      console.error('Error code:', err.code);
-      console.error('Error customData:', err.customData);
       await handleAuthError(err, attemptedEmail);
     } finally {
       setLoginLoading(false);
-      setIsCheckingTabs(false);
+      loginInProgressRef.current = false;
     }
   };
 
+  // ปรับปรุงการจัดการ Error ให้ชัดเจนและเป็นมิตรกับผู้ใช้มากขึ้น
   const handleAuthError = async (err: AuthError, attemptedEmail: string = '') => {
     if (err.code === 'auth/account-exists-with-different-credential') {
-      // Try to get email from multiple sources
       let email = '';
       
-      // Method 1: From customData (may not always work)
       if (err.customData?.email) {
         email = err.customData.email as string;
-      }
-      // Method 2: From attempted email during login
-      else if (attemptedEmail) {
+      } else if (attemptedEmail) {
         email = attemptedEmail;
-      }
-      // Method 3: From error message if it contains email
-      else if (err.message && err.message.includes('@')) {
+      } else if (err.message && err.message.includes('@')) {
         const emailMatch = err.message.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
         if (emailMatch) {
           email = emailMatch[1];
@@ -335,23 +303,23 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
           setError(`มีบัญชีผู้ใช้ที่ใช้อีเมล ${email} อยู่แล้ว กรุณาเข้าสู่ระบบด้วยวิธีการที่ใช้ในการสร้างบัญชี`);
         }
       } else {
-        setError('มีบัญชีผู้ใช้ที่ใช้อีเมลนี้อยู่แล้ว กรุณาเข้าสู่ระบบด้วยวิธีการที่ใช้ในการสร้างบัญชี หากไม่แน่ใจกรุณาติดต่อผู้ดูแลระบบ');
+        setError('มีบัญชีผู้ใช้ที่ใช้อีเมลนี้อยู่แล้ว กรุณาเข้าสู่ระบบด้วยวิธีการที่ใช้ในการสร้างบัญชี');
       }
     } else {
       let errorMessage = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
       
       switch (err.code) {
         case 'auth/popup-closed-by-user':
-          errorMessage = 'การเข้าสู่ระบบถูกยกเลิก';
+          errorMessage = 'การเข้าสู่ระบบถูกยกเลิก กรุณาลองใหม่อีกครั้ง';
           break;
         case 'auth/popup-blocked':
-          errorMessage = 'เบราว์เซอร์บล็อก popup กรุณาอนุญาต popup สำหรับเว็บไซต์นี้';
+          errorMessage = 'เบราว์เซอร์บล็อก popup กรุณาอนุญาต popup สำหรับเว็บไซต์นี้แล้วลองใหม่';
           break;
         case 'auth/network-request-failed':
-          errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย กรุณาลองใหม่อีกครั้ง';
+          errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต';
           break;
         case 'auth/too-many-requests':
-          errorMessage = 'มีการพยายามเข้าสู่ระบบมากเกินไป กรุณารอสักครู่แล้วลองใหม่';
+          errorMessage = 'มีการพยายามเข้าสู่ระบบมากเกินไป กรุณารอ 1-2 นาทีแล้วลองใหม่';
           break;
         case 'auth/credential-already-in-use':
           errorMessage = 'ข้อมูลประจำตัวนี้ถูกใช้งานแล้วในบัญชีอื่น';
@@ -362,8 +330,15 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         case 'auth/operation-not-allowed':
           errorMessage = 'การเข้าสู่ระบบด้วย Microsoft ไม่ได้รับอนุญาต กรุณาติดต่อผู้ดูแลระบบ';
           break;
+        case 'auth/unauthorized-domain':
+          errorMessage = 'โดเมนนี้ไม่ได้รับอนุญาตให้ใช้การเข้าสู่ระบบ กรุณาติดต่อผู้ดูแลระบบ';
+          break;
         default:
-          errorMessage = `เกิดข้อผิดพลาด: ${err.message || err.code}`;
+          if (err.message.includes('popup')) {
+            errorMessage = 'ไม่สามารถเปิดหน้าต่างล็อกอินได้ กรุณาอนุญาต popup และลองใหม่';
+          } else {
+            errorMessage = `เกิดข้อผิดพลาด: ${err.message || err.code}`;
+          }
       }
       
       setError(errorMessage);
@@ -444,11 +419,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     setShowAccountExistsDialog(false);
     setPendingEmail('');
     setExistingMethods([]);
-  };
-
-  const handleCloseMultipleTabsDialog = () => {
-    setShowMultipleTabsDialog(false);
-    setIsCheckingTabs(false);
   };
 
   const getStatusInfo = () => {
@@ -607,17 +577,17 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
             </Alert>
           )}
 
-          <Alert severity="info" sx={{ mb: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2">
               <strong>หมายเหตุ:</strong> กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น 
               (อีเมลที่ลงท้ายด้วย @university.ac.th)
             </Typography>
           </Alert>
 
-          <Alert severity="warning" sx={{ mb: 3 }}>
+          {/* ลดข้อความเตือนให้สั้นลงและไม่น่ากลัว */}
+          <Alert severity="info" sx={{ mb: 3 }}>
             <Typography variant="body2">
-              <strong>ข้อควรระวัง:</strong> อย่าปิดหน้าต่างหรือเปลี่ยนแถบระหว่างการเข้าสู่ระบบ 
-              เพื่อป้องกันการขัดข้องของระบบ
+              <strong>เคล็ดลับ:</strong> หากเบราว์เซอร์บล็อก popup กรุณาคลิกที่ไอคอนการแจ้งเตือนในแถบที่อยู่และเลือก "อนุญาต"
             </Typography>
           </Alert>
 
@@ -625,9 +595,9 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
             variant="contained"
             size="large"
             fullWidth
-            startIcon={loginLoading || isCheckingTabs ? <CircularProgress size={20} /> : <MicrosoftIcon />}
+            startIcon={loginLoading ? <CircularProgress size={20} color="inherit" /> : <MicrosoftIcon />}
             onClick={handleMicrosoftLogin}
-            disabled={loginLoading || disabled || isCheckingTabs}
+            disabled={loginLoading || disabled}
             sx={{
               bgcolor: '#0078d4',
               '&:hover': {
@@ -639,9 +609,7 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
               py: 1.5
             }}
           >
-            {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 
-             isCheckingTabs ? 'กำลังตรวจสอบ...' : 
-             'เข้าสู่ระบบด้วย Microsoft'}
+            {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Microsoft'}
           </Button>
 
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
@@ -655,49 +623,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
           </Alert>
         </CardContent>
       </Card>
-
-      {/* Dialog for multiple tabs warning */}
-      <Dialog 
-        open={showMultipleTabsDialog} 
-        onClose={handleCloseMultipleTabsDialog}
-        maxWidth="sm"
-        fullWidth
-        disableEscapeKeyDown
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <WarningIcon color="warning" />
-          กรุณาปิดแถบอื่น
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body1" gutterBottom>
-            ตรวจพบการเปิดแถบหรือหน้าต่างอื่นในขณะที่กำลังเข้าสู่ระบบ
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            เพื่อความปลอดภัยและความเสถียรของระบบ กรุณา:
-          </Typography>
-          <Box sx={{ pl: 2, mb: 2 }}>
-            <Typography variant="body2" sx={{ mb: 0.5 }}>
-              • ปิดแถบหรือหน้าต่างอื่นทั้งหมด
-            </Typography>
-            <Typography variant="body2" sx={{ mb: 0.5 }}>
-              • มุ่งความสนใจที่หน้านี้เท่านั้น
-            </Typography>
-            <Typography variant="body2" sx={{ mb: 0.5 }}>
-              • ไม่เปลี่ยนแถบระหว่างการเข้าสู่ระบบ
-            </Typography>
-          </Box>
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            <Typography variant="body2">
-              การเปลี่ยนแถบหรือเปิดหน้าต่างใหม่อาจทำให้การเข้าสู่ระบบล้มเหลว
-            </Typography>
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseMultipleTabsDialog} color="primary" variant="contained">
-            เข้าใจแล้ว ฉันจะอยู่ที่หน้านี้
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Dialog for account exists with different credential */}
       <Dialog 

@@ -38,7 +38,8 @@ import {
   Security as SecurityIcon,
   Edit as EditIcon,
   AccountCircle as AccountCircleIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  Lock as LockIcon
 } from '@mui/icons-material';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -80,10 +81,64 @@ interface ActivityRegistrationFormProps {
   activityCode: string;
   adminSettings: AdminSettings;
   onSuccess?: () => Promise<void>;
-  // ทำให้ existingUserProfile เป็น optional
   existingUserProfile?: UserProfile;
   existingAuthStatus: boolean;
 }
+
+// PSU Faculties (same as NavigationBar)
+const PSU_FACULTIES = [
+  { name: 'คณะวิศวกรรมศาสตร์', code: '01' },
+  { name: 'คณะวิทยาศาสตร์', code: '02' },
+  { name: 'คณะแพทยศาสตร์', code: '03' },
+  { name: 'คณะทรัพยากรธรรมชาติ', code: '04' },
+  { name: 'คณะศึกษาศาสตร์', code: '05' },
+  { name: 'คณะมนุษยศาสตร์และสังคมศาสตร์', code: '06' },
+  { name: 'คณะเศรษฐศาสตร์', code: '07' },
+  { name: 'คณะบริหารธุรกิจ', code: '08' },
+  { name: 'คณะศิลปกรรมศาสตร์', code: '09' },
+  { name: 'คณะพยาบาลศาสตร์', code: '10' },
+  { name: 'คณะเภสัชศาสตร์', code: '11' },
+  { name: 'คณะทันตแพทยศาสตร์', code: '12' },
+  { name: 'คณะสัตวแพทยศาสตร์', code: '13' }
+];
+
+// Degree levels
+const DEGREE_LEVELS = [
+  { name: 'ปริญญาตรี', code: '1' },
+  { name: 'ปริญญาโท', code: '2' },
+  { name: 'ปริญญาเอก', code: '3' }
+];
+
+// Common department/major names
+const COMMON_DEPARTMENTS = [
+  'วิศวกรรมคอมพิวเตอร์',
+  'วิศวกรรมไฟฟ้า',
+  'วิศวกรรมเครื่องกล',
+  'วิศวกรรมโยธา',
+  'วิศวกรรมเคมี',
+  'วิทยาศาสตร์การคำนวณ',
+  'เคมี',
+  'ฟิสิกส์',
+  'คณิตศาสตร์',
+  'วิทยาศาสตร์และเทคโนโลยีการอาหาร',
+  'การแพทย์',
+  'พยาบาลศาสตร์',
+  'เภสัชศาสตร์',
+  'ทันตแพทยศาสตร์',
+  'การจัดการ',
+  'การตลาด',
+  'การเงิน',
+  'การบัญชี',
+  'เศรษฐศาสตร์',
+  'รัฐศาสตร์',
+  'ภาษาไทย',
+  'ภาษาอังกฤษ',
+  'ภาษาจีน',
+  'ประวัติศาสตร์',
+  'ปรัชญา',
+  'จิตวิทยา',
+  'สังคมวิทยา'
+];
 
 const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   activityCode,
@@ -114,68 +169,151 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [realtimeListener, setRealtimeListener] = useState<(() => void) | null>(null);
 
-  // ฟังก์ชันดึงข้อมูลจาก Microsoft Profile
-  function extractUserDataFromMicrosoft(profile?: UserProfile) {
+  // Enhanced function to extract information from Microsoft display name
+  const extractMicrosoftUserInfo = (displayName: string) => {
+    const result = {
+      englishName: '',
+      firstName: '',
+      lastName: '',
+      degree: '',
+      department: '',
+      faculty: '',
+      university: 'มหาวิทยาลัยสงขลานครินทร์'
+    };
+
+    // Extract English name (before parentheses)
+    const englishNameMatch = displayName.match(/^([^(]+)/);
+    if (englishNameMatch) {
+      result.englishName = englishNameMatch[1].trim();
+    }
+
+    // Extract Thai name from parentheses
+    const thaiNameMatch = displayName.match(/\(([^)]+)\)/);
+    if (thaiNameMatch) {
+      const thaiFullName = thaiNameMatch[1].trim();
+      const nameParts = thaiFullName.split(/\s+/);
+      if (nameParts.length >= 2) {
+        result.firstName = nameParts[0];
+        result.lastName = nameParts.slice(1).join(' ');
+      } else {
+        result.firstName = thaiFullName;
+        result.lastName = '';
+      }
+    }
+
+    // Extract degree information
+    const degreeMatch = displayName.match(/ปริญญา\w+/);
+    if (degreeMatch) {
+      result.degree = degreeMatch[0];
+    }
+
+    // Extract department/major (สาขาวิชา...)
+    const departmentMatch = displayName.match(/สาขาวิชา([^\s]+(?:\s+[^\s]+)*?)(?:\s+คณะ|$)/);
+    if (departmentMatch) {
+      result.department = departmentMatch[1].trim();
+    }
+
+    // Extract faculty (คณะ...)
+    const facultyMatch = displayName.match(/คณะ([^\s]+(?:\s+[^\s]+)*?)(?:\s|$)/);
+    if (facultyMatch) {
+      const facultyName = `คณะ${facultyMatch[1].trim()}`;
+      result.faculty = facultyName;
+    }
+
+    return result;
+  };
+
+  // Generate student ID based on PSU structure
+  const generateStudentId = (faculty: string) => {
+    const year = new Date().getFullYear().toString().slice(-2);
+    const degreeLevel = '1';
+    
+    let facultyCode = '02';
+    const facultyData = PSU_FACULTIES.find(f => f.name === faculty);
+    if (facultyData) {
+      facultyCode = facultyData.code;
+    }
+    
+    const majorCode = '1';
+    const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    
+    return `${year}${degreeLevel}${facultyCode}${majorCode}${randomNum}`;
+  };
+
+  // Function to detect faculty and degree from student ID
+  const detectInfoFromStudentId = (studentId: string): { faculty: string, degree: string } => {
+    const result = { faculty: 'คณะวิทยาศาสตร์', degree: 'ปริญญาตรี' };
+    
+    if (studentId.length >= 5) {
+      const degreeCode = studentId.substring(2, 3);
+      const degree = DEGREE_LEVELS.find(d => d.code === degreeCode);
+      if (degree) {
+        result.degree = degree.name;
+      }
+      
+      const facultyCode = studentId.substring(3, 5);
+      const faculty = PSU_FACULTIES.find(f => f.code === facultyCode);
+      if (faculty) {
+        result.faculty = faculty.name;
+      }
+    }
+    
+    return result;
+  };
+
+  // ฟังก์ชันดึงข้อมูลจาก Microsoft Profile และสร้างข้อมูลอัตโนมัติ
+  function extractAndGenerateUserData(profile?: UserProfile) {
     if (!profile) {
       return {
         studentId: '',
         firstName: '',
         lastName: '',
-        department: ''
+        department: '',
+        faculty: '',
+        degree: '',
+        university: '',
+        englishName: '',
+        isAutoFilled: false
       };
     }
 
+    const displayName = profile.displayName || '';
+    const email = profile.email || '';
+    
+    // Extract information from Microsoft display name
+    const extractedInfo = extractMicrosoftUserInfo(displayName);
+    
+    // Try to extract student ID from email first
     let studentId = '';
+    let detectedFaculty = extractedInfo.faculty || 'คณะวิทยาศาสตร์';
+    let detectedDegree = 'ปริญญาตรี';
     
-    // วิธีที่ 1: จากรูปแบบ email (เช่น 6412345678@university.edu)
-    if (profile.email) {
-      const emailMatch = profile.email.match(/^(\d{10})@/);
-      if (emailMatch) {
-        studentId = emailMatch[1];
-      }
-    }
-    
-    // วิธีที่ 2: จาก displayName หรือ jobTitle
-    if (!studentId && profile.displayName) {
-      const displayNameMatch = profile.displayName.match(/(\d{10})/);
-      if (displayNameMatch) {
-        studentId = displayNameMatch[1];
-      }
-    }
-
-    let firstName = profile.givenName || '';
-    let lastName = profile.surname || '';
-    
-    if (!firstName && !lastName && profile.displayName) {
-      const nameParts = profile.displayName.trim().split(/\s+/);
-      if (nameParts.length >= 2) {
-        firstName = nameParts[0];
-        lastName = nameParts.slice(1).join(' ');
-      } else {
-        firstName = profile.displayName;
-      }
-    }
-
-    let department = '';
-    if (profile.department) {
-      const matchedDept = defaultDepartments.find(dept => 
-        dept.toLowerCase().includes(profile.department!.toLowerCase()) ||
-        profile.department!.toLowerCase().includes(dept.toLowerCase())
-      );
-      department = matchedDept || profile.department;
+    const emailMatch = email.match(/^(\d{8,12})/);
+    if (emailMatch) {
+      studentId = emailMatch[1];
+      const detectedInfo = detectInfoFromStudentId(studentId);
+      detectedFaculty = detectedInfo.faculty;
+      detectedDegree = detectedInfo.degree;
+    } else {
+      studentId = generateStudentId(detectedFaculty);
     }
 
     return {
       studentId,
-      firstName,
-      lastName,
-      department
+      firstName: extractedInfo.firstName || 'ไม่ระบุ',
+      lastName: extractedInfo.lastName || 'ไม่ระบุ',
+      department: extractedInfo.department || 'วิศวกรรมคอมพิวเตอร์',
+      faculty: detectedFaculty,
+      degree: detectedDegree,
+      university: 'มหาวิทยาลัยสงขลานครินทร์',
+      englishName: extractedInfo.englishName,
+      isAutoFilled: true
     };
   }
 
-  // ตั้งค่า formData - รองรับกรณีไม่มี existingUserProfile
+  // ตั้งค่า formData - รองรับการดึงข้อมูลอัตโนมัติ
   const [formData, setFormData] = useState(() => {
-    const extractedData = extractUserDataFromMicrosoft(existingUserProfile);
+    const extractedData = extractAndGenerateUserData(existingUserProfile);
     return {
       ...extractedData,
       userCode: '',
@@ -184,25 +322,22 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     };
   });
 
-  const steps = ['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'];
+  // Auto-filled data that cannot be edited (ข้อมูลที่ไม่สามารถแก้ไขได้)
+  const [autoFilledData, setAutoFilledData] = useState(() => {
+    const extractedData = extractAndGenerateUserData(existingUserProfile);
+    return {
+      firstName: extractedData.firstName,
+      lastName: extractedData.lastName,
+      englishName: extractedData.englishName,
+      studentId: extractedData.studentId,
+      faculty: extractedData.faculty,
+      degree: extractedData.degree,
+      university: extractedData.university,
+      isAutoFilled: extractedData.isAutoFilled
+    };
+  });
 
-  const defaultDepartments = [
-    'วิศวกรรมศาสตร์',
-    'วิทยาศาสตร์',
-    'เทคโนโลยีสารสนเทศ',
-    'บริหารธุรกิจ',
-    'ศิลปศาสตร์',
-    'ครุศาสตร์',
-    'แพทยศาสตร์',
-    'พยาบาลศาสตร์',
-    'เภสัชศาสตร์',
-    'ทันตแพทยศาสตร์',
-    'วิศวกรรมคอมพิวเตอร์',
-    'นิเทศศาสตร์',
-    'นิติศาสตร์',
-    'เศรษฐศาสตร์',
-    'การจัดการ'
-  ];
+  const steps = ['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'];
 
   // ฟังก์ชันสำหรับบังคับโหลดหน้าใหม่
   const handleForceRefresh = () => {
@@ -318,7 +453,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     try {
       console.log('Initializing departments in database...');
       
-      for (const deptName of defaultDepartments) {
+      for (const deptName of COMMON_DEPARTMENTS) {
         const deptDoc = doc(db, 'departments', deptName.replace(/\s+/g, '_'));
         await setDoc(deptDoc, {
           name: deptName,
@@ -372,7 +507,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       console.error('Error fetching departments:', error);
       setError('ไม่สามารถโหลดข้อมูลสาขาได้ กรุณาลองใหม่อีกครั้ง');
       
-      const fallbackDepartments = defaultDepartments.map((name, index) => ({
+      const fallbackDepartments = COMMON_DEPARTMENTS.map((name, index) => ({
         id: `fallback-${index}`,
         name,
         isActive: true
@@ -465,6 +600,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       return false;
     }
     
+    if (!formData.faculty) {
+      setError('กรุณาเลือกคณะ');
+      return false;
+    }
+    
     if (!formData.department) {
       setError('กรุณาเลือกสาขา');
       return false;
@@ -528,14 +668,22 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         studentId: formData.studentId,
         firstName: formData.firstName,
         lastName: formData.lastName,
+        faculty: formData.faculty,
         department: formData.department,
+        degree: formData.degree,
+        university: formData.university,
         activityCode,
         location,
         userCode: formData.userCode,
         email: formData.email,
         microsoftId: formData.microsoftId,
-        // Only include microsoftProfile if it exists and is not undefined
-        ...(existingUserProfile && { microsoftProfile: existingUserProfile })
+        ...(existingUserProfile && { microsoftProfile: existingUserProfile }),
+        ...(autoFilledData.isAutoFilled && { 
+          autoFilledData: {
+            englishName: autoFilledData.englishName,
+            isFromMicrosoft: true
+          }
+        })
       };
 
       await addDoc(collection(db, 'activityRecords'), {
@@ -574,6 +722,14 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       longitude: activityStatus.longitude || 100.5018,
       radius: activityStatus.checkInRadius || 100
     };
+  };
+
+  // Helper function to check if field is read-only
+  const isFieldReadOnly = (field: string): boolean => {
+    if (!autoFilledData.isAutoFilled) return false;
+    
+    const readOnlyFields = ['studentId', 'firstName', 'lastName', 'faculty', 'degree', 'university'];
+    return readOnlyFields.includes(field);
   };
 
   // แสดง Loading เมื่อกำลังโหลดหน้าใหม่
@@ -821,7 +977,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     <BadgeIcon sx={{ mr: 2, color: 'success.main' }} />
                     <Box>
                       <Typography variant="caption" color="text.secondary">รหัสนักศึกษา</Typography>
-                      <Typography variant="body1" fontWeight="600">{formData.studentId}</Typography>
+                      <Typography variant="body1" fontWeight="600" fontFamily="monospace">{formData.studentId}</Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <SchoolIcon sx={{ mr: 2, color: 'success.main' }} />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">คณะ</Typography>
+                      <Typography variant="body1" fontWeight="600">{formData.faculty}</Typography>
                     </Box>
                   </Box>
                 </Grid>
@@ -831,6 +996,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     <Box>
                       <Typography variant="caption" color="text.secondary">สาขา</Typography>
                       <Typography variant="body1" fontWeight="600">{formData.department}</Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <SchoolIcon sx={{ mr: 2, color: 'success.main' }} />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">ระดับการศึกษา</Typography>
+                      <Typography variant="body1" fontWeight="600">{formData.degree}</Typography>
                     </Box>
                   </Box>
                 </Grid>
@@ -861,7 +1035,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                 onClick={() => {
                   setSuccess(false);
                   setActiveStep(0);
-                  const extractedData = extractUserDataFromMicrosoft(existingUserProfile);
+                  const extractedData = extractAndGenerateUserData(existingUserProfile);
                   setFormData({
                     ...extractedData,
                     userCode: '',
@@ -945,7 +1119,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Grow in={true}>
               <Box>
                 {/* แสดงข้อมูลผู้ใช้ Microsoft ถ้ามี */}
-                {existingUserProfile && (
+                {existingUserProfile && autoFilledData.isAutoFilled && (
                   <Paper sx={{ 
                     p: 3, 
                     bgcolor: 'success.50', 
@@ -969,12 +1143,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                           📝 ข้อมูลด้านล่างถูกดึงจาก Microsoft อัตโนมัติ
                         </Typography>
                       </Box>
+                      <LockIcon sx={{ color: 'success.main', fontSize: 30 }} />
                     </Box>
                     
                     <Divider sx={{ my: 2 }} />
                     
                     <Typography variant="body2" color="text.secondary">
                       ข้อมูลส่วนตัวจะถูกป้องกันและใช้เฉพาะการลงทะเบียนกิจกรรมนี้เท่านั้น
+                    </Typography>
+                    <Typography variant="body2" color="success.main" fontWeight="medium" sx={{ mt: 1 }}>
+                      ⚠️ ข้อมูลที่มีไอคอน <LockIcon sx={{ fontSize: 16, mx: 0.5 }} /> ไม่สามารถแก้ไขได้
                     </Typography>
                   </Paper>
                 )}
@@ -990,6 +1168,31 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                 )}
 
                 <Grid container spacing={3}>
+                  {/* แสดงชื่อภาษาอังกฤษถ้ามี */}
+                  {autoFilledData.englishName && (
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="ชื่อภาษาอังกฤษ"
+                        value={autoFilledData.englishName}
+                        disabled
+                        helperText="ชื่อภาษาอังกฤษจากบัญชี Microsoft (ไม่สามารถแก้ไขได้)"
+                        InputProps={{
+                          startAdornment: <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                        }}
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 2,
+                            bgcolor: 'action.hover'
+                          },
+                          '& .MuiInputBase-input.Mui-disabled': {
+                            WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
+                          },
+                        }}
+                      />
+                    </Grid>
+                  )}
+                  
                   <Grid item xs={12}>
                     <TextField
                       fullWidth
@@ -997,30 +1200,40 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       value={formData.studentId}
                       onChange={handleInputChange('studentId')}
                       required
-                      placeholder="เช่น 6412345678"
-                      helperText={existingUserProfile 
+                      placeholder="เช่น 6712345678"
+                      helperText={isFieldReadOnly('studentId') 
                         ? "รหัสนักศึกษา 10 หลัก ขึ้นต้นด้วย 64-69 (ดึงจาก Microsoft อัตโนมัติ)"
                         : "รหัสนักศึกษา 10 หลัก ขึ้นต้นด้วย 64-69"
                       }
-                      disabled={!!existingUserProfile}
+                      disabled={isFieldReadOnly('studentId')}
                       inputProps={{
                         maxLength: 10,
                         pattern: '[0-9]*'
                       }}
                       InputProps={{
-                        startAdornment: <BadgeIcon sx={{ mr: 1, color: 'action.active' }} />
+                        startAdornment: isFieldReadOnly('studentId') 
+                          ? <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                          : <BadgeIcon sx={{ mr: 1, color: 'action.active' }} />
                       }}
                       sx={{
                         '& .MuiOutlinedInput-root': {
                           borderRadius: 2,
-                          bgcolor: existingUserProfile ? 'action.hover' : 'background.paper',
+                          bgcolor: isFieldReadOnly('studentId') ? 'action.hover' : 'background.paper',
                           '&.Mui-focused fieldset': {
                             borderWidth: 2
                           }
-                        }
+                        },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
+                        },
+                        '& .MuiInputBase-input': {
+                          fontFamily: 'monospace',
+                          fontWeight: isFieldReadOnly('studentId') ? 'bold' : 'normal',
+                        },
                       }}
                     />
                   </Grid>
+                  
                   <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
@@ -1029,22 +1242,28 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       onChange={handleInputChange('firstName')}
                       required
                       placeholder="ชื่อจริง"
-                      disabled={!!existingUserProfile}
-                      helperText={existingUserProfile ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
+                      disabled={isFieldReadOnly('firstName')}
+                      helperText={isFieldReadOnly('firstName') ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
                       InputProps={{
-                        startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
+                        startAdornment: isFieldReadOnly('firstName') 
+                          ? <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                          : <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
                       }}
                       sx={{
                         '& .MuiOutlinedInput-root': {
                           borderRadius: 2,
-                          bgcolor: existingUserProfile ? 'action.hover' : 'background.paper',
+                          bgcolor: isFieldReadOnly('firstName') ? 'action.hover' : 'background.paper',
                           '&.Mui-focused fieldset': {
                             borderWidth: 2
                           }
-                        }
+                        },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
+                        },
                       }}
                     />
                   </Grid>
+                  
                   <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
@@ -1053,63 +1272,137 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       onChange={handleInputChange('lastName')}
                       required
                       placeholder="นามสกุลจริง"
-                      disabled={!!existingUserProfile}
-                      helperText={existingUserProfile ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
+                      disabled={isFieldReadOnly('lastName')}
+                      helperText={isFieldReadOnly('lastName') ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
                       InputProps={{
-                        startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
+                        startAdornment: isFieldReadOnly('lastName') 
+                          ? <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                          : <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
                       }}
                       sx={{
                         '& .MuiOutlinedInput-root': {
                           borderRadius: 2,
-                          bgcolor: existingUserProfile ? 'action.hover' : 'background.paper',
+                          bgcolor: isFieldReadOnly('lastName') ? 'action.hover' : 'background.paper',
                           '&.Mui-focused fieldset': {
                             borderWidth: 2
                           }
-                        }
+                        },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
+                        },
                       }}
                     />
                   </Grid>
+                  
                   <Grid item xs={12}>
-                    <FormControl fullWidth required disabled={!!existingUserProfile && !!formData.department}>
-                      <InputLabel>สาขา</InputLabel>
+                    <TextField
+                      fullWidth
+                      label="มหาวิทยาลัย"
+                      value="มหาวิทยาลัยสงขลานครินทร์"
+                      disabled
+                      helperText="ระบบรองรับเฉพาะมหาวิทยาลัยสงขลานครินทร์"
+                      InputProps={{
+                        startAdornment: <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          bgcolor: 'action.hover'
+                        },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth required disabled={isFieldReadOnly('faculty')}>
+                      <InputLabel>คณะ</InputLabel>
                       <Select
-                        value={formData.department}
-                        label="สาขา"
-                        onChange={handleSelectChange('department')}
+                        value={formData.faculty}
+                        label="คณะ"
+                        onChange={handleSelectChange('faculty')}
                         sx={{
                           borderRadius: 2,
-                          bgcolor: (existingUserProfile && formData.department) ? 'action.hover' : 'background.paper',
+                          bgcolor: isFieldReadOnly('faculty') ? 'action.hover' : 'background.paper',
                           '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
                             borderWidth: 2
                           }
                         }}
                       >
-                        {(existingUserProfile && formData.department) ? (
-                          <MenuItem value={formData.department}>
+                        {PSU_FACULTIES.map((faculty) => (
+                          <MenuItem key={faculty.name} value={faculty.name}>
                             <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                              <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
-                              {formData.department}
+                              {isFieldReadOnly('faculty') 
+                                ? <LockIcon sx={{ mr: 2, color: 'action.disabled' }} />
+                                : <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
+                              }
+                              {faculty.name}
                             </Box>
                           </MenuItem>
-                        ) : (
-                          departments.map((dept) => (
-                            <MenuItem key={dept.id} value={dept.name}>
-                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
-                                {dept.name}
-                              </Box>
-                            </MenuItem>
-                          ))
-                        )}
+                        ))}
                       </Select>
-                      {(existingUserProfile && formData.department) && (
+                      {isFieldReadOnly('faculty') && (
                         <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
                           ดึงจาก Microsoft อัตโนมัติ
                         </Typography>
                       )}
                     </FormControl>
                   </Grid>
-                  <Grid item xs={12}>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth required>
+                      <InputLabel>สาขา/ภาควิชา</InputLabel>
+                      <Select
+                        value={formData.department}
+                        label="สาขา/ภาควิชา"
+                        onChange={handleSelectChange('department')}
+                        disabled={forceRefreshEnabled}
+                        sx={{
+                          borderRadius: 2,
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                            borderWidth: 2
+                          }
+                        }}
+                      >
+                        {departments.map((dept) => (
+                          <MenuItem key={dept.id} value={dept.name}>
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              <SchoolIcon sx={{ mr: 2, color: 'action.active' }} />
+                              {dept.name}
+                            </Box>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="ระดับการศึกษา"
+                      value={formData.degree}
+                      disabled={isFieldReadOnly('degree')}
+                      helperText={isFieldReadOnly('degree') ? "ดึงจาก Microsoft อัตโนมัติ" : ""}
+                      InputProps={{
+                        startAdornment: isFieldReadOnly('degree') 
+                          ? <LockIcon sx={{ mr: 1, color: 'action.disabled' }} />
+                          : <SchoolIcon sx={{ mr: 1, color: 'action.active' }} />
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          bgcolor: isFieldReadOnly('degree') ? 'action.hover' : 'background.paper'
+                        },
+                        '& .MuiInputBase-input.Mui-disabled': {
+                          WebkitTextFillColor: 'rgba(0, 0, 0, 0.7)',
+                        },
+                      }}
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
                       label="รหัสผู้ใช้"
@@ -1135,6 +1428,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       }}
                     />
                   </Grid>
+                  
                   <Grid item xs={12}>
                     <Button
                       fullWidth
