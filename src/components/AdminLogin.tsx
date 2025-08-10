@@ -1,302 +1,329 @@
+// src/components/AdminLogin.tsx
 'use client';
-import React, { useState } from 'react';
+
+import React, { useMemo, useState } from 'react';
 import {
-  Box, Drawer, AppBar, Toolbar, List, Typography, Divider, IconButton, ListItem, ListItemButton,
-  ListItemIcon, ListItemText, Avatar, Menu, MenuItem, Badge, useTheme, useMediaQuery, Collapse,
-  Dialog,   DialogTitle,   DialogContent,   DialogActions, Button, Alert, CircularProgress
+  Box,
+  Container,
+  Grid,
+  Card,
+  CardContent,
+  Typography,
+  Button,
+  Avatar,
+  Alert,
+  CircularProgress,
+  Stack,
+  Divider,
+  alpha,
+  useTheme
 } from '@mui/material';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import LogoutIcon from '@mui/icons-material/Logout';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
+
+import { auth, db } from '../lib/firebase'; // ปรับ path ตามโครงของคุณถ้าจำเป็น
 import {
-  Menu as MenuIcon, Dashboard as DashboardIcon, People as PeopleIcon, Event as EventIcon,
-  Assessment as ReportsIcon, Settings as SettingsIcon,   Security as SecurityIcon,   Logout as LogoutIcon,
-  Notifications as NotificationsIcon,   Person as PersonIcon, ExpandLess, ExpandMore, QrCode as QrCodeIcon,
-  SupervisorAccount as SupervisorIcon, Warning as WarningIcon
-} from '@mui/icons-material';
-import { signOut } from 'firebase/auth';
-import { auth } from '../lib/firebase';
-import { AdminProfile } from '../types/admin';
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  UserCredential,
+} from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, updateDoc, Timestamp } from 'firebase/firestore';
 
-// ✅ ใช้ค่าจากไฟล์ types/admin เพียงที่เดียว
-import { DEPARTMENT_LABELS, ROLE_LABELS, type AdminPermission } from '../types/admin';
-
-const DRAWER_WIDTH = 280;
-
-interface AdminLayoutProps {
-  currentAdmin: AdminProfile;
-  children: React.ReactNode;
-  activeSection: string;
-  onSectionChange: (section: string) => void;
-  onLogout: () => void;
-}
-
-// ชนิดสำหรับเมนู (หลีกเลี่ยงชนกับ MUI MenuItem)
-interface NavEntry {
+// ---- Types ----
+export type AdminUser = {
   id: string;
-  label: string;
-  icon: React.ReactNode;
-  permission?: AdminPermission;
-  children?: NavEntry[];
-}
+  email: string;
+  displayName: string;
+  role: 'admin' | 'super_admin';
+  isActive: boolean;
+  lastLogin: Date;
+  createdAt: Date;
+};
 
-export const AdminLayout: React.FC<AdminLayoutProps> = ({
-  currentAdmin,
-  children,
-  activeSection,
-  onSectionChange,
-  onLogout
-}) => {
+type Props = {
+  onLoginSuccess: (adminUser: AdminUser) => void;
+};
+
+// โลโก้ Google แบบ SVG (ชัดและไม่ต้องโหลดรูปเพิ่ม)
+const GoogleIcon = () => (
+  <Box
+    component="svg"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 48 48"
+    sx={{ width: 22, height: 22, mr: 1 }}
+  >
+    <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.657 31.987 29.223 35 24 35 16.82 35 11 29.18 11 22S16.82 9 24 9c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 3.02 30.2 1 24 1 10.745 1 0 11.745 0 25s10.745 24 24 24 24-10.745 24-24c0-1.603-.166-3.169-.389-4.917z"/>
+    <path fill="#FF3D00" d="M6.306 14.691l6.571 4.817C14.3 16.012 18.78 13 24 13c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 7.02 30.2 5 24 5 15.317 5 7.985 9.936 6.306 14.691z"/>
+    <path fill="#4CAF50" d="M24 45c5.135 0 9.773-1.982 13.286-5.214l-6.131-5.182C28.827 35.517 26.518 36 24 36c-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.793 39.985 15.124 45 24 45z"/>
+    <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-1.368 3.254-4.713 7-11.303 7-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.985 38.064 15.317 43 24 43c11.223 0 19-7.5 19-18 0-1.603-.166-3.169-.389-4.917z"/>
+  </Box>
+);
+
+const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [drawerOpen, setDrawerOpen] = useState(!isMobile);
-    const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(['activities']);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  const [logoutDialog, setLogoutDialog] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState('');
+  const gradientBg = useMemo(
+    () =>
+      `radial-gradient(1200px 600px at 10% -10%, ${alpha(
+        theme.palette.primary.main,
+        0.35
+      )}, transparent 60%), radial-gradient(900px 500px at 110% 10%, ${alpha(
+        theme.palette.secondary.main,
+        0.25
+      )}, transparent 55%), linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 70%)`,
+    [theme]
+  );
 
-  const menuItems: NavEntry[] = [
-    { id: 'dashboard', label: 'แดชบอร์ด', icon: <DashboardIcon /> },
-    {
-      id: 'activities',
-      label: 'จัดการกิจกรรม',
-      icon: <EventIcon />,
-      permission: 'manage_activities',
-      children: [
-        { id: 'activity-list', label: 'รายการกิจกรรม', icon: <EventIcon /> },
-        { id: 'qr-generator', label: 'สร้าง QR Code', icon: <QrCodeIcon /> }
-      ]
-    },
-    { id: 'users', label: 'จัดการผู้ใช้', icon: <PeopleIcon />, permission: 'manage_users' },
-    { id: 'reports', label: 'รายงาน', icon: <ReportsIcon />, permission: 'view_reports' },
-    { id: 'admin-management', label: 'จัดการแอดมิน', icon: <SecurityIcon />, permission: 'manage_admins' },
-    { id: 'settings', label: 'ตั้งค่าระบบ', icon: <SettingsIcon />, permission: 'system_settings' }
-  ];
-
-  const handleDrawerToggle = () => setDrawerOpen(!drawerOpen);
-  const handleMenuExpand = (menuId: string) => {
-    setExpandedMenus(prev => prev.includes(menuId) ? prev.filter(id => id !== menuId) : [...prev, menuId]);
+  const cardGlass = {
+    backgroundColor: alpha(theme.palette.background.paper, 0.6),
+    backdropFilter: 'blur(12px)',
+    border: `1px solid ${alpha(theme.palette.common.white, 0.25)}`,
+    boxShadow: `0 10px 35px ${alpha('#000', 0.25)}`,
   };
-  const handleProfileMenuOpen = (e: React.MouseEvent<HTMLElement>) => setProfileMenuAnchor(e.currentTarget);
-  const handleProfileMenuClose = () => setProfileMenuAnchor(null);
 
-  const handleLogoutClick = () => { setProfileMenuAnchor(null); setLogoutDialog(true); };
-  const handleLogoutConfirm = async () => {
-    setLoggingOut(true); setLogoutError('');
+  const parseFirebaseError = (code?: string, message?: string) => {
+    if (!code) return message || 'ไม่สามารถเข้าสู่ระบบได้';
+    if (code.includes('popup-closed-by-user')) return 'คุณปิดหน้าต่างล็อกอินก่อนเสร็จสิ้น';
+    if (code.includes('cancelled-popup-request')) return 'มีหน้าต่างล็อกอินกำลังทำงานอยู่';
+    if (code.includes('network-request-failed')) return 'เครือข่ายมีปัญหา กรุณาลองใหม่';
+    return message || 'ไม่สามารถเข้าสู่ระบบได้';
+  };
+
+  const handleGoogleLogin = async () => {
+    setErr(null);
+    setLoading(true);
     try {
-      await signOut(auth);
-      localStorage.removeItem('adminSession');
-      sessionStorage.clear();
-      onLogout();
-      setLogoutDialog(false);
+      const provider = new GoogleAuthProvider();
+      const cred: UserCredential = await signInWithPopup(auth, provider);
+      const { user } = cred;
+
+      // ตรวจสอบสิทธิ์ admin ใน Firestore: adminUsers/{uid}
+      const ref = doc(db, 'adminUsers', user.uid);
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        await signOut(auth);
+        setErr('บัญชีนี้ยังไม่ได้รับอนุญาตให้เป็นผู้ดูแลระบบ');
+        setLoading(false);
+        return;
+      }
+
+      const data = snap.data() as {
+        email?: string;
+        displayName?: string;
+        role: 'admin' | 'super_admin';
+        isActive: boolean;
+        createdAt?: Timestamp | Date;
+        lastLogin?: Timestamp | Date;
+      };
+
+      if (!data.isActive) {
+        await signOut(auth);
+        setErr('บัญชีผู้ดูแลระบบนี้ถูกปิดการใช้งาน');
+        setLoading(false);
+        return;
+      }
+
+      // อัปเดต lastLogin เป็น serverTimestamp()
+      try {
+        await updateDoc(ref, { lastLogin: serverTimestamp() });
+      } catch {
+        // non-blocking
+      }
+
+      const adminUser: AdminUser = {
+        id: user.uid,
+        email: user.email ?? data.email ?? '',
+        displayName: user.displayName ?? data.displayName ?? 'Admin User',
+        role: data.role,
+        isActive: data.isActive,
+        lastLogin:
+          data.lastLogin instanceof Timestamp
+            ? data.lastLogin.toDate()
+            : data.lastLogin instanceof Date
+            ? data.lastLogin
+            : new Date(),
+        createdAt:
+          data.createdAt instanceof Timestamp
+            ? data.createdAt.toDate()
+            : (data.createdAt as Date) ?? new Date(),
+      };
+
+      onLoginSuccess(adminUser);
     } catch (e: any) {
-      console.error('Logout error:', e);
-      setLogoutError('เกิดข้อผิดพลาดในการออกจากระบบ กรุณาลองใหม่');
-          } finally {
-      setLoggingOut(false);
+      console.error(e);
+      setErr(parseFirebaseError(e?.code, e?.message));
+      try { await signOut(auth); } catch {}
+    } finally {
+      setLoading(false);
     }
   };
-const handleLogoutCancel = () => { setLogoutDialog(false); setLogoutError(''); };
 
-  const renderItem = (item: NavEntry, depth = 0) => {
-    const hasPermission = !item.permission || currentAdmin.permissions.includes(item.permission);
-    if (!hasPermission) return null;
-
-    const isExpanded = expandedMenus.includes(item.id);
-    const hasChildren = !!item.children?.length;
-
-    return (
-      <React.Fragment key={item.id}>
-        <ListItem disablePadding>
-          <ListItemButton
-            selected={activeSection === item.id}
-            onClick={() => {
-              if (hasChildren) handleMenuExpand(item.id);
-              else {
-                onSectionChange(item.id);
-                if (isMobile) setDrawerOpen(false);
-              }
-            }}
-              sx={{
-                pl: 2 + depth * 2, borderRadius: 2, mx: 1, mb: 0.5,
-              '&.Mui-selected': { backgroundColor: 'primary.main', color: 'white',
-                '&:hover': { backgroundColor: 'primary.dark' } }
-            }}
-          >
-            <ListItemIcon sx={{ color: activeSection === item.id ? 'white' : 'inherit', minWidth: 40 }}>
-              {item.icon}
-            </ListItemIcon            >
-              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: '.9rem', fontWeight: activeSection === item.id ? 600 : 400 }} />
-            {hasChildren && (isExpanded ? <ExpandLess /> : <ExpandMore />)}
-          </ListItemButton>
-        </ListItem>
-        {hasChildren && (
-          <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-            <List component="div" disablePadding>
-              {item.children!.map(child => renderItem(child, depth + 1))}
-            </List>
-          </Collapse>
-        )}
-      </React.Fragment>
-    );
+  const handleSignOut = async () => {
+    setErr(null);
+    setLoading(true);
+    try {
+      await signOut(auth);
+    } catch (e: any) {
+      console.error(e);
+      setErr('ออกจากระบบไม่สำเร็จ');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const drawer = (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Brand */}
-      <Box sx={{ p: 3, textAlign: 'center', bgcolor: 'primary.main', color: 'white' }}              >
-                <Avatar sx={{ bgcolor: 'white', color: 'primary.main', mx: 'auto', mb: 1, width: 56, height: 56 }}>
-          <SupervisorIcon sx={{ fontSize: 32 }} />
-        </Avatar>
-        <Typography variant="h6" fontWeight="bold">Admin Panel</Typography>
-        <Typography variant="caption">{DEPARTMENT_LABELS[currentAdmin.department]}</Typography>
-              </Box>
-
-      {/* Menu */}
-      <Box sx={{ flex: 1, overflow: 'auto', py: 2 }}>
-        <List>{menuItems.map(renderItem)}</List>
-            </Box>
-            
-      {/* User + Quick Logout */}
-      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Avatar src={currentAdmin.profileImage} sx={{ width: 40, height: 40 }}>
-            {currentAdmin.firstName?.charAt(0)}
-          </Avatar>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="body2" fontWeight="medium" noWrap>{currentAdmin.displayName}            </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {ROLE_LABELS[currentAdmin.role]}
-            </Typography>
-          </Box>
-        <IconButton
-            size="small"
-            onClick={handleLogoutClick}
-            sx={{ color: 'error.main', '&:hover': { bgcolor: 'error.light' } }}
-            title="ออกจากระบบ"
-          >
-            <LogoutIcon fontSize="small" />
-          </IconButton>
-        </Box>
-      </Box>
-      </Box>
-    );
-  
-    return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <AppBar
-        position="fixed"
+  return (
+    <Box
       sx={{
-        width: { md: `calc(100% - ${drawerOpen ? DRAWER_WIDTH : 0}px)` },
-          ml: { md: `${drawerOpen ? DRAWER_WIDTH : 0}px` },
-          bgcolor: 'background.paper',
-          color: 'text.primary',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.12)'
-        }}
-      >
-        <Toolbar>
-          <IconButton color="inherit" edge="start" onClick={handleDrawerToggle} sx={{ mr: 2 }}>
-            <MenuIcon /    >
-      </IconButton>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>ระบบจัดการกิจกรรม</Typography>
-          <IconButton color="inherit" sx={{ mr: 1 }}>
-        <Badge badgeContent={4} color="error">
-          <NotificationsIcon />
-            </Badge>
-          </IconButton>
-          <IconButton onClick={handleProfileMenuOpen} sx={{ p: 0 }}>
-            <Avatar src={currentAdmin.profileImage} sx={{ width: 32, height: 32 }}>
-              {currentAdmin.firstName?.charAt(0)}
-            </Avatar>
-          </IconButton>
-          <Menu
-            anchorEl={profileMenuAnchor}
-            open={Boolean(profileMenuAnchor)}
-            onClose={handleProfileMenuClose}
-            onClick={handleProfileMenuClose}
-            PaperProps={{ sx: { borderRadius: 2, minWidth: 180 } }}
-          >
-            <MenuItem onClick={() => onSectionChange('profile')}>
-              <ListItemIcon><PersonIcon fontSize="small" /></ListItemIcon> โปรไฟล์
-            </MenuItem>
-            <MenuItem onClick={() => onSectionChange('settings')}            >
-              <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon> ตั้งค่า
-            </MenuItem>
-            <Divider />
-            <MenuItem
-              onClick={handleLogoutClick}
-              sx={{ color: 'error.main', '&:hover': { bgcolor: 'error.light' } }}
-            >
-              <ListItemIcon><LogoutIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
-              ออกจากระบบ
-            </MenuItem>
-          </Menu>
-        </Toolbar>
-      </AppBar>
+        minHeight: '100vh',
+        background: gradientBg,
+        display: 'flex',
+        alignItems: 'center',
+        py: { xs: 6, md: 8 },
+      }}
+    >
+      <Container maxWidth="lg">
+        <Grid container spacing={4} alignItems="stretch">
+          {/* Visual / Copy side */}
+          <Grid item xs={12} md={6} lg={7}>
+            <Card sx={{ height: '100%', ...cardGlass, p: { xs: 2, md: 3 } }}>
+              <CardContent sx={{ height: '100%' }}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+                  <Avatar sx={{ bgcolor: 'common.white', color: 'primary.main', width: 56, height: 56 }}>
+                    <AdminPanelSettingsIcon fontSize="large" />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="h4" fontWeight={800} color="common.white">
+                      กล่องควบคุมผู้ดูแลระบบ
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: alpha('#fff', 0.85) }}>
+                      เข้าสู่ระบบเพื่อจัดการกิจกรรม ผู้ใช้ และรายงานได้ในที่เดียว
+                    </Typography>
+                  </Box>
+                </Stack>
 
-      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }}>
-        <Drawer
-          variant={isMobile ? 'temporary' : 'persistent'}
-          open={drawerOpen}
-          onClose={handleDrawerToggle}
-          ModalProps={{ keepMounted: true }}
-          sx={{ '& .MuiDrawer-paper': { boxSizing: 'border-box', width: DRAWER_WIDTH, border: 'none', boxShadow: '2px 0 8px rgba(0,0,0,0.1)' }                 }}
-              >
-                {drawer}
-              </Drawer>
-            </Box>
-
-            <Box component="main" sx={{ flexGrow: 1, width: { md: `calc(100% - ${drawerOpen ? DRAWER_WIDTH : 0}px)` }, minHeight: '100vh', bgcolor: 'grey.50' }}>
-        <Toolbar />
-        {children}
+                <Box
+                  sx={{
+                    mt: 3,
+                    p: { xs: 2, md: 3 },
+                    borderRadius: 3,
+                    background: alpha('#000', 0.2),
+                    color: 'common.white',
+                  }}
+                >
+                  <Typography variant="h6" fontWeight={700} gutterBottom>
+                    ไฮไลต์ความสามารถ
+                  </Typography>
+                  <Stack spacing={1.2}>
+                    <Typography variant="body2">• สร้าง/แก้ไขกิจกรรม พร้อม QR Code อัตโนมัติ</Typography>
+                    <Typography variant="body2">• เช็คอินตามพิกัด + กำหนดรัศมี</Typography>
+                    <Typography variant="body2">• รายงานภาพรวมแบบเรียลไทม์</Typography>
+                    <Typography variant="body2">• สิทธิ์การเข้าถึงตามบทบาท</Typography>
+                  </Stack>
                 </Box>
-                
-                {/* Logout dialog */}
-                <Dialog open={logoutDialog} onClose={handleLogoutCancel} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ textAlign: 'center', pb: 1, bgcolor: 'warning.light', color: 'warning.dark' }}                      >
-                        <WarningIcon sx={{ fontSize: 40, mb: 1, color: 'warning.main' }} />
-          <Typography             variant="h6" fontWeight="bold">            ยืนยันการออกจากระบบ          </Typography>
-        </DialogTitle>
-                <DialogContent sx={{ p: 3, textAlign: 'center' }}>
-          {logoutError && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{logoutError}</Alert>}
-            <Box sx={{ mb: 3 }}>
-              <Avatar src={currentAdmin.profileImage} sx={{ width: 60, height: 60, mx: 'auto', mb: 2, border: '3px solid', borderColor: 'primary.main' }}>
-              {currentAdmin.firstName?.charAt(0)}
-              </Avatar>
-              <Typography variant="body1" gutterBottom><strong>{currentAdmin.displayName}</strong></Typography>
-            <Typography variant="body2" color="text.secondary">
-              {ROLE_LABELS[currentAdmin.role]} • {DEPARTMENT_LABELS[currentAdmin.department]}
-              </Typography>
-            </Box>
-            <Typography variant="body1" sx={{ mb: 2 }}>คุณต้องการออกจากระบบแอดมินหรือไม่?</Typography>
-          <Typography variant="body2" color="text.secondary">การทำงานที่ยังไม่ได้บันทึกอาจจะหายไป</Typography>
-        </DialogContent>
-                <DialogActions sx={{ p: 3, gap: 1, justifyContent: 'center' }}>
-<Button onClick={handleLogoutCancel} variant="outlined" size="large" disabled={loggingOut} sx={{ minWidth: 120, borderRadius: 2 }}>ยกเลิก</Button>
-          <Button 
-            onClick={handleLogoutConfirm}
-            variant="contained" color="error" size="large" disabled={loggingOut}
-            startIcon={loggingOut ? <CircularProgress size={16} color="inherit" /> : <LogoutIcon />}
-            sx={{ minWidth: 120, borderRadius: 2 }}
-          >
-            {loggingOut ? 'กำลังออกจากระบบ...' : 'ออกจากระบบ'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+
+                <Typography variant="caption" sx={{ display: 'block', mt: 2, color: alpha('#fff', 0.8) }}>
+                  * หากล็อกอินสำเร็จแต่ยังเข้าไม่ได้ ให้ติดต่อผู้ดูแลเพื่อเพิ่มสิทธิ์ในฐานข้อมูล
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Login side */}
+          <Grid item xs={12} md={6} lg={5}>
+            <Card
+              sx={{
+                height: '100%',
+                ...cardGlass,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <CardContent sx={{ width: '100%', p: { xs: 3, md: 4 } }}>
+                <Box sx={{ textAlign: 'center', mb: 2 }}>
+                  <Avatar
+                    sx={{
+                      width: 72,
+                      height: 72,
+                      mx: 'auto',
+                      mb: 1.5,
+                      bgcolor: 'common.white',
+                      color: 'primary.main',
+                      boxShadow: `0 6px 18px ${alpha('#000', 0.25)}`
+                    }}
+                  >
+                    <LockOpenIcon fontSize="large" />
+                  </Avatar>
+                  <Typography variant="h5" fontWeight={800}>
+                    เข้าสู่ระบบผู้ดูแล
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    ใช้บัญชีที่ได้รับสิทธิ์ในระบบเท่านั้น
+                  </Typography>
+                </Box>
+
+                {err && (
+                  <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
+                    {err}
+                  </Alert>
+                )}
+
+                <Button
+                  fullWidth
+                  size="large"
+                  onClick={handleGoogleLogin}
+                  disabled={loading}
+                  startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <GoogleIcon />}
+                  sx={{
+                    borderRadius: 2,
+                    py: 1.3,
+                    fontWeight: 700,
+                    backgroundColor: 'common.white',
+                    color: 'text.primary',
+                    boxShadow: `0 8px 20px ${alpha('#000', 0.22)}`,
+                    '&:hover': { backgroundColor: alpha('#fff', 0.9) }
+                  }}
+                >
+                  {loading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Google'}
+                </Button>
+
+                <Stack direction="row" alignItems="center" spacing={2} sx={{ my: 2 }}>
+                  <Divider sx={{ flex: 1, opacity: 0.6 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    ตัวช่วย
+                  </Typography>
+                  <Divider sx={{ flex: 1, opacity: 0.6 }} />
+                </Stack>
+
+                <Button
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  onClick={handleSignOut}
+                  startIcon={<LogoutIcon />}
+                  sx={{ borderRadius: 2 }}
+                >
+                  ออกจากระบบ (เผื่อค้าง)
+                </Button>
+
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', textAlign: 'center', mt: 2, color: alpha(theme.palette.text.primary, 0.7) }}
+                >
+                  v1.0 • Secure by Firebase Auth & Firestore
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Container>
     </Box>
   );
 };
 
-// Utility logout (optionally export)
-export const performLogout = async (): Promise<void> => {
-  try {
-    await signOut(auth);
-    localStorage.removeItem('adminSession');
-    localStorage.removeItem('currentAdmin');
-    localStorage.removeItem('adminPermissions');
-    sessionStorage.clear();
-    window.location.href = '/admin/login';
-  } catch (error) {
-    console.error('Logout error:', error);
-    throw new Error('เกิดข้อผิดพลาดในการออกจากระบบ');
-  }
-};
+export default AdminLogin;

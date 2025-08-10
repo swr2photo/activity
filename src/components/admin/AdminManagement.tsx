@@ -1,550 +1,427 @@
-// components/admin/AdminManagement.tsx
-import React, { useState, useEffect } from 'react';
+'use client';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Box,
-  Typography,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  Switch,
-  FormControlLabel,
-  Alert,
-  Avatar,
-  IconButton,
-  Tooltip,
-  Grid,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Checkbox,
-  FormGroup,
-  useTheme,
-  useMediaQuery
+  Box, Grid, Card, CardContent, Container, Typography, Button, IconButton,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, Chip, Stack,
+  MenuItem, Switch, FormControlLabel, Alert, Tooltip, Divider, Avatar
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Security as SecurityIcon,
-  Person as PersonIcon
+  AdminPanelSettings as AdminIcon,
+  Refresh as RefreshIcon,
+  Shield as ShieldIcon
 } from '@mui/icons-material';
-import { ResponsiveCard, ResponsiveContainer } from '../common/index';
-import { AdminRoleGuard } from './AdminRoleGuard';
-import { 
-  AdminProfile, 
-  AdminRole, 
-  AdminDepartment, 
+
+import {
+  AdminProfile,
+  AdminDepartment,
+  AdminRole,
   AdminPermission,
   DEPARTMENT_LABELS,
   ROLE_LABELS,
-  ROLE_PERMISSIONS
+  ROLE_PERMISSIONS,
 } from '../../types/admin';
 
-interface AdminManagementProps {
-  currentAdmin: AdminProfile;
-}
+import {
+  getAllAdmins,
+  getAdminsByDepartment,
+  createAdminUser,
+  updateAdminUser,
+  deleteAdminUser,
+} from '../../lib/adminFirebase';
 
-// Mock API functions - replace with actual API calls
-const getAdminsByDepartment = async (department?: AdminDepartment): Promise<AdminProfile[]> => {
-  // Mock implementation - replace with actual API call
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve([
-        {
-          uid: '1',
-          email: 'admin@example.com',
-          firstName: 'John',
-          lastName: 'Doe',
-          displayName: 'John Doe',
-          role: 'super_admin' as AdminRole,
-          department: 'student_union' as AdminDepartment,
-          permissions: ['manage_users', 'manage_activities', 'manage_admins'] as AdminPermission[],
-          isActive: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          createdBy: 'system'
-        }
-      ]);
-    }, 1000);
-  });
-};
+type Props = { currentAdmin: AdminProfile };
 
-const updateAdmin = async (uid: string, data: Partial<AdminProfile>): Promise<void> => {
-  // Mock implementation - replace with actual API call
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      console.log('Updating admin:', uid, data);
-      resolve();
-    }, 1000);
-  });
-};
+const PERMISSION_OPTIONS: AdminPermission[] = [
+  'manage_users',
+  'manage_activities',
+  'view_reports',
+  'export_data',
+  'manage_admins',
+  'system_settings',
+  'moderate_content',
+];
 
-const createAdmin = async (data: Omit<AdminProfile, 'uid' | 'updatedAt'>): Promise<void> => {
-  // Mock implementation - replace with actual API call
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      console.log('Creating admin:', data);
-      resolve();
-    }, 1000);
-  });
-};
-
-const deleteAdmin = async (uid: string): Promise<void> => {
-  // Mock implementation - replace with actual API call
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      console.log('Deleting admin:', uid);
-      resolve();
-    }, 1000);
-  });
-};
-
-export const AdminManagement: React.FC<AdminManagementProps> = ({ currentAdmin }) => {
+const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
   const [admins, setAdmins] = useState<AdminProfile[]>([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingAdmin, setEditingAdmin] = useState<Partial<AdminProfile> | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [err, setErr] = useState('');
 
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  // filter (เฉพาะ super_admin แสดงตัวเลือกทุกสังกัด)
+  const [deptFilter, setDeptFilter] = useState<AdminDepartment>(currentAdmin.department);
 
-  const [formData, setFormData] = useState({
+  // dialog state
+  const [open, setOpen] = useState(false);
+  const [editingUid, setEditingUid] = useState<string | null>(null);
+
+  // form state
+  const [form, setForm] = useState<Partial<AdminProfile>>({
+    uid: '',
     email: '',
     firstName: '',
     lastName: '',
-    role: 'viewer' as AdminRole,
-    department: 'student_union' as AdminDepartment,
-    permissions: [] as AdminPermission[]
+    displayName: '',
+    role: 'department_admin',
+    department: currentAdmin.department === 'all' ? 'student_union' : currentAdmin.department,
+    permissions: [],
+    isActive: true,
   });
 
-  useEffect(() => {
-    loadAdmins();
-  }, []);
+  const canManageAll = currentAdmin.role === 'super_admin';
+  const canManageAdmins = (currentAdmin.permissions || []).includes('manage_admins') || currentAdmin.role === 'super_admin';
 
-  const loadAdmins = async () => {
+  const load = async () => {
     setLoading(true);
+    setErr('');
     try {
-      // Load admins based on current admin's permissions
-      // Super admin can see all, department admin can see their department
-      const adminsData = await getAdminsByDepartment(
-        currentAdmin.role === 'super_admin' ? undefined : currentAdmin.department
-      );
-      setAdmins(adminsData);
-    } catch (error) {
-      setError('ไม่สามารถโหลดข้อมูลแอดมินได้');
+      const data =
+        canManageAll && deptFilter === 'all'
+          ? await getAllAdmins()
+          : await getAdminsByDepartment(deptFilter || currentAdmin.department);
+      setAdmins(data);
+    } catch (e: any) {
+      setErr(e?.message || 'โหลดข้อมูลแอดมินไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateAdmin = () => {
-    setEditingAdmin(null);
-    setFormData({
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [deptFilter]);
+
+  const openCreate = () => {
+    setEditingUid(null);
+    setForm({
+      uid: '',
       email: '',
       firstName: '',
       lastName: '',
-      role: 'viewer',
-      department: currentAdmin.role === 'super_admin' ? 'student_union' : currentAdmin.department,
-      permissions: ROLE_PERMISSIONS['viewer']
+      displayName: '',
+      role: currentAdmin.role === 'super_admin' ? 'department_admin' : 'moderator',
+      department: currentAdmin.department === 'all' ? 'student_union' : currentAdmin.department,
+      permissions: [],
+      isActive: true,
     });
-    setDialogOpen(true);
+    setOpen(true);
+    setErr('');
   };
 
-  const handleEditAdmin = (admin: AdminProfile) => {
-    setEditingAdmin(admin);
-    setFormData({
-      email: admin.email,
-      firstName: admin.firstName,
-      lastName: admin.lastName,
-      role: admin.role,
-      department: admin.department,
-      permissions: admin.permissions
+  const openEdit = (a: AdminProfile) => {
+    setEditingUid(a.uid);
+    setForm({
+      uid: a.uid,
+      email: a.email,
+      firstName: a.firstName,
+      lastName: a.lastName,
+      displayName: a.displayName,
+      role: a.role,
+      department: a.department,
+      permissions: a.permissions || [],
+      isActive: a.isActive,
     });
-    setDialogOpen(true);
+    setOpen(true);
+    setErr('');
   };
 
-  const handleDeleteAdmin = async (uid: string) => {
-    if (window.confirm('คุณแน่ใจหรือไม่ที่จะลบแอดมินนี้?')) {
-      try {
-        setLoading(true);
-        await deleteAdmin(uid);
-        loadAdmins();
-      } catch (error) {
-        setError('ไม่สามารถลบแอดมินได้');
-      } finally {
-        setLoading(false);
-      }
-    }
+  const closeDialog = () => {
+    setOpen(false);
   };
 
-  const handleRoleChange = (newRole: AdminRole) => {
-    setFormData(prev => ({
-      ...prev,
-      role: newRole,
-      permissions: ROLE_PERMISSIONS[newRole]
-    }));
+  const useRoleDefaults = () => {
+    if (!form.role) return;
+    setForm((p) => ({ ...p, permissions: ROLE_PERMISSIONS[form.role as AdminRole] || [] }));
   };
 
-  const handlePermissionToggle = (permission: AdminPermission) => {
-    setFormData(prev => ({
-      ...prev,
-      permissions: prev.permissions.includes(permission)
-        ? prev.permissions.filter(p => p !== permission)
-        : [...prev.permissions, permission]
-    }));
+  const onChange = <K extends keyof AdminProfile>(k: K, v: AdminProfile[K]) => {
+    setForm((p) => ({ ...p, [k]: v }));
   };
 
-  const handleSaveAdmin = async () => {
+  const onTogglePermission = (perm: AdminPermission) => {
+    setForm((p) => {
+      const list = new Set(p.permissions || []);
+      if (list.has(perm)) list.delete(perm); else list.add(perm);
+      return { ...p, permissions: Array.from(list) };
+    });
+  };
+
+  const canDelete = (target: AdminProfile) => {
+    if (currentAdmin.uid === target.uid) return false; // ห้ามลบตัวเอง
+    if (currentAdmin.role === 'super_admin') return true;
+    // dept admin ลบได้เฉพาะในสังกัดตัวเอง และลบเฉพาะ role ต่ำกว่า/เท่ากัน (ไม่ใช่ super_admin)
+    return (
+      currentAdmin.department !== 'all' &&
+      target.department === currentAdmin.department &&
+      target.role !== 'super_admin'
+    );
+  };
+
+  const submit = async () => {
+    setErr('');
     try {
-      setLoading(true);
-      
-      if (editingAdmin) {
-        // Update existing admin
-        await updateAdmin(editingAdmin.uid!, {
-          ...formData,
-          updatedAt: new Date()
-        });
-      } else {
-        // Create new admin
-        await createAdmin({
-          ...formData,
-          displayName: `${formData.firstName} ${formData.lastName}`,
-          createdBy: currentAdmin.uid,
-          createdAt: new Date(),
-          isActive: true
-        });
+      // ตรวจเบื้องต้น
+      const required = ['uid', 'email', 'firstName', 'lastName', 'role', 'department'] as const;
+      for (const k of required) {
+        const v = (form as any)[k];
+        if (!v || (typeof v === 'string' && !v.trim())) {
+          setErr(`กรุณากรอก ${k}`);
+          return;
+        }
       }
-      
-      setDialogOpen(false);
-      loadAdmins();
-    } catch (error) {
-      setError('ไม่สามารถบันทึกข้อมูลได้');
-    } finally {
-      setLoading(false);
+      // จำกัดสิทธิ์: dept admin ห้ามตั้ง role เป็น super_admin และห้ามกำหนด department อื่น
+      if (currentAdmin.role !== 'super_admin') {
+        if (form.role === 'super_admin') {
+          setErr('คุณไม่สามารถกำหนดบทบาทเป็นผู้ดูแลระบบสูงสุดได้');
+          return;
+        }
+        if (form.department !== currentAdmin.department) {
+          setErr('คุณไม่สามารถกำหนดสังกัดอื่นนอกเหนือจากของคุณได้');
+          return;
+        }
+      }
+      // บันทึก
+      const payload: AdminProfile = {
+        uid: String(form.uid),
+        email: String(form.email),
+        firstName: String(form.firstName),
+        lastName: String(form.lastName),
+        displayName: String(form.displayName || `${form.firstName} ${form.lastName}`),
+        role: form.role as AdminRole,
+        department: form.department as AdminDepartment,
+        permissions: (form.permissions || []) as AdminPermission[],
+        isActive: !!form.isActive,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        createdBy: currentAdmin.uid,
+        lastLoginAt: null,
+        profileImage: (form as any).profileImage || '',
+      };
+
+      if (!editingUid) {
+        await createAdminUser(payload);
+      } else {
+        await updateAdminUser(editingUid, payload);
+      }
+      setOpen(false);
+      await load();
+    } catch (e: any) {
+      setErr(e?.message || 'บันทึกไม่สำเร็จ');
     }
   };
+
+  const remove = async (a: AdminProfile) => {
+    if (!canDelete(a)) return;
+    const ok = window.confirm(`ต้องการลบสิทธิ์แอดมินของ ${a.firstName} ${a.lastName} ใช่หรือไม่?`);
+    if (!ok) return;
+    try {
+      await deleteAdminUser(a.uid);
+      await load();
+    } catch (e) {
+      alert('ลบไม่สำเร็จ');
+    }
+  };
+
+  const visibleAdmins = useMemo(() => admins.sort((x, y) => (x.role > y.role ? -1 : 1)), [admins]);
 
   return (
-    <AdminRoleGuard
-      currentAdmin={currentAdmin}
-      requiredPermission="manage_admins"
-    >
-      <ResponsiveContainer>
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SecurityIcon />
-            จัดการผู้ดูแลระบบ
+    <Container maxWidth="xl" sx={{ py: 3 }}>
+      <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <Avatar sx={{ bgcolor: 'primary.main' }}><AdminIcon /></Avatar>
+        <Box>
+          <Typography variant="h4">จัดการแอดมิน</Typography>
+          <Typography color="text.secondary">
+            สังกัด: {DEPARTMENT_LABELS[currentAdmin.department] || currentAdmin.department}
           </Typography>
-          
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <Stack direction="row" spacing={1}>
+          {canManageAll && (
+            <TextField
+              select
+              size="small"
+              label="ตัวกรองสังกัด"
+              value={deptFilter}
+              onChange={(e) => setDeptFilter(e.target.value as AdminDepartment)}
+              sx={{ minWidth: 220 }}
+            >
+              <MenuItem value="all">ทุกสังกัด</MenuItem>
+              {Object.entries(DEPARTMENT_LABELS).map(([k, v]) => (
+                k !== 'all' && <MenuItem key={k} value={k}>{v}</MenuItem>
+              ))}
+            </TextField>
+          )}
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} disabled={loading}>
+            รีเฟรช
+          </Button>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={handleCreateAdmin}
-            sx={{ borderRadius: 3 }}
+            onClick={openCreate}
+            disabled={!canManageAdmins}
           >
             เพิ่มแอดมิน
           </Button>
-        </Box>
+        </Stack>
+      </Box>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {error}
-          </Alert>
-        )}
+      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 
-        {/* Admin Statistics */}
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={3}>
-            <ResponsiveCard>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h3" color="primary.main">
-                  {admins.length}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  แอดมินทั้งหมด
-                </Typography>
-              </Box>
-            </ResponsiveCard>
+      <Grid container spacing={2}>
+        {visibleAdmins.length === 0 ? (
+          <Grid item xs={12}>
+            <Card><CardContent><Typography textAlign="center" color="text.secondary">ไม่พบข้อมูลแอดมิน</Typography></CardContent></Card>
           </Grid>
-          
-          <Grid item xs={12} sm={6} md={3}>
-            <ResponsiveCard>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h3" color="success.main">
-                  {admins.filter(a => a.isActive).length}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  ใช้งานได้
-                </Typography>
-              </Box>
-            </ResponsiveCard>
-          </Grid>
-          
-          <Grid item xs={12} sm={6} md={3}>
-            <ResponsiveCard>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h3" color="info.main">
-                  {new Set(admins.map(a => a.department)).size}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  แผนก
-                </Typography>
-              </Box>
-            </ResponsiveCard>
-          </Grid>
-          
-          <Grid item xs={12} sm={6} md={3}>
-            <ResponsiveCard>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h3" color="warning.main">
-                  {admins.filter(a => a.role === 'super_admin').length}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Super Admin
-                </Typography>
-              </Box>
-            </ResponsiveCard>
-          </Grid>
-        </Grid>
-
-        {/* Admins Table */}
-        <ResponsiveCard>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>ผู้ดูแล</TableCell>
-                  <TableCell>บทบาท</TableCell>
-                  <TableCell>แผนก</TableCell>
-                  <TableCell>สถานะ</TableCell>
-                  <TableCell>สร้างเมื่อ</TableCell>
-                  <TableCell align="center">การดำเนินการ</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {admins.map((admin) => (
-                  <TableRow key={admin.uid} hover>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar src={admin.profileImage}>
-                          {admin.firstName.charAt(0)}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="body2" fontWeight="medium">
-                            {admin.displayName}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {admin.email}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </TableCell>
-                    
-                    <TableCell>
-                      <Chip
-                        label={ROLE_LABELS[admin.role]}
-                        color={
-                          admin.role === 'super_admin' ? 'error' :
-                          admin.role === 'department_admin' ? 'warning' :
-                          admin.role === 'moderator' ? 'info' : 'default'
-                        }
-                        size="small"
-                      />
-                    </TableCell>
-                    
-                    <TableCell>
-                      <Typography variant="body2">
-                        {DEPARTMENT_LABELS[admin.department]}
-                      </Typography>
-                    </TableCell>
-                    
-                    <TableCell>
-                      <Chip
-                        label={admin.isActive ? 'ใช้งานได้' : 'ระงับ'}
-                        color={admin.isActive ? 'success' : 'error'}
-                        size="small"
-                      />
-                    </TableCell>
-                    
-                    <TableCell>
-                      <Typography variant="body2">
-                        {admin.createdAt instanceof Date 
-                          ? admin.createdAt.toLocaleDateString('th-TH')
-                          : admin.createdAt?.toDate?.()?.toLocaleDateString('th-TH') || 'N/A'
-                        }
-                      </Typography>
-                    </TableCell>
-                    
-                    <TableCell align="center">
-                      <Tooltip title="แก้ไข">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleEditAdmin(admin)}
-                          disabled={admin.uid === currentAdmin.uid && admin.role === 'super_admin'}
-                        >
+        ) : (
+          visibleAdmins.map((a) => (
+            <Grid item xs={12} md={6} lg={4} key={a.uid}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Stack direction="row" spacing={2} alignItems="center">
+                    <Avatar src={a.profileImage || ''}>{(a.firstName || 'A').charAt(0)}</Avatar>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography fontWeight={700}>{a.firstName} {a.lastName}</Typography>
+                      <Typography variant="body2" color="text.secondary">{a.email}</Typography>
+                      <Stack direction="row" spacing={1} sx={{ mt: .5, flexWrap: 'wrap' }}>
+                        <Chip size="small" label={ROLE_LABELS[a.role]} color={a.role === 'super_admin' ? 'error' : a.role === 'department_admin' ? 'primary' : 'default'} />
+                        <Chip size="small" label={DEPARTMENT_LABELS[a.department] || a.department} variant="outlined" />
+                        <Chip size="small" label={a.isActive ? 'ใช้งาน' : 'ปิดใช้งาน'} color={a.isActive ? 'success' : 'default'} />
+                      </Stack>
+                    </Box>
+                    <Tooltip title="แก้ไข">
+                      <span>
+                        <IconButton onClick={() => openEdit(a)} color="primary" disabled={!canManageAdmins}>
                           <EditIcon />
                         </IconButton>
-                      </Tooltip>
-                      
-                      {admin.uid !== currentAdmin.uid && (
-                        <Tooltip title="ลบ">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDeleteAdmin(admin.uid)}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </ResponsiveCard>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title={canDelete(a) ? 'ลบ' : 'ไม่สามารถลบได้'}>
+                      <span>
+                        <IconButton onClick={() => remove(a)} color="error" disabled={!canDelete(a)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Stack>
 
-        {/* Create/Edit Admin Dialog */}
-        <Dialog
-          open={dialogOpen}
-          onClose={() => setDialogOpen(false)}
-          maxWidth="md"
-          fullWidth
-          fullScreen={isMobile}
-        >
-          <DialogTitle>
-            {editingAdmin ? 'แก้ไขผู้ดูแล' : 'เพิ่มผู้ดูแลใหม่'}
-          </DialogTitle>
-          
-          <DialogContent>
-            <Grid container spacing={3} sx={{ mt: 1 }}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="ชื่อ"
-                  value={formData.firstName}
-                  onChange={(e) => setFormData(prev => ({ ...prev, firstName: e.target.value }))}
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="นามสกุล"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData(prev => ({ ...prev, lastName: e.target.value }))}
-                />
-              </Grid>
-              
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="อีเมล"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                  disabled={!!editingAdmin}
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>บทบาท</InputLabel>
-                  <Select
-                    value={formData.role}
-                    onChange={(e) => handleRoleChange(e.target.value as AdminRole)}
-                    disabled={currentAdmin.role !== 'super_admin'}
-                  >
-                    {Object.entries(ROLE_LABELS).map(([role, label]) => (
-                      <MenuItem key={role} value={role}>
-                        {label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>แผนก/สังกัด</InputLabel>
-                  <Select
-                    value={formData.department}
-                    onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value as AdminDepartment }))}
-                    disabled={currentAdmin.role !== 'super_admin' && currentAdmin.department !== 'all'}
-                  >
-                    {Object.entries(DEPARTMENT_LABELS)
-                      .filter(([dept]) => currentAdmin.role === 'super_admin' || dept === currentAdmin.department || dept === 'all')
-                      .map(([dept, label]) => (
-                        <MenuItem key={dept} value={dept}>
-                          {label}
-                        </MenuItem>
-                      ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              {/* Permissions */}
-              <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>
-                  สิทธิ์การใช้งาน
-                </Typography>
-                <FormGroup row>
-                  {Object.entries({
-                    manage_users: 'จัดการผู้ใช้',
-                    manage_activities: 'จัดการกิจกรรม',
-                    view_reports: 'ดูรายงาน',
-                    export_data: 'ส่งออกข้อมูล',
-                    manage_admins: 'จัดการแอดมิน',
-                    system_settings: 'ตั้งค่าระบบ',
-                    moderate_content: 'ดูแลเนื้อหา'
-                  }).map(([permission, label]) => (
-                    <FormControlLabel
-                      key={permission}
-                      control={
-                        <Checkbox
-                          checked={formData.permissions.includes(permission as AdminPermission)}
-                          onChange={() => handlePermissionToggle(permission as AdminPermission)}
-                          disabled={
-                            (permission === 'manage_admins' && currentAdmin.role !== 'super_admin') ||
-                            ROLE_PERMISSIONS[formData.role].includes(permission as AdminPermission)
-                          }
-                        />
-                      }
-                      label={label}
-                    />
-                  ))}
-                </FormGroup>
-              </Grid>
+                  {/* permissions */}
+                  {(a.permissions || []).length > 0 && (
+                    <>
+                      <Divider sx={{ my: 1.5 }} />
+                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                        {a.permissions!.map((p) => (
+                          <Chip key={p} size="small" variant="outlined" icon={<ShieldIcon fontSize="small" />} label={p} />
+                        ))}
+                      </Stack>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             </Grid>
-          </DialogContent>
-          
-          <DialogActions>
-            <Button onClick={() => setDialogOpen(false)}>
-              ยกเลิก
-            </Button>
-            <Button 
-              onClick={handleSaveAdmin}
-              variant="contained"
-              disabled={loading}
-            >
-              {editingAdmin ? 'บันทึก' : 'สร้าง'}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </ResponsiveContainer>
-    </AdminRoleGuard>
+          ))
+        )}
+      </Grid>
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={open} onClose={closeDialog} maxWidth="md" fullWidth>
+        <DialogTitle>{editingUid ? 'แก้ไขแอดมิน' : 'เพิ่มแอดมินใหม่'}</DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={2}>
+            {/* UID ต้องตรงกับ Auth UID */}
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="UID (จาก Firebase Auth)*"
+                fullWidth
+                value={form.uid || ''}
+                onChange={(e) => onChange('uid', e.target.value as any)}
+                disabled={!!editingUid}
+                helperText="ต้องใส่ UID ของผู้ใช้ที่มีอยู่ใน Authentication"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField label="อีเมล *" fullWidth value={form.email || ''} onChange={(e) => onChange('email', e.target.value as any)} />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField label="ชื่อ *" fullWidth value={form.firstName || ''} onChange={(e) => onChange('firstName', e.target.value as any)} />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField label="นามสกุล *" fullWidth value={form.lastName || ''} onChange={(e) => onChange('lastName', e.target.value as any)} />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField label="ชื่อที่แสดง" fullWidth value={form.displayName || ''} onChange={(e) => onChange('displayName', e.target.value as any)} />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                select
+                label="บทบาท *"
+                fullWidth
+                value={form.role || 'moderator'}
+                onChange={(e) => onChange('role', e.target.value as AdminRole)}
+              >
+                {/* dept admin ห้ามตั้ง super_admin */}
+                {Object.keys(ROLE_LABELS).map((r) => {
+                  if (currentAdmin.role !== 'super_admin' && r === 'super_admin') return null;
+                  return <MenuItem key={r} value={r}>{ROLE_LABELS[r as AdminRole]}</MenuItem>;
+                })}
+              </TextField>
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                select
+                label="สังกัด *"
+                fullWidth
+                value={form.department || (currentAdmin.department === 'all' ? 'student_union' : currentAdmin.department)}
+                onChange={(e) => onChange('department', e.target.value as AdminDepartment)}
+                disabled={currentAdmin.department !== 'all'}
+              >
+                {Object.entries(DEPARTMENT_LABELS).map(([k, v]) => (
+                  k !== 'all' && <MenuItem key={k} value={k}>{v}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Typography variant="subtitle2">สิทธิ์ (Permissions)</Typography>
+                <Button size="small" variant="outlined" onClick={useRoleDefaults}>ใช้ชุดสิทธิ์ตามบทบาท</Button>
+              </Stack>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                {PERMISSION_OPTIONS.map((p) => {
+                  const checked = (form.permissions || []).includes(p);
+                  return (
+                    <Chip
+                      key={p}
+                      label={p}
+                      color={checked ? 'primary' : 'default'}
+                      variant={checked ? 'filled' : 'outlined'}
+                      onClick={() => onTogglePermission(p)}
+                      sx={{ cursor: 'pointer' }}
+                    />
+                  );
+                })}
+              </Stack>
+            </Grid>
+
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={<Switch checked={!!form.isActive} onChange={(e) => onChange('isActive', e.target.checked as any)} />}
+                label="เปิดใช้งาน"
+              />
+            </Grid>
+          </Grid>
+          {err && <Alert severity="error" sx={{ mt: 2 }}>{err}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDialog}>ยกเลิก</Button>
+          <Button variant="contained" startIcon={<ShieldIcon />} onClick={submit}>
+            บันทึก
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Container>
   );
 };
+
+export { AdminManagement };
+export default AdminManagement;

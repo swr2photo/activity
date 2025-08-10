@@ -1,27 +1,33 @@
-// components/admin/AdminMain.tsx
-import React, { useState, useEffect } from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import { Box, CircularProgress, Alert, Typography } from '@mui/material';
 import { AdminLayout } from './AdminLayout';
 import { DepartmentDashboard } from './DepartmentDashboard';
 import { AdminManagement } from './AdminManagement';
 import { AdminRoleGuard } from './AdminRoleGuard';
-import { AdminProfile } from '../../types/admin';
+import type { AdminProfile } from '../../types/admin';
 
-// Import existing components with responsive updates
-import AdminPanel from '../AdminPanel';
-import AdminUserManagement from '../AdminUserManagement';
-import QRCodeAdminPanel from '../QRCodeAdminPanel';
+// Panels (รีแฟกเตอร์ให้ใช้งานกับเลเยอร์ใหม่)
+import AdminAttendancePanel from './AdminAttendancePanel';
+import AdminUserManagement from './AdminUserManagement';
+import QRCodeAdminPanel from './QRCodeAdminPanel';
 
-// ResponsiveContainer component - create if it doesn't exist
+// กล่องห่อเล็ก ๆ ให้คอนเทนต์ดูสบายตาในมือถือ
 const ResponsiveContainer: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <Box sx={{ 
-    padding: { xs: 2, sm: 3, md: 4 },
-    maxWidth: '100%',
-    overflow: 'hidden'
-  }}>
+  <Box sx={{ padding: { xs: 2, sm: 3, md: 4 }, maxWidth: '100%', overflow: 'hidden' }}>
     {children}
   </Box>
 );
+
+type ActiveSection =
+  | 'dashboard'
+  | 'activity-list'
+  | 'qr-generator'
+  | 'users'
+  | 'admin-management'
+  | 'reports'
+  | 'settings';
 
 interface AdminMainProps {
   currentAdmin: AdminProfile;
@@ -29,83 +35,72 @@ interface AdminMainProps {
 }
 
 export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) => {
-  const [activeSection, setActiveSection] = useState('dashboard');
+  const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
   const [loading, setLoading] = useState(false);
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard':
         return <DepartmentDashboard currentAdmin={currentAdmin} />;
-     
+
       case 'activity-list':
         return (
-          <AdminRoleGuard
-            currentAdmin={currentAdmin}
-            requiredPermission="manage_activities"
-          >
-            <AdminPanel />
+          <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_activities">
+            <AdminAttendancePanel currentAdmin={currentAdmin} />
           </AdminRoleGuard>
         );
-     
+
       case 'qr-generator':
         return (
-          <AdminRoleGuard
-            currentAdmin={currentAdmin}
-            requiredPermission="manage_activities"
-          >
+          <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_activities">
             <ResponsiveContainer>
-              <QRCodeAdminPanel baseUrl={typeof window !== 'undefined' ? window.location.origin : ''} />
+              <QRCodeAdminPanel currentAdmin={currentAdmin} baseUrl={baseUrl} />
             </ResponsiveContainer>
           </AdminRoleGuard>
         );
-     
+
       case 'users':
         return (
-          <AdminRoleGuard
-            currentAdmin={currentAdmin}
-            requiredPermission="manage_users"
-          >
+          <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_users">
             <ResponsiveContainer>
-              <AdminUserManagement />
+              <AdminUserManagement currentAdmin={currentAdmin} />
             </ResponsiveContainer>
           </AdminRoleGuard>
         );
-     
+
       case 'admin-management':
         return <AdminManagement currentAdmin={currentAdmin} />;
-     
+
       case 'reports':
         return (
-          <AdminRoleGuard
-            currentAdmin={currentAdmin}
-            requiredPermission="view_reports"
-          >
+          <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="view_reports">
             <ResponsiveContainer>
-              <Typography variant="h4">รายงานและสถิติ</Typography>
-              {/* Reports component will be implemented */}
+              <Typography variant="h4" gutterBottom>
+                รายงานและสถิติ
+              </Typography>
+              <Alert severity="info">ส่วนรายงานจะถูกพัฒนาเพิ่มเติมในลำดับถัดไป</Alert>
             </ResponsiveContainer>
           </AdminRoleGuard>
         );
-     
+
       case 'settings':
         return (
-          <AdminRoleGuard
-            currentAdmin={currentAdmin}
-            requiredPermission="system_settings"
-          >
+          <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="system_settings">
             <ResponsiveContainer>
-              <Typography variant="h4">ตั้งค่าระบบ</Typography>
-              {/* Settings component will be implemented */}
+              <Typography variant="h4" gutterBottom>
+                ตั้งค่าระบบ
+              </Typography>
+              <Alert severity="info">ส่วนตั้งค่า system จะถูกพัฒนาเพิ่มเติมในลำดับถัดไป</Alert>
             </ResponsiveContainer>
           </AdminRoleGuard>
         );
-     
+
       default:
         return (
           <ResponsiveContainer>
-            <Alert severity="info">
-              เลือกเมนูจากแถบด้านซ้าย
-            </Alert>
+            <Alert severity="info">เลือกเมนูจากแถบด้านซ้าย</Alert>
           </ResponsiveContainer>
         );
     }
@@ -113,12 +108,7 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
 
   if (loading) {
     return (
-      <Box sx={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '100vh'
-      }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
         <CircularProgress />
       </Box>
     );
@@ -128,10 +118,12 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
     <AdminLayout
       currentAdmin={currentAdmin}
       activeSection={activeSection}
-      onSectionChange={setActiveSection}
+      onSectionChange={(section: string) => setActiveSection(section as ActiveSection)} // ← ห่อให้ตรง
       onLogout={onLogout}
     >
       {renderContent()}
     </AdminLayout>
   );
 };
+
+export default AdminMain;

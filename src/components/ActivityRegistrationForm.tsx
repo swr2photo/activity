@@ -44,14 +44,28 @@ import {
   Lock as LockIcon,
   ExitToApp as LogoutIcon,
   AutoAwesome as AutoAwesomeIcon,
-  Verified as VerifiedIcon
+  Verified as VerifiedIcon,
+  ContentCopy as ContentCopyIcon
 } from '@mui/icons-material';
-import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import {
+  collection,
+  addDoc,
+  serverTimestamp,
+  query,
+  where,
+  getDocs,
+  doc,
+  setDoc,
+  onSnapshot
+} from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 import LocationChecker from './LocationChecker';
 import { ActivityRecord, AdminSettings } from '../types';
 import { validateStudentId, validateThaiName } from '../utils/validation';
 
+/** =========================
+ * Types & Interfaces
+ * =======================*/
 interface Department {
   id: string;
   name: string;
@@ -64,12 +78,13 @@ interface ActivityStatus {
   isActive: boolean;
   activityCode: string;
   description?: string;
-  userCode?: string;
+  userCode?: string;                 // organizer passcode shown to user
   requiresUniversityLogin?: boolean;
   latitude?: number;
   longitude?: number;
   checkInRadius?: number;
   singleUserMode?: boolean;
+  forceRefresh?: boolean;
 }
 
 interface UserProfile {
@@ -93,6 +108,9 @@ interface ActivityRegistrationFormProps {
   onLogout?: () => Promise<void>;
 }
 
+/** =========================
+ * Static Data
+ * =======================*/
 // PSU Faculties
 const PSU_FACULTIES = [
   { name: 'คณะวิศวกรรมศาสตร์', code: '01' },
@@ -117,139 +135,156 @@ const DEGREE_LEVELS = [
   { name: 'ปริญญาเอก', code: '3' }
 ];
 
-// สาขาวิชาแยกตามคณะ
-const DEPARTMENTS_BY_FACULTY = {
+// Departments by faculty (ย่อให้พอใช้งาน — เพิ่มได้ตามจริง)
+const DEPARTMENTS_BY_FACULTY: Record<string, string[]> = {
   'คณะวิศวกรรมศาสตร์': [
     'วิศวกรรมคอมพิวเตอร์',
     'วิศวกรรมไฟฟ้า',
     'วิศวกรรมเครื่องกล',
     'วิศวกรรมโยธา',
-    'วิศวกรรมเคมี',
-    'วิศวกรรมอุตสาหการ',
-    'วิศวกรรมสิ่งแวดล้อม',
-    'วิศวกรรมเหมืองแร่',
-    'วิศวกรรมนิวเคลียร์',
-    'วิศวกรรมวัสดุ',
-    'วิศวกรรมการผลิต'
   ],
   'คณะวิทยาศาสตร์': [
     'วิทยาการคอมพิวเตอร์',
     'เทคโนโลยีสารสนเทศและการสื่อสาร',
-    'เทคโนโลยีสารสนเทศ (ต่อเนื่อง)',
     'คณิตศาสตร์',
-    'สถิติ',
-    'เคมี',
     'ฟิสิกส์',
-    'ชีววิทยา',
-    'จุลชีววิทยา',
-    'เทคโนโลยีชีวภาพ',
-    'วัสดุศาสตร์',
-    'เคมี-ชีววิทยาประยุกต์',
-    'วิทยาศาสตร์พอลิเมอร์',
-    'วิทยาศาสตร์และเทคโนโลยีการอาหาร'
   ],
-  'คณะแพทยศาสตร์': [
-    'การแพทย์',
-    'กายภาพบำบัด',
-    'เทคนิคการแพทย์',
-    'อาชีวอนามัยและความปลอดภัย'
-  ],
-  'คณะทรัพยากรธรรมชาติ': [
-    'ทรัพยากรธรรมชาติ',
-    'วนศาสตร์',
-    'ประมง',
-    'เทคโนโลยีการประมง',
-    'วิทยาศาสตร์สิ่งแวดล้อม',
-    'เทคโนโลยีสิ่งแวดล้อม',
-    'การจัดการสิ่งแวดล้อม'
-  ],
-  'คณะศึกษาศาสตร์': [
-    'การศึกษาปฐมวัย',
-    'การศึกษาประถมศึกษา',
-    'คณิตศาสตรศึกษา',
-    'วิทยาศาสตรศึกษา',
-    'ภาษาไทย',
-    'ภาษาอังกฤษ',
-    'สังคมศึกษา',
-    'พลศึกษา',
-    'ดนตรีศึกษา',
-    'ศิลปศึกษา'
-  ],
-  'คณะมนุษยศาสตร์และสังคมศาสตร์': [
-    'ภาษาไทย',
-    'ภาษาอังกฤษ',
-    'ภาษาจีน',
-    'ภาษาญี่ปุ่น',
-    'ภาษามาเลย์',
-    'ประวัติศาสตร์',
-    'ปรัชญา',
-    'จิตวิทยา',
-    'สังคมวิทยา',
-    'รัฐศาสตร์',
-    'ภูมิศาสตร์',
-    'มานุษยวิทยา',
-    'นิติศาสตร์',
-    'การสื่อสารมวลชน'
-  ],
-  'คณะเศรษฐศาสตร์': [
-    'เศรษฐศาสตร์',
-    'เศรษฐศาสตร์ธุรกิจ',
-    'เศรษฐศาสตร์การเงินและการธนาคาร',
-    'เศรษฐศาสตร์การพัฒนา',
-    'เศรษฐศาสตร์การค้าระหว่างประเทศ'
-  ],
-  'คณะบริหารธุรกิจ': [
-    'การจัดการ',
-    'การตลาด',
-    'การเงิน',
-    'การบัญชี',
-    'ระบบสารสนเทศทางการจัดการ',
-    'การจัดการโลจิสติกส์',
-    'การจัดการการท่องเที่ยว',
-    'การจัดการทรัพยากรมนุษย์',
-    'การประกอบการ'
-  ],
-  'คณะศิลปกรรมศาสตร์': [
-    'ศิลปกรรม',
-    'การออกแบบ',
-    'สถาปัtyกรรม',
-    'ศิลปะการแสดง',
-    'ดนตรี',
-    'นาฏศิลป์',
-    'การออกแบบผลิตภัณฑ์',
-    'การออกแบบกราฟิก'
-  ],
-  'คณะพยาบาลศาสตร์': [
-    'พยาบาลศาสตร์',
-    'การพยาบาลเวชปฏิบัติ',
-    'การพยาบาลชุมชน'
-  ],
-  'คณะเภสัชศาสตร์': [
-    'เภสัชศาสตร์',
-    'เภสัชกรรมอุตสาหการ',
-    'เวชศาสตร์ชะลอวัย'
-  ],
-  'คณะทันตแพทยศาสตร์': [
-    'ทันตแพทยศาสตร์',
-    'ทันตแพทยศาสตร์ชุมชน'
-  ],
-  'คณะสัตวแพทยศาสตร์': [
-    'สัตวแพทยศาสตร์',
-    'วิทยาศาสตร์การสัตว์',
-    'อนามัยสัตว์น้ำ'
-  ]
+  'คณะแพทยศาสตร์': ['การแพทย์', 'กายภาพบำบัด'],
+  'คณะทรัพยากรธรรมชาติ': ['ทรัพยากรธรรมชาติ', 'ประมง'],
+  'คณะศึกษาศาสตร์': ['การศึกษาปฐมวัย', 'วิทยาศาสตรศึกษา'],
+  'คณะมนุษยศาสตร์และสังคมศาสตร์': ['ภาษาไทย', 'ภาษาอังกฤษ'],
+  'คณะเศรษฐศาสตร์': ['เศรษฐศาสตร์'],
+  'คณะบริหารธุรกิจ': ['การจัดการ', 'การตลาด', 'การบัญชี'],
+  'คณะศิลปกรรมศาสตร์': ['ศิลปกรรม', 'การออกแบบ'],
+  'คณะพยาบาลศาสตร์': ['พยาบาลศาสตร์'],
+  'คณะเภสัชศาสตร์': ['เภสัชศาสตร์'],
+  'คณะทันตแพทยศาสตร์': ['ทันตแพทยศาสตร์'],
+  'คณะสัตวแพทยศาสตร์': ['สัตวแพทยศาสตร์'],
 };
 
 // รวมรายการสาขาทั้งหมดสำหรับ fallback
 const ALL_DEPARTMENTS = Object.values(DEPARTMENTS_BY_FACULTY).flat();
 
+/** =========================
+ * Helpers
+ * =======================*/
+// ดึงเฉพาะชื่อไทยในวงเล็บจาก displayName เช่น "Werachart Kaewkham (วีรชาติ แก้วขำ)" -> first/last = วีรชาติ / แก้วขำ
+const extractMicrosoftUserInfo = (displayName: string) => {
+  const result = {
+    englishName: '',
+    firstName: '',
+    lastName: '',
+  };
+
+  const englishNameMatch = displayName.match(/^([^(]+)/);
+  if (englishNameMatch) result.englishName = englishNameMatch[1].trim();
+
+  const thaiNameMatch = displayName.match(/\(([^)]+)\)/);
+  if (thaiNameMatch) {
+    const thaiFullName = thaiNameMatch[1].trim();
+    const nameParts = thaiFullName.split(/\s+/);
+    if (nameParts.length >= 2) {
+      result.firstName = nameParts[0];
+      result.lastName = nameParts.slice(1).join(' ');
+    } else {
+      result.firstName = thaiFullName;
+      result.lastName = '';
+    }
+  }
+
+  return result;
+};
+
+// Generate student ID (mock) ตามโครง PSU
+const generateStudentId = (faculty: string) => {
+  const year = new Date().getFullYear().toString().slice(-2);
+  const degreeLevel = '1';
+  let facultyCode = '02';
+  const f = PSU_FACULTIES.find((x) => x.name === faculty);
+  if (f) facultyCode = f.code;
+  const majorCode = '1';
+  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `${year}${degreeLevel}${facultyCode}${majorCode}${randomNum}`;
+};
+
+// Detect faculty/degree from studentId
+const detectInfoFromStudentId = (studentId: string): { faculty: string; degree: string } => {
+  const result = { faculty: 'คณะวิทยาศาสตร์', degree: 'ปริญญาตรี' };
+  if (studentId.length >= 5) {
+    const degreeCode = studentId.substring(2, 3);
+    const degree = DEGREE_LEVELS.find((d) => d.code === degreeCode);
+    if (degree) result.degree = degree.name;
+
+    const facultyCode = studentId.substring(3, 5);
+    const faculty = PSU_FACULTIES.find((f) => f.code === facultyCode);
+    if (faculty) result.faculty = faculty.name;
+  }
+  return result;
+};
+
+// ช่วยเดาคณะจากชื่อสาขา (fallback)
+const detectFacultyFromDepartment = (deptName: string): string => {
+  for (const [faculty, list] of Object.entries(DEPARTMENTS_BY_FACULTY)) {
+    if (list.includes(deptName)) return faculty;
+  }
+  return 'คณะวิทยาศาสตร์';
+};
+
+// ดึงข้อมูลจาก Microsoft Profile และเตรียม default
+function extractAndGenerateUserData(profile?: UserProfile) {
+  if (!profile) {
+    return {
+      studentId: '',
+      firstName: '',
+      lastName: '',
+      department: '',
+      faculty: '',
+      degree: '',
+      university: '',
+      englishName: '',
+      isAutoFilled: false,
+    };
+  }
+
+  const displayName = profile.displayName || '';
+  const email = profile.email || '';
+
+  const extracted = extractMicrosoftUserInfo(displayName);
+
+  // from email -> studentId
+  let studentId = '';
+  const emailMatch = email.match(/^(\d{8,12})/);
+  if (emailMatch) {
+    studentId = emailMatch[1];
+  } else {
+    studentId = generateStudentId('คณะวิทยาศาสตร์');
+  }
+
+  const detected = detectInfoFromStudentId(studentId);
+
+  return {
+    studentId,
+    firstName: extracted.firstName || 'ไม่ระบุ',
+    lastName: extracted.lastName || 'ไม่ระบุ',
+    department: 'วิทยาการคอมพิวเตอร์',
+    faculty: detected.faculty,
+    degree: detected.degree,
+    university: 'มหาวิทยาลัยสงขลานครินทร์',
+    englishName: extracted.englishName,
+    isAutoFilled: true,
+  };
+}
+
+/** =========================
+ * Component
+ * =======================*/
 const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   activityCode,
   adminSettings,
   onSuccess,
   existingUserProfile,
   existingAuthStatus,
-  onLogout
+  onLogout,
 }) => {
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -268,289 +303,116 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     latitude: 0,
     longitude: 0,
     checkInRadius: 100,
-    singleUserMode: false
+    singleUserMode: false,
   });
 
   const [forceRefreshEnabled, setForceRefreshEnabled] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [realtimeListener, setRealtimeListener] = useState<(() => void) | null>(null);
 
-  // สถานะการควบคุม Single User Mode
+  // single-user mode flags
   const [singleUserViolation, setSingleUserViolation] = useState(false);
   const [currentRegisteredUser, setCurrentRegisteredUser] = useState<string>('');
 
-  // Enhanced function to extract information from Microsoft display name
-  const extractMicrosoftUserInfo = (displayName: string) => {
-    const result = {
-      englishName: '',
-      firstName: '',
-      lastName: '',
-      degree: '',
-      department: '',
-      faculty: '',
-      university: 'มหาวิทยาลัยสงขลานครินทร์'
-    };
-
-    // Extract English name (before parentheses)
-    const englishNameMatch = displayName.match(/^([^(]+)/);
-    if (englishNameMatch) {
-      result.englishName = englishNameMatch[1].trim();
-    }
-
-    // Extract Thai name from parentheses
-    const thaiNameMatch = displayName.match(/\(([^)]+)\)/);
-    if (thaiNameMatch) {
-      const thaiFullName = thaiNameMatch[1].trim();
-      const nameParts = thaiFullName.split(/\s+/);
-      if (nameParts.length >= 2) {
-        result.firstName = nameParts[0];
-        result.lastName = nameParts.slice(1).join(' ');
-      } else {
-        result.firstName = thaiFullName;
-        result.lastName = '';
-      }
-    }
-
-    // Extract degree information
-    const degreeMatch = displayName.match(/ปริญญา\w+/);
-    if (degreeMatch) {
-      result.degree = degreeMatch[0];
-    }
-
-    // Extract department/major (สาขาวิชา...)
-    const departmentMatch = displayName.match(/สาขาวิชา([^\s]+(?:\s+[^\s]+)*?)(?:\s+คณะ|$)/);
-    if (departmentMatch) {
-      result.department = departmentMatch[1].trim();
-    }
-
-    // Extract faculty (คณะ...)
-    const facultyMatch = displayName.match(/คณะ([^\s]+(?:\s+[^\s]+)*?)(?:\s|$)/);
-    if (facultyMatch) {
-      const facultyName = `คณะ${facultyMatch[1].trim()}`;
-      result.faculty = facultyName;
-    }
-
-    return result;
-  };
-
-  // Generate student ID based on PSU structure
-  const generateStudentId = (faculty: string) => {
-    const year = new Date().getFullYear().toString().slice(-2);
-    const degreeLevel = '1';
-    
-    let facultyCode = '02';
-    const facultyData = PSU_FACULTIES.find(f => f.name === faculty);
-    if (facultyData) {
-      facultyCode = facultyData.code;
-    }
-    
-    const majorCode = '1';
-    const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    
-    return `${year}${degreeLevel}${facultyCode}${majorCode}${randomNum}`;
-  };
-
-  // Function to detect faculty and degree from student ID
-  const detectInfoFromStudentId = (studentId: string): { faculty: string, degree: string } => {
-    const result = { faculty: 'คณะวิทยาศาสตร์', degree: 'ปริญญาตรี' };
-    
-    if (studentId.length >= 5) {
-      const degreeCode = studentId.substring(2, 3);
-      const degree = DEGREE_LEVELS.find(d => d.code === degreeCode);
-      if (degree) {
-        result.degree = degree.name;
-      }
-      
-      const facultyCode = studentId.substring(3, 5);
-      const faculty = PSU_FACULTIES.find(f => f.code === facultyCode);
-      if (faculty) {
-        result.faculty = faculty.name;
-      }
-    }
-    
-    return result;
-  };
-
-  // ฟังก์ชันดึงข้อมูลจาก Microsoft Profile และสร้างข้อมูลอัตโนมัติ
-  function extractAndGenerateUserData(profile?: UserProfile) {
-    if (!profile) {
-      return {
-        studentId: '',
-        firstName: '',
-        lastName: '',
-        department: '',
-        faculty: '',
-        degree: '',
-        university: '',
-        englishName: '',
-        isAutoFilled: false
-      };
-    }
-
-    const displayName = profile.displayName || '';
-    const email = profile.email || '';
-    
-    // Extract information from Microsoft display name
-    const extractedInfo = extractMicrosoftUserInfo(displayName);
-    
-    // Try to extract student ID from email first
-    let studentId = '';
-    let detectedFaculty = extractedInfo.faculty || 'คณะวิทยาศาสตร์';
-    let detectedDegree = 'ปริญญาตรี';
-    
-    const emailMatch = email.match(/^(\d{8,12})/);
-    if (emailMatch) {
-      studentId = emailMatch[1];
-      const detectedInfo = detectInfoFromStudentId(studentId);
-      detectedFaculty = detectedInfo.faculty;
-      detectedDegree = detectedInfo.degree;
-    } else {
-      studentId = generateStudentId(detectedFaculty);
-    }
-
-    return {
-      studentId,
-      firstName: extractedInfo.firstName || 'ไม่ระบุ',
-      lastName: extractedInfo.lastName || 'ไม่ระบุ',
-      department: extractedInfo.department || 'วิทยาการคอมพิวเตอร์',
-      faculty: detectedFaculty,
-      degree: detectedDegree,
-      university: 'มหาวิทยาลัยสงขลานครินทร์',
-      englishName: extractedInfo.englishName,
-      isAutoFilled: true
-    };
-  }
-
-  // ตั้งค่า formData - รองรับการดึงข้อมูลอัตโนมัติ
-  const [formData, setFormData] = useState(() => {
-    const extractedData = extractAndGenerateUserData(existingUserProfile);
-    return {
-      ...extractedData,
-      userCode: '',
-      email: existingUserProfile?.email || '',
-      microsoftId: existingUserProfile?.id || ''
-    };
+  // initial form state (autofill)
+  const initialData = extractAndGenerateUserData(existingUserProfile);
+  const [formData, setFormData] = useState({
+    ...initialData,
+    userCode: '',
+    email: existingUserProfile?.email || '',
+    microsoftId: existingUserProfile?.id || '',
   });
 
-  // Auto-filled data that cannot be edited (ข้อมูลที่ไม่สามารถแก้ไขได้)
-  const [autoFilledData, setAutoFilledData] = useState(() => {
-    const extractedData = extractAndGenerateUserData(existingUserProfile);
-    return {
-      firstName: extractedData.firstName,
-      lastName: extractedData.lastName,
-      englishName: extractedData.englishName,
-      studentId: extractedData.studentId,
-      faculty: extractedData.faculty,
-      degree: extractedData.degree,
-      university: extractedData.university,
-      isAutoFilled: extractedData.isAutoFilled
-    };
+  // read-only group
+  const [autoFilledData] = useState({
+    firstName: initialData.firstName,
+    lastName: initialData.lastName,
+    englishName: initialData.englishName,
+    studentId: initialData.studentId,
+    faculty: initialData.faculty,
+    degree: initialData.degree,
+    university: initialData.university,
+    isAutoFilled: initialData.isAutoFilled,
   });
 
   const steps = ['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'];
 
-  // ฟังก์ชันสำหรับบังคับโหลดหน้าใหม่
+  /** =========================
+   * Utilities
+   * =======================*/
   const handleForceRefresh = () => {
-    console.log('🔄 Initiating force refresh...');
     setIsRefreshing(true);
-    
     if (realtimeListener) {
       realtimeListener();
       setRealtimeListener(null);
     }
-    
     setTimeout(() => {
       window.location.reload();
     }, 1500);
   };
 
-  // ฟังก์ชันสำหรับ logout
   const handleLogout = async () => {
     if (onLogout) {
       try {
         await onLogout();
-      } catch (error) {
-        console.error('Error during logout:', error);
+      } catch (err) {
+        console.error('Logout error', err);
       }
     }
   };
 
-  // ตรวจสอบ Single User Mode
+  // single user mode check
   const checkSingleUserMode = async () => {
-    if (!activityStatus.singleUserMode || !existingUserProfile?.email) {
-      return true; // ไม่มีการจำกัด หรือไม่มีข้อมูลผู้ใช้
-    }
+    if (!activityStatus.singleUserMode || !existingUserProfile?.email) return true;
 
     try {
-      console.log('Checking single user mode for:', existingUserProfile.email);
-      
-      // ตรวจสอบการลงทะเบียนที่มีอยู่
-      const q = query(
+      const qRef = query(
         collection(db, 'activityRecords'),
         where('activityCode', '==', activityCode)
       );
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        // มีการลงทะเบียนแล้ว ตรวจสอบว่าเป็นคนเดียวกันหรือไม่
-        const existingRecord = querySnapshot.docs[0].data();
-        const registeredEmail = existingRecord.email;
-        
+      const snap = await getDocs(qRef);
+      if (!snap.empty) {
+        const data = snap.docs[0].data() as any;
+        const registeredEmail = data.email;
         if (registeredEmail && registeredEmail !== existingUserProfile.email) {
-          // มีคนอื่นลงทะเบียนแล้ว
-          console.log('Single user mode violation detected:', {
-            currentUser: existingUserProfile.email,
-            registeredUser: registeredEmail
-          });
-          
           setSingleUserViolation(true);
           setCurrentRegisteredUser(registeredEmail);
           setError(`กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียว และมีผู้ใช้ ${registeredEmail} ลงทะเบียนไปแล้ว`);
           return false;
         } else if (registeredEmail === existingUserProfile.email) {
-          // ผู้ใช้คนเดียวกันลงทะเบียนแล้ว
           setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
           return false;
         }
       }
-      
       return true;
-    } catch (error) {
-      console.error('Error checking single user mode:', error);
-      return true; // ถ้า error ให้ผ่านไป
+    } catch (e) {
+      console.error('single user check error', e);
+      return true;
     }
   };
 
-  // ตรวจสอบสถานะกิจกรรมจาก Firebase
+  // fetch activity status
   const checkActivityStatus = async () => {
     try {
       setActivityStatusLoading(true);
-      console.log('Checking activity status for:', activityCode);
-      
-      const q = query(
-        collection(db, 'activityQRCodes'),
-        where('activityCode', '==', activityCode)
-      );
-      const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        console.log('Activity not found in database');
+      const qRef = query(collection(db, 'activityQRCodes'), where('activityCode', '==', activityCode));
+      const snap = await getDocs(qRef);
+
+      if (snap.empty) {
         setActivityStatus({
           exists: false,
           isActive: false,
-          activityCode: activityCode,
+          activityCode,
           userCode: '',
           requiresUniversityLogin: false,
           latitude: 0,
           longitude: 0,
           checkInRadius: 100,
-          singleUserMode: false
+          singleUserMode: false,
         });
       } else {
-        const activityDoc = querySnapshot.docs[0];
-        const data = activityDoc.data();
-        console.log('Activity found:', data);
-        
+        const activityDoc = snap.docs[0];
+        const data = activityDoc.data() as any;
         setActivityStatus({
           exists: true,
           isActive: data.isActive !== undefined ? data.isActive : true,
@@ -561,45 +423,39 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           latitude: data.latitude || 13.7563,
           longitude: data.longitude || 100.5018,
           checkInRadius: data.checkInRadius || 100,
-          singleUserMode: data.singleUserMode || false
+          singleUserMode: data.singleUserMode || false,
+          forceRefresh: data.forceRefresh === true,
         });
 
         setForceRefreshEnabled(data.forceRefresh === true);
 
-        // ตรวจสอบ Single User Mode
         const canProceed = await checkSingleUserMode();
         if (!canProceed) {
+          setActivityStatusLoading(false);
           return;
         }
 
-        // ตั้ง real-time listener
-        const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityDoc.id), (docSnapshot) => {
-          if (docSnapshot.exists()) {
-            const updatedData = docSnapshot.data();
-            console.log('Activity status updated in real-time:', updatedData);
-            
-            setActivityStatus(prev => ({
+        const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityDoc.id), (ds) => {
+          if (ds.exists()) {
+            const updated = ds.data() as any;
+            setActivityStatus((prev) => ({
               ...prev,
-              isActive: updatedData.isActive !== undefined ? updatedData.isActive : true,
-              description: updatedData.description || '',
-              userCode: updatedData.userCode || '',
-              requiresUniversityLogin: updatedData.requiresUniversityLogin || false,
-              latitude: updatedData.latitude || prev.latitude,
-              longitude: updatedData.longitude || prev.longitude,
-              checkInRadius: updatedData.checkInRadius || prev.checkInRadius,
-              singleUserMode: updatedData.singleUserMode || false
+              isActive: updated.isActive !== undefined ? updated.isActive : true,
+              description: updated.description || '',
+              userCode: updated.userCode || '',
+              requiresUniversityLogin: updated.requiresUniversityLogin || false,
+              latitude: updated.latitude || prev.latitude,
+              longitude: updated.longitude || prev.longitude,
+              checkInRadius: updated.checkInRadius || prev.checkInRadius,
+              singleUserMode: updated.singleUserMode || false,
+              forceRefresh: updated.forceRefresh === true,
             }));
 
-            const newForceRefresh = updatedData.forceRefresh === true;
-            
-            if (newForceRefresh && !forceRefreshEnabled) {
-              console.log('🔄 Force refresh enabled from server - initiating refresh...');
+            const newForce = updated.forceRefresh === true;
+            if (newForce && !forceRefreshEnabled) {
               setForceRefreshEnabled(true);
-              setTimeout(() => {
-                handleForceRefresh();
-              }, 2000);
-            } else if (!newForceRefresh && forceRefreshEnabled) {
-              console.log('✅ Force refresh disabled from server');
+              setTimeout(handleForceRefresh, 2000);
+            } else if (!newForce && forceRefreshEnabled) {
               setForceRefreshEnabled(false);
             }
           }
@@ -607,263 +463,142 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
 
         setRealtimeListener(() => unsubscribe);
       }
-    } catch (error) {
-      console.error('Error checking activity status:', error);
+    } catch (e) {
+      console.error('checkActivityStatus error', e);
       setError('ไม่สามารถตรวจสอบสถานะกิจกรรมได้');
       setActivityStatus({
         exists: false,
         isActive: false,
-        activityCode: activityCode,
+        activityCode,
         userCode: '',
         requiresUniversityLogin: false,
         latitude: 0,
         longitude: 0,
         checkInRadius: 100,
-        singleUserMode: false
+        singleUserMode: false,
       });
     } finally {
       setActivityStatusLoading(false);
     }
   };
 
-  // ฟังก์ชันสร้างสาขาเบื้องต้นใน Firebase ถ้ายังไม่มีข้อมูล
-  const initializeDepartments = async () => {
-    try {
-      console.log('🏗️ Initializing departments in Firebase...');
-      setDepartmentsLoading(true);
-      
-      let successCount = 0;
-      let errorCount = 0;
-      
-      // สร้าง batch operations สำหรับประสิทธิภาพที่ดีขึ้น
-      const batchPromises = Object.entries(DEPARTMENTS_BY_FACULTY).flatMap(([faculty, departmentList]) =>
-        departmentList.map(async (deptName: string) => {
-          const deptId = `${faculty}_${deptName}`.replace(/\s+/g, '_').replace(/[\/\(\)]/g, '');
-          const deptDoc = doc(db, 'departments', deptId);
-          
-          try {
-            await setDoc(deptDoc, {
-              name: deptName,
-              faculty: faculty,
-              isActive: true,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            }, { merge: true });
-            
-            successCount++;
-            console.log(`✅ Department initialized: ${faculty} - ${deptName}`);
-          } catch (error) {
-            errorCount++;
-            console.error(`❌ Error initializing department ${faculty} - ${deptName}:`, error);
-          }
-        })
-      );
-      
-      await Promise.allSettled(batchPromises);
-      console.log(`🎉 Departments initialization completed - Success: ${successCount}, Errors: ${errorCount}`);
-      
-      // ดึงข้อมูลใหม่หลังจากสร้างเสร็จ
-      if (successCount > 0) {
-        await fetchDepartmentsAfterInit();
-      }
-      
-    } catch (error) {
-      console.error('❌ Error in batch initialization:', error);
-      setError('เกิดข้อผิดพลาดในการสร้างข้อมูลสาขาเบื้องต้น');
-    } finally {
-      setDepartmentsLoading(false);
-    }
-  };
-
-  // ฟังก์ชันดึงข้อมูลหลังจากสร้างเสร็จ
-  const fetchDepartmentsAfterInit = async () => {
-    try {
-      const departmentsQuery = query(
-        collection(db, 'departments'),
-        where('isActive', '==', true)
-      );
-      const querySnapshot = await getDocs(departmentsQuery);
-      
-      let departmentsList: Department[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        departmentsList.push({
-          id: doc.id,
-          name: data.name,
-          faculty: data.faculty,
-          isActive: data.isActive
-        } as Department);
-      });
-      
-      // Sort departments by faculty then by name in Thai
-      departmentsList.sort((a, b) => {
-        const facultyCompare = a.faculty.localeCompare(b.faculty, 'th');
-        if (facultyCompare !== 0) return facultyCompare;
-        return a.name.localeCompare(b.name, 'th');
-      });
-      
-      setDepartments(departmentsList);
-      
-      console.log(`✅ Loaded ${departmentsList.length} departments after initialization`);
-    } catch (error) {
-      console.error('❌ Error fetching departments after initialization:', error);
-    }
-  };
-
+  // init departments
   const fetchDepartments = async () => {
     try {
       setDepartmentsLoading(true);
-      console.log('📚 Fetching departments from Firebase...');
-      
-      const departmentsQuery = query(
-        collection(db, 'departments'),
-        where('isActive', '==', true)
-      );
-      const querySnapshot = await getDocs(departmentsQuery);
-      
-      let departmentsList: Department[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        departmentsList.push({
-          id: doc.id,
+      const qRef = query(collection(db, 'departments'), where('isActive', '==', true));
+      const snap = await getDocs(qRef);
+
+      let list: Department[] = [];
+      snap.forEach((d) => {
+        const data = d.data() as any;
+        list.push({
+          id: d.id,
           name: data.name,
           faculty: data.faculty || 'คณะอื่นๆ',
-          isActive: data.isActive
-        } as Department);
+          isActive: data.isActive,
+        });
       });
 
-      if (departmentsList.length === 0) {
-        console.log('📝 No departments found, initializing default departments...');
-        await initializeDepartments();
-        return; // initializeDepartments will call fetchDepartmentsAfterInit
+      if (list.length === 0) {
+        // fallback
+        const fallback: Department[] = ALL_DEPARTMENTS.map((name, idx) => ({
+          id: `fallback-${idx}`,
+          name,
+          faculty: detectFacultyFromDepartment(name),
+          isActive: true,
+        }));
+        list = fallback;
       }
 
-      // Sort departments by faculty then by name in Thai
-      departmentsList.sort((a, b) => {
-        const facultyCompare = a.faculty.localeCompare(b.faculty, 'th');
-        if (facultyCompare !== 0) return facultyCompare;
+      list.sort((a, b) => {
+        const f = a.faculty.localeCompare(b.faculty, 'th');
+        if (f !== 0) return f;
         return a.name.localeCompare(b.name, 'th');
       });
-      
-      setDepartments(departmentsList);
-      
-      console.log(`✅ Loaded ${departmentsList.length} departments successfully`);
-      
-    } catch (error) {
-      console.error('❌ Error fetching departments:', error);
+
+      setDepartments(list);
+    } catch (e) {
+      console.error('fetchDepartments error', e);
       setError('ไม่สามารถโหลดข้อมูลสาขาได้ กรุณาลองใหม่อีกครั้ง');
-      
-      // Fallback to static departments if Firebase fails
-      const fallbackDepartments: Department[] = ALL_DEPARTMENTS.map((name, index) => ({
-        id: `fallback-${index}`,
+      const fallback: Department[] = ALL_DEPARTMENTS.map((name, idx) => ({
+        id: `fallback-${idx}`,
         name,
         faculty: detectFacultyFromDepartment(name),
-        isActive: true
+        isActive: true,
       }));
-      
-      setDepartments(fallbackDepartments);
-      console.log('🔄 Using fallback departments');
+      setDepartments(fallback);
     } finally {
       setDepartmentsLoading(false);
     }
   };
 
-  // Helper function to detect faculty from department name
-  const detectFacultyFromDepartment = (deptName: string): string => {
-    for (const [faculty, departmentList] of Object.entries(DEPARTMENTS_BY_FACULTY)) {
-      if (departmentList.includes(deptName)) {
-        return faculty;
-      }
-    }
-    return 'คณะวิทยาศาสตร์'; // Default
-  };
-
-  // Filter departments based on selected faculty
+  // filtered departments
   const updateFilteredDepartments = (selectedFaculty: string) => {
     if (!selectedFaculty) {
       setFilteredDepartments([]);
       return;
     }
-    
-    const filtered = departments.filter(dept => dept.faculty === selectedFaculty);
+    const filtered = departments.filter((d) => d.faculty === selectedFaculty);
     setFilteredDepartments(filtered);
-    
-    // If current department is not in the new faculty, clear it
-    if (formData.department && !filtered.some(dept => dept.name === formData.department)) {
-      setFormData(prev => ({ ...prev, department: '' }));
+    if (formData.department && !filtered.some((d) => d.name === formData.department)) {
+      setFormData((prev) => ({ ...prev, department: '' }));
     }
   };
 
   useEffect(() => {
-    const loadInitialData = async () => {
-      await Promise.all([
-        checkActivityStatus(),
-        fetchDepartments()
-      ]);
+    const init = async () => {
+      await Promise.all([checkActivityStatus(), fetchDepartments()]);
     };
-    
-    loadInitialData();
+    init();
 
     return () => {
       if (realtimeListener) {
-        console.log('🔌 Cleaning up real-time listener');
         realtimeListener();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activityCode]);
 
-  // Update filtered departments when faculty changes
   useEffect(() => {
     updateFilteredDepartments(formData.faculty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.faculty, departments]);
 
   useEffect(() => {
     return () => {
-      if (realtimeListener) {
-        realtimeListener();
-      }
+      if (realtimeListener) realtimeListener();
     };
   }, [realtimeListener]);
 
-  const handleInputChange = (field: string) => (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    if (forceRefreshEnabled) return;
+  /** =========================
+   * Form handlers
+   * =======================*/
+  const handleInputChange =
+    (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (forceRefreshEnabled) return;
+      setFormData({ ...formData, [field]: event.target.value });
+      setError('');
+    };
 
-    setFormData({
-      ...formData,
-      [field]: event.target.value
-    });
-    setError('');
-  };
+  const handleSelectChange =
+    (field: string) => (event: SelectChangeEvent<string>) => {
+      if (forceRefreshEnabled) return;
+      const val = event.target.value;
+      setFormData({ ...formData, [field]: val });
+      if (field === 'faculty') updateFilteredDepartments(val);
+      setError('');
+    };
 
-  const handleSelectChange = (field: string) => (
-    event: SelectChangeEvent<string>
-  ) => {
-    if (forceRefreshEnabled) return;
-
-    const newValue = event.target.value;
-    setFormData({
-      ...formData,
-      [field]: newValue
-    });
-    
-    // If faculty is changed, update filtered departments
-    if (field === 'faculty') {
-      updateFilteredDepartments(newValue);
-    }
-    
-    setError('');
-  };
-
-  const validateNewStudentId = (studentId: string): boolean => {
-    if (!/^\d{10}$/.test(studentId)) {
-      return false;
-    }
-    
-    const prefix = studentId.substring(0, 2);
-    const prefixNum = parseInt(prefix);
+  const validateNewStudentId = (studentId: string) => {
+    if (!/^\d{10}$/.test(studentId)) return false;
+    const prefixNum = parseInt(studentId.substring(0, 2), 10);
     return prefixNum >= 64 && prefixNum <= 69;
+  };
+
+  const isFieldReadOnly = (field: string): boolean => {
+    if (!autoFilledData.isAutoFilled) return false;
+    return ['studentId', 'firstName', 'lastName', 'faculty', 'degree', 'university'].includes(field);
   };
 
   const validateForm = async (): Promise<boolean> => {
@@ -872,31 +607,38 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       return false;
     }
 
+    // ต้องมีการล็อกอิน (สอดคล้อง Firestore rules ใหม่)
+    const uid = auth?.currentUser?.uid;
+    if (!uid) {
+      setError('กรุณาเข้าสู่ระบบก่อนทำรายการ');
+      return false;
+    }
+
     if (!validateNewStudentId(formData.studentId)) {
       setError('รหัสนักศึกษาไม่ถูกต้อง (ต้องเป็นตัวเลข 10 หลัก และขึ้นต้นด้วย 64-69)');
       return false;
     }
-    
+
     if (!validateThaiName(formData.firstName)) {
       setError('ชื่อไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)');
       return false;
     }
-    
+
     if (!validateThaiName(formData.lastName)) {
       setError('นามสกุลไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)');
       return false;
     }
-    
+
     if (!formData.faculty) {
       setError('กรุณาเลือกคณะ');
       return false;
     }
-    
+
     if (!formData.department) {
       setError('กรุณาเลือกสาขา');
       return false;
     }
-    
+
     if (!formData.userCode) {
       setError('กรุณาใส่รหัสผู้ใช้');
       return false;
@@ -907,29 +649,56 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       return false;
     }
 
-    // ตรวจสอบการลงทะเบียนซ้ำ
+    // กันลงทะเบียนซ้ำจาก studentId
     try {
-      const q = query(
+      const qBySid = query(
         collection(db, 'activityRecords'),
         where('studentId', '==', formData.studentId),
         where('activityCode', '==', activityCode)
       );
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
+      const s1 = await getDocs(qBySid);
+      if (!s1.empty) {
         setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
         return false;
       }
-    } catch (error) {
-      console.error('Error checking duplicate:', error);
+    } catch (e) {
+      // ignore
     }
 
-    // ตรวจสอบ Single User Mode อีกครั้งก่อนส่งข้อมูล
+    // กันลงทะเบียนซ้ำต่อบัญชี (email / uid)
+    try {
+      if (existingUserProfile?.email) {
+        const qByEmail = query(
+          collection(db, 'activityRecords'),
+          where('activityCode', '==', activityCode),
+          where('email', '==', existingUserProfile.email)
+        );
+        const sByEmail = await getDocs(qByEmail);
+        if (!sByEmail.empty) {
+          setError('บัญชีนี้ได้ส่งข้อมูลแล้ว — ส่งได้ 1 ครั้งต่อกิจกรรม');
+          return false;
+        }
+      }
+      if (uid) {
+        const qByUid = query(
+          collection(db, 'activityRecords'),
+          where('activityCode', '==', activityCode),
+          where('userId', '==', uid)
+        );
+        const sByUid = await getDocs(qByUid);
+        if (!sByUid.empty) {
+          setError('บัญชีนี้ได้ส่งข้อมูลแล้ว — ส่งได้ 1 ครั้งต่อกิจกรรม');
+          return false;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // single-user mode check (อีกครั้ง)
     if (activityStatus.singleUserMode) {
       const canProceed = await checkSingleUserMode();
-      if (!canProceed) {
-        return false;
-      }
+      if (!canProceed) return false;
     }
 
     return true;
@@ -940,17 +709,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่');
       return;
     }
-
     if (!(await validateForm())) return;
-    
+
     setLoading(true);
     setActiveStep(1);
   };
 
-  const handleLocationVerified = async (location: {
-    latitude: number;
-    longitude: number;
-  }) => {
+  const handleLocationVerified = async (location: { latitude: number; longitude: number }) => {
     if (forceRefreshEnabled) {
       setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่');
       setLoading(false);
@@ -959,7 +724,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
 
     try {
-      const activityRecord = {
+      const userId = auth?.currentUser?.uid || formData.microsoftId || formData.email || null;
+
+      const activityRecord: any = {
         studentId: formData.studentId,
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -969,21 +736,23 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         university: formData.university,
         activityCode,
         location,
-        userCode: formData.userCode,
+        userCode: formData.userCode,     // organizer passcode (for audit)
+        userId,                          // ✅ ใช้กับกฎ Firestore (owner)
         email: formData.email,
         microsoftId: formData.microsoftId,
+        transcriptSaved: true,           // ✅ ธงบันทึก transcript แล้ว
         ...(existingUserProfile && { microsoftProfile: existingUserProfile }),
-        ...(autoFilledData.isAutoFilled && { 
+        ...(autoFilledData.isAutoFilled && {
           autoFilledData: {
             englishName: autoFilledData.englishName,
-            isFromMicrosoft: true
-          }
-        })
+            isFromMicrosoft: true,
+          },
+        }),
       };
 
       await addDoc(collection(db, 'activityRecords'), {
         ...activityRecord,
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
       });
 
       setActiveStep(2);
@@ -993,63 +762,45 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       if (onSuccess) {
         try {
           await onSuccess();
-        } catch (error) {
-          console.error('Error in onSuccess callback:', error);
+        } catch (e) {
+          console.error('onSuccess error', e);
         }
       }
-    } catch (error) {
-      console.error('Error saving record:', error);
+    } catch (e) {
+      console.error('save record error', e);
       setError('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       setLoading(false);
       setActiveStep(0);
     }
   };
 
-  const handleLocationError = (errorMessage: string) => {
-    setError(errorMessage);
+  const handleLocationError = (msg: string) => {
+    setError(msg);
     setLoading(false);
     setActiveStep(0);
   };
 
-  const getActivityAllowedLocation = () => {
-    return {
-      latitude: activityStatus.latitude || 13.7563,
-      longitude: activityStatus.longitude || 100.5018,
-      radius: activityStatus.checkInRadius || 100
-    };
-  };
+  const getActivityAllowedLocation = () => ({
+    latitude: activityStatus.latitude || 13.7563,
+    longitude: activityStatus.longitude || 100.5018,
+    radius: activityStatus.checkInRadius || 100,
+  });
 
-  // Helper function to check if field is read-only
-  const isFieldReadOnly = (field: string): boolean => {
-    if (!autoFilledData.isAutoFilled) return false;
-    
-    const readOnlyFields = ['studentId', 'firstName', 'lastName', 'faculty', 'degree', 'university'];
-    return readOnlyFields.includes(field);
-  };
-
-  // แสดง Loading เมื่อกำลังโหลดหน้าใหม่
+  /** =========================
+   * Rendering states
+   * =======================*/
   if (isRefreshing) {
     return (
-      <Fade in={true}>
-        <Card 
-          elevation={12} 
-          sx={{ 
-            borderRadius: 4,
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            color: 'white'
-          }}
-        >
+      <Fade in>
+        <Card elevation={12} sx={{ borderRadius: 4, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <RefreshIcon 
-              sx={{ 
-                fontSize: 80, 
-                mb: 3, 
+            <RefreshIcon
+              sx={{
+                fontSize: 80,
+                mb: 3,
                 animation: 'spin 1s linear infinite',
-                '@keyframes spin': {
-                  '0%': { transform: 'rotate(0deg)' },
-                  '100%': { transform: 'rotate(360deg)' },
-                }
-              }} 
+                '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } },
+              }}
             />
             <Typography variant="h4" sx={{ mt: 2, fontWeight: 700 }}>
               กำลังโหลดหน้าใหม่...
@@ -1063,39 +814,33 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     );
   }
 
-  // แสดง Loading เมื่อกำลังตรวจสอบสถานะกิจกรรม
   if (activityStatusLoading) {
     return (
-      <Fade in={true}>
+      <Fade in>
         <Card elevation={8} sx={{ borderRadius: 4 }}>
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
             <CircularProgress size={80} thickness={4} sx={{ mb: 3, color: 'primary.main' }} />
             <Typography variant="h4" sx={{ mt: 2, fontWeight: 600, color: 'primary.main' }}>
               กำลังตรวจสอบสถานะกิจกรรม...
             </Typography>
-            <Chip 
-              label={`รหัสกิจกรรม: ${activityCode}`} 
-              variant="outlined" 
-              sx={{ mt: 2, fontFamily: 'monospace', fontWeight: 600 }}
-            />
+            <Chip label={`รหัสกิจกรรม: ${activityCode}`} variant="outlined" sx={{ mt: 2, fontFamily: 'monospace', fontWeight: 600 }} />
           </CardContent>
         </Card>
       </Fade>
     );
   }
 
-  // แสดงหน้าบังคับโหลดใหม่
   if (forceRefreshEnabled) {
     return (
-      <Slide direction="up" in={true}>
-        <Card 
-          elevation={12} 
-          sx={{ 
-            borderRadius: 4, 
-            border: '3px solid', 
+      <Slide direction="up" in>
+        <Card
+          elevation={12}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
             borderColor: 'warning.main',
             background: 'linear-gradient(135deg, #ff9a56 0%, #ff6b6b 100%)',
-            color: 'white'
+            color: 'white',
           }}
         >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
@@ -1104,12 +849,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               {isRefreshing ? 'กำลังโหลดหน้าใหม่...' : 'จำเป็นต้องโหลดหน้าใหม่'}
             </Typography>
             <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
-              {isRefreshing 
-                ? 'กรุณารอสักครู่ ระบบกำลังโหลดหน้าใหม่...'
-                : 'แอดมินได้เปิดใช้งานการบังคับโหลดหน้าใหม่'
-              }
+              {isRefreshing ? 'กรุณารอสักครู่ ระบบกำลังโหลดหน้าใหม่...' : 'แอดมินได้เปิดใช้งานการบังคับโหลดหน้าใหม่'}
             </Typography>
-            
+
             {!isRefreshing && (
               <Button
                 variant="contained"
@@ -1117,12 +859,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                 onClick={handleForceRefresh}
                 disabled={isRefreshing}
                 startIcon={<RefreshIcon />}
-                sx={{ 
-                  px: 4, 
-                  py: 1.5, 
+                sx={{
+                  px: 4,
+                  py: 1.5,
                   borderRadius: 3,
                   bgcolor: 'rgba(255,255,255,0.15)',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
                 }}
               >
                 โหลดหน้าใหม่ทันที
@@ -1134,18 +876,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     );
   }
 
-  // แสดงข้อความเมื่อกิจกรรมไม่มีอยู่ในระบบ
   if (!activityStatus.exists) {
     return (
-      <Grow in={true}>
-        <Card 
-          elevation={8} 
-          sx={{ 
-            borderRadius: 4, 
-            border: '3px solid', 
+      <Grow in>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
             borderColor: 'error.main',
             background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)',
-            color: 'white'
+            color: 'white',
           }}
         >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
@@ -1156,34 +897,24 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
               ไม่พบกิจกรรมที่มีรหัส
             </Typography>
-            <Chip 
-              label={activityCode} 
-              sx={{ 
-                bgcolor: 'rgba(255,255,255,0.2)', 
-                color: 'white', 
-                fontFamily: 'monospace',
-                fontWeight: 600,
-                fontSize: '1.1rem'
-              }}
-            />
+            <Chip label={activityCode} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600, fontSize: '1.1rem' }} />
           </CardContent>
         </Card>
       </Grow>
     );
   }
 
-  // แสดงข้อความเมื่อกิจกรรมปิดการลงทะเบียน
   if (!activityStatus.isActive) {
     return (
-      <Grow in={true}>
-        <Card 
-          elevation={8} 
-          sx={{ 
-            borderRadius: 4, 
-            border: '3px solid', 
+      <Grow in>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
             borderColor: 'warning.main',
             background: 'linear-gradient(135deg, #ffa726 0%, #fb8c00 100%)',
-            color: 'white'
+            color: 'white',
           }}
         >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
@@ -1194,33 +925,24 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
               กิจกรรมได้ปิดการลงทะเบียนแล้ว
             </Typography>
-            <Chip 
-              label={activityStatus.activityCode} 
-              sx={{ 
-                bgcolor: 'rgba(255,255,255,0.2)', 
-                color: 'white', 
-                fontFamily: 'monospace',
-                fontWeight: 600
-              }}
-            />
+            <Chip label={activityStatus.activityCode} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600 }} />
           </CardContent>
         </Card>
       </Grow>
     );
   }
 
-  // แสดงข้อความเมื่อไม่มีรหัสผู้ใช้ในกิจกรรม
   if (!activityStatus.userCode) {
     return (
-      <Grow in={true}>
-        <Card 
-          elevation={8} 
-          sx={{ 
-            borderRadius: 4, 
-            border: '3px solid', 
+      <Grow in>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
             borderColor: 'warning.main',
             background: 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
-            color: 'white'
+            color: 'white',
           }}
         >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
@@ -1231,33 +953,24 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
               กิจกรรมยังไม่ได้ตั้งค่ารหัสผู้ใช้
             </Typography>
-            <Chip 
-              label={activityStatus.activityCode} 
-              sx={{ 
-                bgcolor: 'rgba(255,255,255,0.2)', 
-                color: 'white', 
-                fontFamily: 'monospace',
-                fontWeight: 600
-              }}
-            />
+            <Chip label={activityStatus.activityCode} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600 }} />
           </CardContent>
         </Card>
       </Grow>
     );
   }
 
-  // แสดงข้อความเมื่อละเมิด Single User Mode
   if (singleUserViolation) {
     return (
-      <Grow in={true}>
-        <Card 
-          elevation={8} 
-          sx={{ 
-            borderRadius: 4, 
-            border: '3px solid', 
+      <Grow in>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
             borderColor: 'error.main',
             background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
-            color: 'white'
+            color: 'white',
           }}
         >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
@@ -1268,28 +981,20 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
               กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียวเท่านั้น
             </Typography>
-            <Chip 
-              label={currentRegisteredUser} 
-              sx={{ 
-                bgcolor: 'rgba(255,255,255,0.2)', 
-                color: 'white', 
-                mb: 4,
-                fontWeight: 600
-              }}
-            />
-            
-            <Stack direction="row" spacing={2} justifyContent="center">
+            <Chip label={currentRegisteredUser} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', mb: 4, fontWeight: 600 }} />
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
               <Button
                 variant="contained"
                 size="large"
                 onClick={handleLogout}
                 startIcon={<LogoutIcon />}
-                sx={{ 
-                  px: 4, 
-                  py: 1.5, 
+                sx={{
+                  px: 4,
+                  py: 1.5,
                   borderRadius: 3,
                   bgcolor: 'rgba(255,255,255,0.15)',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
                 }}
               >
                 ออกจากระบบ
@@ -1298,16 +1003,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                 variant="outlined"
                 size="large"
                 onClick={() => window.close()}
-                sx={{ 
-                  px: 4, 
-                  py: 1.5, 
+                sx={{
+                  px: 4,
+                  py: 1.5,
                   borderRadius: 3,
                   borderColor: 'rgba(255,255,255,0.5)',
                   color: 'white',
-                  '&:hover': { 
-                    borderColor: 'white',
-                    bgcolor: 'rgba(255,255,255,0.1)'
-                  }
+                  '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' },
                 }}
               >
                 ปิดหน้าต่าง
@@ -1319,18 +1021,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     );
   }
 
-  // แสดงหน้าเตือนถ้าต้องการ Microsoft Login แต่ไม่มีข้อมูล
   if (activityStatus.requiresUniversityLogin && !existingUserProfile && !existingAuthStatus) {
     return (
-      <Grow in={true}>
-        <Card 
-          elevation={8} 
-          sx={{ 
-            borderRadius: 4, 
-            border: '3px solid', 
+      <Grow in>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
             borderColor: 'warning.main',
             background: 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)',
-            color: 'white'
+            color: 'white',
           }}
         >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
@@ -1339,18 +1040,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               จำเป็นต้องเข้าสู่ระบบ
             </Typography>
             <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
-              กิจกรรมนี้ต้องการให้เข้าสู่ระบบด้วยบัญชี Microsoft ของมหาวิทยาลัยก่อน
+              กิจกรรมนี้ต้องการให้เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยก่อน
             </Typography>
             <Button
               variant="contained"
               size="large"
               onClick={() => window.history.back()}
-              sx={{ 
-                px: 4, 
-                py: 1.5, 
+              sx={{
+                px: 4,
+                py: 1.5,
                 borderRadius: 3,
                 bgcolor: 'rgba(255,255,255,0.15)',
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
               }}
             >
               กลับไปเข้าสู่ระบบ
@@ -1361,18 +1062,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     );
   }
 
-  // แสดงหน้าสำเร็จ
   if (success) {
     return (
-      <Fade in={true}>
-        <Card 
-          elevation={12} 
-          sx={{ 
-            borderRadius: 4, 
-            border: '3px solid', 
+      <Fade in>
+        <Card
+          elevation={12}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
             borderColor: 'success.main',
             background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)',
-            color: 'white'
+            color: 'white',
           }}
         >
           <CardContent sx={{ textAlign: 'center', py: 6 }}>
@@ -1384,67 +1084,41 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               ข้อมูลการเข้าร่วมกิจกรรมของคุณได้รับการบันทึกเรียบร้อยแล้ว
             </Typography>
 
-            {/* แสดงข้อมูลผู้ใช้ Microsoft ถ้ามี */}
-            {existingUserProfile && (
-              <Paper sx={{ 
-                p: 3, 
-                bgcolor: 'rgba(255,255,255,0.15)', 
-                backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255,255,255,0.2)', 
+            <Alert
+              severity="success"
+              sx={{
                 mb: 3,
-                borderRadius: 3,
-                color: 'white'
-              }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
-                  <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', mr: 2 }}>
-                    <AccountCircleIcon />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="h6" fontWeight="bold">
-                      บัญชี Microsoft
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                      {existingUserProfile.email}
-                    </Typography>
-                  </Box>
-                </Box>
-              </Paper>
-            )}
+                borderRadius: 2,
+                bgcolor: 'rgba(255,255,255,0.15)',
+                color: 'white',
+                '& .MuiAlert-icon': { color: 'white' },
+              }}
+            >
+              บันทึก Transcript เรียบร้อยแล้ว
+            </Alert>
 
-            {/* แสดงข้อความสำหรับ Single User Mode */}
-            {activityStatus.singleUserMode && (
-              <Alert 
-                severity="info" 
-                sx={{ 
-                  mb: 3, 
-                  borderRadius: 2,
-                  bgcolor: 'rgba(255,255,255,0.15)',
-                  color: 'white',
-                  '& .MuiAlert-icon': { color: 'white' }
-                }}
-              >
-                <Typography variant="body2" fontWeight="medium">
-                  🔒 กิจกรรมนี้เป็นโหมดผู้ใช้เดียว - การลงทะเบียนของบัญชีอื่นจะถูกปฏิเสธ
-                </Typography>
-              </Alert>
-            )}
-            
-            <Paper sx={{ 
-              p: 4, 
-              bgcolor: 'rgba(255,255,255,0.15)', 
-              backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255,255,255,0.2)', 
-              mb: 4,
-              borderRadius: 3,
-              color: 'white'
-            }}>
+            <Paper
+              sx={{
+                p: { xs: 2, sm: 4 },
+                bgcolor: 'rgba(255,255,255,0.15)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                mb: 4,
+                borderRadius: 3,
+                color: 'white',
+              }}
+            >
               <Grid container spacing={2} sx={{ textAlign: 'left' }}>
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <BadgeIcon sx={{ mr: 2 }} />
+                    <PersonIcon sx={{ mr: 2 }} />
                     <Box>
-                      <Typography variant="caption" sx={{ opacity: 0.8 }}>รหัสกิจกรรม</Typography>
-                      <Typography variant="body1" fontWeight="600">{formData.firstName} {formData.lastName}</Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        ชื่อ-นามสกุล
+                      </Typography>
+                      <Typography variant="body1" fontWeight="600">
+                        {formData.firstName} {formData.lastName}
+                      </Typography>
                     </Box>
                   </Box>
                 </Grid>
@@ -1452,8 +1126,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <BadgeIcon sx={{ mr: 2 }} />
                     <Box>
-                      <Typography variant="caption" sx={{ opacity: 0.8 }}>รหัสนักศึกษา</Typography>
-                      <Typography variant="body1" fontWeight="600" fontFamily="monospace">{formData.studentId}</Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        รหัสนักศึกษา
+                      </Typography>
+                      <Typography variant="body1" fontWeight="600" fontFamily="monospace">
+                        {formData.studentId}
+                      </Typography>
                     </Box>
                   </Box>
                 </Grid>
@@ -1461,8 +1139,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <SchoolIcon sx={{ mr: 2 }} />
                     <Box>
-                      <Typography variant="caption" sx={{ opacity: 0.8 }}>คณะ</Typography>
-                      <Typography variant="body1" fontWeight="600">{formData.faculty}</Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        คณะ
+                      </Typography>
+                      <Typography variant="body1" fontWeight="600">
+                        {formData.faculty}
+                      </Typography>
                     </Box>
                   </Box>
                 </Grid>
@@ -1470,8 +1152,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <SchoolIcon sx={{ mr: 2 }} />
                     <Box>
-                      <Typography variant="caption" sx={{ opacity: 0.8 }}>สาขา</Typography>
-                      <Typography variant="body1" fontWeight="600">{formData.department}</Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        สาขา
+                      </Typography>
+                      <Typography variant="body1" fontWeight="600">
+                        {formData.department}
+                      </Typography>
                     </Box>
                   </Box>
                 </Grid>
@@ -1479,8 +1165,25 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <SchoolIcon sx={{ mr: 2 }} />
                     <Box>
-                      <Typography variant="caption" sx={{ opacity: 0.8 }}>ระดับการศึกษา</Typography>
-                      <Typography variant="body1" fontWeight="600">{formData.degree}</Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        ระดับการศึกษา
+                      </Typography>
+                      <Typography variant="body1" fontWeight="600">
+                        {formData.degree}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <BadgeIcon sx={{ mr: 2 }} />
+                    <Box>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        รหัสกิจกรรม
+                      </Typography>
+                      <Typography variant="body1" fontWeight="600" fontFamily="monospace">
+                        {activityStatus.activityCode}
+                      </Typography>
                     </Box>
                   </Box>
                 </Grid>
@@ -1488,30 +1191,33 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <AccessTimeIcon sx={{ mr: 2 }} />
                     <Box>
-                      <Typography variant="caption" sx={{ opacity: 0.8 }}>เวลาที่บันทึก</Typography>
-                      <Typography variant="body1" fontWeight="600">{new Date().toLocaleString('th-TH')}</Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        เวลาที่บันทึก
+                      </Typography>
+                      <Typography variant="body1" fontWeight="600">
+                        {new Date().toLocaleString('th-TH')}
+                      </Typography>
                     </Box>
                   </Box>
                 </Grid>
               </Grid>
             </Paper>
-            
-            <Stack direction="row" spacing={2} justifyContent="center">
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
               <Button
                 variant="contained"
                 size="large"
                 onClick={() => window.close()}
-                sx={{ 
-                  px: 4, 
-                  py: 1.5, 
+                sx={{
+                  px: 4,
+                  py: 1.5,
                   borderRadius: 3,
                   bgcolor: 'rgba(255,255,255,0.15)',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
                 }}
               >
                 ปิดหน้าต่าง
               </Button>
-              {/* ปุ่มลงทะเบียนคนอื่นจะแสดงเฉพาะเมื่อไม่ใช่ Single User Mode */}
               {!activityStatus.singleUserMode && (
                 <Button
                   variant="outlined"
@@ -1519,24 +1225,21 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   onClick={() => {
                     setSuccess(false);
                     setActiveStep(0);
-                    const extractedData = extractAndGenerateUserData(existingUserProfile);
+                    const reset = extractAndGenerateUserData(existingUserProfile);
                     setFormData({
-                      ...extractedData,
+                      ...reset,
                       userCode: '',
                       email: existingUserProfile?.email || '',
-                      microsoftId: existingUserProfile?.id || ''
+                      microsoftId: existingUserProfile?.id || '',
                     });
                   }}
-                  sx={{ 
-                    px: 4, 
-                    py: 1.5, 
+                  sx={{
+                    px: 4,
+                    py: 1.5,
                     borderRadius: 3,
                     borderColor: 'rgba(255,255,255,0.5)',
                     color: 'white',
-                    '&:hover': { 
-                      borderColor: 'white',
-                      bgcolor: 'rgba(255,255,255,0.1)'
-                    }
+                    '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' },
                   }}
                 >
                   ลงทะเบียนคนอื่น
@@ -1549,17 +1252,20 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     );
   }
 
-  // แสดงฟอร์มลงทะเบียน (เมื่อกิจกรรมเปิดใช้งาน)
+  /** =========================
+   * Main form
+   * =======================*/
   return (
-    <Fade in={true}>
+    <Fade in>
       <Card elevation={8} sx={{ borderRadius: 4 }}>
-        <CardContent sx={{ p: 4 }}>
-          <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Typography 
-              variant="h3" 
-              gutterBottom 
-              fontWeight="bold" 
+        <CardContent sx={{ p: { xs: 2, sm: 4 } }}>
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+            <Typography
+              variant="h4"
+              gutterBottom
+              fontWeight="bold"
               sx={{
+                fontSize: { xs: '1.6rem', sm: '2rem' },
                 background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
                 backgroundClip: 'text',
                 WebkitBackgroundClip: 'text',
@@ -1568,71 +1274,61 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             >
               ลงทะเบียนกิจกรรม
             </Typography>
-            
-            {/* แสดงสถานะ Single User Mode */}
+
             {activityStatus.singleUserMode && (
-              <Alert 
-                severity="warning" 
-                sx={{ 
-                  mt: 2, 
-                  mb: 2, 
+              <Alert
+                severity="warning"
+                sx={{
+                  mt: 1,
+                  mb: 2,
                   borderRadius: 3,
                   background: 'linear-gradient(135deg, #ff9a56 0%, #ff6b6b 100%)',
                   color: 'white',
                   '& .MuiAlert-icon': { color: 'white' },
-                  border: 'none'
+                  border: 'none',
                 }}
               >
-                <Typography variant="body2" fontWeight="medium">
-                  🔒 <strong>โหมดผู้ใช้เดียว</strong> - กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงบัญชีเดียวเท่านั้น
-                </Typography>
+                🔒 <strong>โหมดผู้ใช้เดียว</strong> — กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงบัญชีเดียวเท่านั้น
               </Alert>
             )}
-            
-            {/* แสดงสถานะการโหลดสาขา */}
+
             {departmentsLoading && (
-              <Alert 
-                severity="info" 
-                sx={{ 
-                  mt: 2, 
-                  mb: 2, 
+              <Alert
+                severity="info"
+                sx={{
+                  mt: 1,
+                  mb: 2,
                   borderRadius: 3,
                   background: 'linear-gradient(135deg, #74b9ff 0%, #0984e3 100%)',
                   color: 'white',
                   '& .MuiAlert-icon': { color: 'white' },
-                  border: 'none'
+                  border: 'none',
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <CircularProgress size={20} sx={{ color: 'white' }} />
-                  <Typography variant="body2">
-                    กำลังโหลดข้อมูลสาขา... ({Object.values(DEPARTMENTS_BY_FACULTY).flat().length} สาขา)
-                  </Typography>
+                  <Typography variant="body2">กำลังโหลดข้อมูลสาขา...</Typography>
                 </Box>
               </Alert>
             )}
           </Box>
 
-          <Stepper 
-            activeStep={activeStep} 
-            sx={{ 
-              mb: 4,
-              '& .MuiStepLabel-root .Mui-completed': {
-                color: 'success.main',
-              },
-              '& .MuiStepLabel-root .Mui-active': {
-                color: 'primary.main',
-              },
+          <Stepper
+            activeStep={activeStep}
+            sx={{
+              mb: { xs: 2.5, sm: 4 },
+              '& .MuiStepLabel-root .Mui-completed': { color: 'success.main' },
+              '& .MuiStepLabel-root .Mui-active': { color: 'primary.main' },
             }}
           >
             {steps.map((label, index) => (
               <Step key={label}>
-                <StepLabel 
+                <StepLabel
                   sx={{
                     '& .MuiStepLabel-label': {
                       fontWeight: activeStep === index ? 'bold' : 'normal',
-                      color: activeStep === index ? 'primary.main' : 'text.secondary'
-                    }
+                      color: activeStep === index ? 'primary.main' : 'text.secondary',
+                    },
                   }}
                 >
                   {label}
@@ -1642,92 +1338,87 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           </Stepper>
 
           {error && (
-            <Alert 
-              severity="error" 
-              sx={{ 
-                mb: 3, 
+            <Alert
+              severity="error"
+              sx={{
+                mb: 3,
                 borderRadius: 3,
                 background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)',
                 color: 'white',
                 '& .MuiAlert-icon': { color: 'white' },
-                border: 'none'
+                border: 'none',
               }}
             >
               {error}
             </Alert>
           )}
 
-          {/* Step 1: Form Input */}
+          {/* Step 1: Form */}
           {activeStep === 0 && (
-            <Fade in={true}>
+            <Fade in>
               <Box>
-                {/* Microsoft Account Info */}
-                {existingUserProfile && (
-                  <Paper sx={{ 
-                    p: 3, 
-                    mb: 4, 
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    color: 'white',
-                    borderRadius: 4,
-                    border: 'none'
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', mr: 2 }}>
-                        <AccountCircleIcon />
-                      </Avatar>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="h6" fontWeight="bold">
-                          เข้าสู่ระบบด้วยบัญชี Microsoft
-                        </Typography>
-                        <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                          {existingUserProfile.email}
-                        </Typography>
-                      </Box>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        onClick={handleLogout}
-                        startIcon={<LogoutIcon />}
-                        sx={{ 
-                          borderRadius: 2,
-                          borderColor: 'rgba(255,255,255,0.5)',
-                          color: 'white',
-                          '&:hover': { 
-                            borderColor: 'white',
-                            bgcolor: 'rgba(255,255,255,0.1)'
-                          }
-                        }}
-                      >
-                        ออกจากระบบ
-                      </Button>
-                    </Box>
-                    
-                    {autoFilledData.isAutoFilled && (
-                      <Box 
-                        sx={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          p: 2, 
-                          bgcolor: 'rgba(255,255,255,0.15)', 
-                          borderRadius: 2,
-                          backdropFilter: 'blur(10px)'
-                        }}
-                      >
-                        <AutoAwesomeIcon sx={{ mr: 2, color: '#ffd700' }} />
-                        <Box>
-                          <Typography variant="body2" fontWeight="medium">
-                            ข้อมูลได้รับการดึงอัตโนมัติจากบัญชี Microsoft
-                          </Typography>
-                          <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                            ข้อมูลบางส่วนจะไม่สามารถแก้ไขได้
-                          </Typography>
-                        </Box>
-                      </Box>
-                    )}
-                  </Paper>
-                )}
+                {/* Organizer code – Liquid Glass */}
+                <Box
+                  sx={(t) => ({
+                    mb: 3,
+                    p: { xs: 1.5, sm: 2 },
+                    borderRadius: 3,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    bgcolor: t.palette.mode === 'dark' ? 'rgba(20,20,24,0.35)' : 'rgba(255,255,255,0.65)',
+                    backdropFilter: 'blur(16px) saturate(160%)',
+                    border: '1px solid rgba(255,255,255,0.35)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,.12)',
+                  })}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="caption" sx={{ opacity: 0.75, display: 'block' }}>
+                      รหัสที่ได้รับจากผู้จัดกิจกรรม
+                    </Typography>
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontFamily: 'monospace',
+                        fontWeight: 800,
+                        letterSpacing: 1,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: { xs: 180, sm: 260 },
+                      }}
+                      title={activityStatus.userCode || ''}
+                    >
+                      {activityStatus.userCode || '—'}
+                    </Typography>
+                  </Box>
 
-                <Grid container spacing={3}>
+                  <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => setFormData((prev) => ({ ...prev, userCode: activityStatus.userCode || '' }))}
+                    >
+                      ใส่รหัสให้เลย
+                    </Button>
+                    <Button
+                      variant="text"
+                      size="small"
+                      startIcon={<ContentCopyIcon fontSize="small" />}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(activityStatus.userCode || '');
+                        } catch {}
+                      }}
+                    >
+                      คัดลอก
+                    </Button>
+                  </Stack>
+                </Box>
+
+                <Grid container spacing={2.5}>
                   {/* Student ID */}
                   <Grid item xs={12} sm={6}>
                     <TextField
@@ -1741,23 +1432,14 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <BadgeIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('studentId') && (
-                              <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />
-                            )}
+                            {isFieldReadOnly('studentId') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
-                        )
+                        ),
                       }}
-                      helperText={isFieldReadOnly('studentId') ? 
-                        "ข้อมูลจาก Microsoft" : 
-                        "เช่น 6421021234 (10 หลัก, ขึ้นต้นด้วย 64-69)"
-                      }
+                      helperText={isFieldReadOnly('studentId') ? 'ข้อมูลจาก Microsoft' : 'เช่น 6421021234 (10 หลัก, ขึ้นต้นด้วย 64-69)'}
                       sx={{
-                        '& .MuiInputBase-input': {
-                          fontFamily: 'monospace'
-                        },
-                        '& .MuiFormHelperText-root': {
-                          color: isFieldReadOnly('studentId') ? 'primary.main' : 'text.secondary'
-                        }
+                        '& .MuiInputBase-input': { fontFamily: 'monospace' },
+                        '& .MuiFormHelperText-root': { color: isFieldReadOnly('studentId') ? 'primary.main' : 'text.secondary' },
                       }}
                     />
                   </Grid>
@@ -1775,20 +1457,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <PersonIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('firstName') && (
-                              <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />
-                            )}
+                            {isFieldReadOnly('firstName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
-                        )
+                        ),
                       }}
-                      helperText={isFieldReadOnly('firstName') ? 
-                        "ข้อมูลจาก Microsoft" : 
-                        "ชื่อจริงเป็นภาษาไทย"
-                      }
+                      helperText={isFieldReadOnly('firstName') ? 'ข้อมูลจาก Microsoft' : 'ชื่อจริงเป็นภาษาไทย'}
                       sx={{
-                        '& .MuiFormHelperText-root': {
-                          color: isFieldReadOnly('firstName') ? 'primary.main' : 'text.secondary'
-                        }
+                        '& .MuiFormHelperText-root': { color: isFieldReadOnly('firstName') ? 'primary.main' : 'text.secondary' },
                       }}
                     />
                   </Grid>
@@ -1806,31 +1481,20 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <PersonIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('lastName') && (
-                              <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />
-                            )}
+                            {isFieldReadOnly('lastName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
-                        )
+                        ),
                       }}
-                      helperText={isFieldReadOnly('lastName') ? 
-                        "ข้อมูลจาก Microsoft" : 
-                        "นามสกุลเป็นภาษาไทย"
-                      }
+                      helperText={isFieldReadOnly('lastName') ? 'ข้อมูลจาก Microsoft' : 'นามสกุลเป็นภาษาไทย'}
                       sx={{
-                        '& .MuiFormHelperText-root': {
-                          color: isFieldReadOnly('lastName') ? 'primary.main' : 'text.secondary'
-                        }
+                        '& .MuiFormHelperText-root': { color: isFieldReadOnly('lastName') ? 'primary.main' : 'text.secondary' },
                       }}
                     />
                   </Grid>
 
                   {/* Faculty */}
                   <Grid item xs={12} sm={6}>
-                    <FormControl 
-                      fullWidth 
-                      required 
-                      disabled={isFieldReadOnly('faculty') || loading || forceRefreshEnabled}
-                    >
+                    <FormControl fullWidth required disabled={isFieldReadOnly('faculty') || loading || forceRefreshEnabled}>
                       <InputLabel>คณะ</InputLabel>
                       <Select
                         value={formData.faculty}
@@ -1839,15 +1503,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment={
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <SchoolIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('faculty') && (
-                              <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />
-                            )}
+                            {isFieldReadOnly('faculty') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
                         }
                       >
-                        {PSU_FACULTIES.map((faculty) => (
-                          <MenuItem key={faculty.code} value={faculty.name}>
-                            {faculty.name}
+                        {PSU_FACULTIES.map((f) => (
+                          <MenuItem key={f.code} value={f.name}>
+                            {f.name}
                           </MenuItem>
                         ))}
                       </Select>
@@ -1861,9 +1523,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
 
                   {/* Department */}
                   <Grid item xs={12} sm={6}>
-                    <FormControl 
-                      fullWidth 
-                      required 
+                    <FormControl
+                      fullWidth
+                      required
                       disabled={departmentsLoading || loading || forceRefreshEnabled || !formData.faculty}
                     >
                       <InputLabel>สาขาวิชา</InputLabel>
@@ -1873,33 +1535,30 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         label="สาขาวิชา"
                         startAdornment={<SchoolIcon sx={{ mr: 1, color: 'text.secondary' }} />}
                       >
-                        {filteredDepartments.map((dept) => (
-                          <MenuItem key={dept.id} value={dept.name}>
-                            {dept.name}
+                        {filteredDepartments.map((d) => (
+                          <MenuItem key={d.id} value={d.name}>
+                            {d.name}
                           </MenuItem>
                         ))}
                         {filteredDepartments.length === 0 && formData.faculty && !departmentsLoading && (
-                          <MenuItem disabled>
-                            ไม่พบสาขาสำหรับคณะนี้
-                          </MenuItem>
+                          <MenuItem disabled>ไม่พบสาขาสำหรับคณะนี้</MenuItem>
                         )}
                       </Select>
                       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1 }}>
-                        {departmentsLoading ? 'กำลังโหลดข้อมูลสาขา...' : 
-                         !formData.faculty ? 'เลือกคณะก่อน' :
-                         filteredDepartments.length === 0 ? 'ไม่พบสาขาสำหรับคณะนี้' :
-                         `พบ ${filteredDepartments.length} สาขา`}
+                        {departmentsLoading
+                          ? 'กำลังโหลดข้อมูลสาขา...'
+                          : !formData.faculty
+                          ? 'เลือกคณะก่อน'
+                          : filteredDepartments.length === 0
+                          ? 'ไม่พบสาขาสำหรับคณะนี้'
+                          : `พบ ${filteredDepartments.length} สาขา`}
                       </Typography>
                     </FormControl>
                   </Grid>
 
-                  {/* Degree Level */}
+                  {/* Degree */}
                   <Grid item xs={12} sm={6}>
-                    <FormControl 
-                      fullWidth 
-                      required 
-                      disabled={isFieldReadOnly('degree') || loading || forceRefreshEnabled}
-                    >
+                    <FormControl fullWidth required disabled={isFieldReadOnly('degree') || loading || forceRefreshEnabled}>
                       <InputLabel>ระดับการศึกษา</InputLabel>
                       <Select
                         value={formData.degree}
@@ -1908,15 +1567,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment={
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <SchoolIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('degree') && (
-                              <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />
-                            )}
+                            {isFieldReadOnly('degree') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
                         }
                       >
-                        {DEGREE_LEVELS.map((degree) => (
-                          <MenuItem key={degree.code} value={degree.name}>
-                            {degree.name}
+                        {DEGREE_LEVELS.map((d) => (
+                          <MenuItem key={d.code} value={d.name}>
+                            {d.name}
                           </MenuItem>
                         ))}
                       </Select>
@@ -1941,25 +1598,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <SchoolIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('university') && (
-                              <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />
-                            )}
+                            {isFieldReadOnly('university') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
-                        )
+                        ),
                       }}
-                      helperText={isFieldReadOnly('university') ? 
-                        "ข้อมูลจาก Microsoft" : 
-                        "ชื่อมหาวิทยาลัย"
-                      }
+                      helperText={isFieldReadOnly('university') ? 'ข้อมูลจาก Microsoft' : 'ชื่อมหาวิทยาลัย'}
                       sx={{
-                        '& .MuiFormHelperText-root': {
-                          color: isFieldReadOnly('university') ? 'primary.main' : 'text.secondary'
-                        }
+                        '& .MuiFormHelperText-root': { color: isFieldReadOnly('university') ? 'primary.main' : 'text.secondary' },
                       }}
                     />
                   </Grid>
 
-                  {/* User Code */}
+                  {/* User Code (input) */}
                   <Grid item xs={12}>
                     <TextField
                       label="รหัสผู้ใช้"
@@ -1969,48 +1619,57 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       required
                       disabled={loading || forceRefreshEnabled}
                       type="password"
-                      InputProps={{
-                        startAdornment: <SecurityIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                      }}
+                      InputProps={{ startAdornment: <SecurityIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
                       helperText="รหัสที่ได้รับจากผู้จัดกิจกรรม"
-                      sx={{
-                        '& .MuiInputBase-input': {
-                          fontFamily: 'monospace'
-                        }
-                      }}
+                      sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
                     />
                   </Grid>
                 </Grid>
 
-                <Divider sx={{ my: 4 }} />
+                <Divider sx={{ my: { xs: 3, sm: 4 } }} />
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Chip 
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: { xs: 'column', sm: 'row' },
+                    gap: 2,
+                    alignItems: { xs: 'stretch', sm: 'center' },
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Chip
                     label={`รหัสกิจกรรม: ${activityCode}`}
                     variant="outlined"
-                    sx={{ 
-                      fontFamily: 'monospace', 
+                    sx={{
+                      fontFamily: 'monospace',
                       fontWeight: 600,
                       borderColor: 'primary.main',
-                      color: 'primary.main'
+                      color: 'primary.main',
+                      alignSelf: { xs: 'stretch', sm: 'flex-start' },
                     }}
                   />
-                  
+
                   <Button
                     variant="contained"
                     size="large"
                     onClick={handleSubmit}
-                    disabled={loading || departmentsLoading || forceRefreshEnabled || !formData.faculty || filteredDepartments.length === 0}
-                    sx={{ 
-                      px: 4, 
-                      py: 1.5, 
+                    disabled={
+                      loading ||
+                      departmentsLoading ||
+                      forceRefreshEnabled ||
+                      !formData.faculty ||
+                      filteredDepartments.length === 0
+                    }
+                    sx={{
+                      px: 4,
+                      py: 1.5,
                       borderRadius: 3,
                       background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
                       boxShadow: '0 3px 5px 2px rgba(102, 126, 234, .3)',
                       '&:hover': {
                         background: 'linear-gradient(45deg, #5a6fd8 30%, #6a4190 90%)',
                         boxShadow: '0 4px 8px 3px rgba(102, 126, 234, .4)',
-                      }
+                      },
                     }}
                   >
                     {loading ? (
@@ -2027,25 +1686,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             </Fade>
           )}
 
-          {/* Step 2: Location Verification */}
+          {/* Step 2: Location */}
           {activeStep === 1 && (
-            <Fade in={true}>
+            <Fade in>
               <Box sx={{ textAlign: 'center' }}>
-                <LocationIcon 
-                  sx={{ 
-                    fontSize: 80, 
-                    mb: 3,
-                    color: 'primary.main',
-                    filter: 'drop-shadow(0 4px 8px rgba(102, 126, 234, .3))'
-                  }} 
-                />
-                <Typography variant="h4" gutterBottom fontWeight="bold" color="primary.main">
+                <LocationIcon sx={{ fontSize: 80, mb: 2.5, color: 'primary.main', filter: 'drop-shadow(0 4px 8px rgba(102, 126, 234, .3))' }} />
+                <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">
                   กำลังตรวจสอบตำแหน่ง
                 </Typography>
                 <Typography variant="body1" color="text.secondary" paragraph>
                   กรุณาอนุญาตการเข้าถึงตำแหน่งของคุณเพื่อยืนยันการเข้าร่วมกิจกรรม
                 </Typography>
-                
+
                 <LocationChecker
                   allowedLocation={getActivityAllowedLocation()}
                   onLocationVerified={handleLocationVerified}

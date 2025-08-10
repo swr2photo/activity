@@ -1,21 +1,51 @@
 'use client';
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useEffect, useMemo, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Container,
-  CircularProgress,
   Alert,
   Box,
   Button,
-  Typography
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Container,
+  Divider,
+  Grid,
+  Paper,
+  Stack,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
 } from '@mui/material';
+import { alpha, keyframes } from '@mui/material/styles';
 import {
+  AccessTime as TimeIcon,
+  Language as LanguageIcon,
+  Map as MapIcon,
   Refresh as RefreshIcon,
+  SatelliteAlt as SatelliteIcon,
   Warning as WarningIcon,
-  AccessTime as TimeIcon
+  GpsFixed as GpsFixedIcon,
+  CheckCircle as CheckIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, addDoc, onSnapshot, setDoc } from 'firebase/firestore';
-// Import separated components
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  increment,
+  limit,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+
+// Components
 import NavigationBar from '../../components/navigation/NavigationBar';
 import MicrosoftAuthSection from '../../components/auth/MicrosoftAuthSection';
 import {
@@ -23,19 +53,21 @@ import {
   DuplicateRegistrationAlert,
   ProfileSetupAlert,
   SuccessAlert,
-  ActivityStatusAlert
+  ActivityStatusAlert,
 } from '../../components/alerts/StatusAlerts';
 import ProfileEditDialog from '../../components/profile/ProfileEditDialog';
-import ActivityBanner from '../../components/activity/ActivityBanner';
-import ActivityInfoCard from '../../components/activity/ActivityInfoCard';
-
 import ActivityRegistrationForm from '../../components/ActivityRegistrationForm';
+import GeofenceMap from '../../components/maps/GeofenceMap';
+
+// Firebase helpers
 import { db } from '../../lib/firebase';
 import { useAuth, UniversityUserProfile } from '../../lib/firebaseAuth';
 import { SessionManager } from '../../lib/sessionManager';
 import { AdminSettings } from '../../types';
 
+// =============================
 // Types
+// =============================
 interface ActivityData {
   id: string;
   activityCode: string;
@@ -44,7 +76,7 @@ interface ActivityData {
   location: string;
   latitude: number;
   longitude: number;
-  checkInRadius: number;
+  checkInRadius: number; // meters
   userCode: string;
   startDateTime: any;
   endDateTime: any;
@@ -57,7 +89,7 @@ interface ActivityData {
   bannerUrl?: string;
   createdAt?: any;
   updatedAt?: any;
-  singleUserMode?: boolean; // เพิ่มฟิลด์นี้
+  singleUserMode?: boolean;
 }
 
 interface IPLoginRecord {
@@ -67,451 +99,349 @@ interface IPLoginRecord {
   expiresAt: any;
 }
 
-interface RegistrationRecord {
-  activityCode: string;
-  userEmail: string;
-  registeredAt: any;
+interface ActivityStatusInfo {
+  status: 'active' | 'upcoming' | 'full' | 'ended' | 'inactive';
+  message: string;
+  startTime?: Date;
+  endTime?: Date;
 }
 
-// Utility functions
+// =============================
+// Utilities
+// =============================
+const toRad = (deg: number) => (deg * Math.PI) / 180;
+const haversineMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+const formatDateTime = (d: any) => {
+  const dd: Date = d?.toDate?.() ?? (d instanceof Date ? d : new Date(d));
+  return dd.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+// cache IP 10 นาที
+let cachedIP: { ip: string; at: number } | null = null;
 const getUserIP = async (): Promise<string> => {
   try {
-    const response = await fetch('https://api.ipify.org?format=json');
-    const data = await response.json();
+    const now = Date.now();
+    if (cachedIP && now - cachedIP.at < 10 * 60 * 1000) return cachedIP.ip;
+    const res = await fetch('https://api.ipify.org?format=json');
+    const data = await res.json();
+    cachedIP = { ip: data.ip, at: now };
     return data.ip;
-  } catch (error) {
-    console.error('Error getting IP:', error);
+  } catch (e) {
     try {
-      const response = await fetch('https://ipapi.co/json/');
-      const data = await response.json();
+      const res = await fetch('https://ipapi.co/json/');
+      const data = await res.json();
+      const now = Date.now();
+      cachedIP = { ip: data.ip, at: now };
       return data.ip;
-    } catch (fallbackError) {
-      console.error('Fallback IP check failed:', fallbackError);
+    } catch {
       return 'unknown';
     }
   }
 };
 
-const checkDuplicateRegistration = async (activityCode: string, userEmail: string): Promise<{ isDuplicate: boolean; message?: string }> => {
-  try {
-    const q = query(
-      collection(db, 'registrations'),
-      where('activityCode', '==', activityCode),
-      where('userEmail', '==', userEmail)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    
-    if (!querySnapshot.empty) {
-      return {
-        isDuplicate: true,
-        message: 'บัญชีนี้เคยลงทะเบียนกิจกรรมนี้แล้ว'
-      };
-    }
-    
-    return { isDuplicate: false };
-  } catch (error) {
-    console.error('Error checking duplicate registration:', error);
-    return { isDuplicate: false };
-  }
-};
-
-// ฟังก์ชันตรวจสอบ Single User Mode สำหรับกิจกรรม
-const checkSingleUserModeForActivity = async (activityCode: string, userEmail: string): Promise<{ 
-  canRegister: boolean; 
-  message?: string; 
-  registeredUser?: string 
-}> => {
-  try {
-    // ตรวจสอบว่ากิจกรรมเปิด Single User Mode หรือไม่
-    const activityQuery = query(
-      collection(db, 'activityQRCodes'),
-      where('activityCode', '==', activityCode)
-    );
-    const activitySnapshot = await getDocs(activityQuery);
-    
-    if (activitySnapshot.empty) {
-      return { canRegister: true };
-    }
-    
-    const activityData = activitySnapshot.docs[0].data();
-    
-    // ถ้าไม่ได้เปิด Single User Mode ให้ผ่านไป
-    if (!activityData.singleUserMode) {
-      return { canRegister: true };
-    }
-    
-    console.log('Activity has single user mode enabled, checking existing registrations...');
-    
-    // ตรวจสอบการลงทะเบียนที่มีอยู่
-    const registrationQuery = query(
-      collection(db, 'activityRecords'),
-      where('activityCode', '==', activityCode)
-    );
-    const registrationSnapshot = await getDocs(registrationQuery);
-    
-    if (!registrationSnapshot.empty) {
-      const existingRecord = registrationSnapshot.docs[0].data();
-      const registeredEmail = existingRecord.email;
-      
-      if (registeredEmail && registeredEmail !== userEmail) {
-        // มีคนอื่นลงทะเบียนแล้ว
-        return {
-          canRegister: false,
-          message: `กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียว และมีผู้ใช้ ${registeredEmail} ลงทะเบียนไปแล้ว`,
-          registeredUser: registeredEmail
-        };
-      } else if (registeredEmail === userEmail) {
-        // ผู้ใช้คนเดียวกันลงทะเบียนแล้ว
-        return {
-          canRegister: false,
-          message: 'คุณได้ลงทะเบียนกิจกรรมนี้แล้ว'
-        };
-      }
-    }
-    
-    return { canRegister: true };
-  } catch (error) {
-    console.error('Error checking single user mode:', error);
-    return { canRegister: true }; // ถ้า error ให้ผ่านไป
-  }
-};
-
-const checkIPRestriction = async (userEmail: string): Promise<{ canLogin: boolean; message?: string; remainingTime?: number }> => {
+const checkIPRestriction = async (
+  userEmail: string
+): Promise<{ canLogin: boolean; message?: string; remainingTime?: number }> => {
   try {
     const userIP = await getUserIP();
     const now = new Date();
-    
-    const q = query(
-      collection(db, 'ipLoginRecords'),
-      where('ipAddress', '==', userIP)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    
-    if (!querySnapshot.empty) {
-      const existingRecord = querySnapshot.docs[0].data() as IPLoginRecord;
-      const expiresAt = existingRecord.expiresAt.toDate();
-      
+    const q = query(collection(db, 'ipLoginRecords'), where('ipAddress', '==', userIP), limit(1));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const rec = snapshot.docs[0].data() as IPLoginRecord;
+      const expiresAt = rec.expiresAt?.toDate?.() ?? new Date(rec.expiresAt);
       if (now < expiresAt) {
-        if (existingRecord.userEmail === userEmail) {
-          return { canLogin: true };
-        } else {
-          const remainingMs = expiresAt.getTime() - now.getTime();
-          const remainingMinutes = Math.ceil(remainingMs / (1000 * 60));
-          
-          return {
-            canLogin: false,
-            message: `IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่น กรุณารออีก ${remainingMinutes} นาที`,
-            remainingTime: remainingMinutes
-          };
-        }
-      } else {
-        await updateDoc(querySnapshot.docs[0].ref, {
-          userEmail: userEmail,
-          loginTime: now,
-          expiresAt: new Date(now.getTime() + 60 * 60 * 1000)
-        });
-        return { canLogin: true };
+        if (rec.userEmail === userEmail) return { canLogin: true };
+        const min = Math.ceil((expiresAt.getTime() - now.getTime()) / 60000);
+        return { canLogin: false, message: `IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่น กรุณารออีก ${min} นาที`, remainingTime: min };
       }
-    } else {
-      await addDoc(collection(db, 'ipLoginRecords'), {
-        ipAddress: userIP,
-        userEmail: userEmail,
+      await updateDoc(snapshot.docs[0].ref, {
+        userEmail,
         loginTime: now,
-        expiresAt: new Date(now.getTime() + 60 * 60 * 1000)
+        expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
       });
       return { canLogin: true };
     }
-  } catch (error) {
-    console.error('Error checking IP restriction:', error);
+    await addDoc(collection(db, 'ipLoginRecords'), {
+      ipAddress: userIP,
+      userEmail,
+      loginTime: now,
+      expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+    });
+    return { canLogin: true };
+  } catch (e) {
     return { canLogin: true };
   }
 };
 
-// Update user profile function (ใช้ setDoc แทน updateDoc)
-const updateUserProfileInFirestore = async (uid: string, updatedData: Partial<UniversityUserProfile>): Promise<void> => {
-  try {
-    console.log('เริ่มอัพเดทโปรไฟล์สำหรับผู้ใช้:', uid);
-    
-    const userDocRef = doc(db, 'users', uid);
-    
-    // ใช้ setDoc กับ merge: true แทน updateDoc
-    await setDoc(userDocRef, {
-      ...updatedData,
-      updatedAt: new Date()
-    }, { merge: true });
-    
-    console.log('อัพเดทโปรไฟล์สำเร็จ');
-    
-  } catch (error) {
-    console.error('Error updating user profile:', error);
-    throw error;
-  }
+const float1 = keyframes`
+  0% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(-12px) translateX(10px); }
+  100% { transform: translateY(0) translateX(0); }
+`;
+const float2 = keyframes`
+  0% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(12px) translateX(-10px); }
+  100% { transform: translateY(0) translateX(0); }
+`;
+
+// =============================
+// Helpers
+// =============================
+const getActivityStatus = (activity: ActivityData): ActivityStatusInfo => {
+  const now = new Date();
+  const startTime: Date = activity.startDateTime?.toDate?.() || new Date(activity.startDateTime);
+  const endTime: Date = activity.endDateTime?.toDate?.() || new Date(activity.endDateTime);
+  if (!activity.isActive) return { status: 'inactive', message: 'กิจกรรมนี้ถูกปิดใช้งานแล้ว' };
+  if (now < startTime) return { status: 'upcoming', message: `กิจกรรมจะเปิดลงทะเบียนในวันที่ ${formatDateTime(startTime)}`, startTime };
+  if (now > endTime) return { status: 'ended', message: `กิจกรรมสิ้นสุดแล้วเมื่อวันที่ ${formatDateTime(endTime)}`, endTime };
+  if (activity.maxParticipants > 0 && activity.currentParticipants >= activity.maxParticipants) return { status: 'full', message: 'กิจกรรมนี้มีผู้สมัครครบจำนวนแล้ว' };
+  return { status: 'active', message: '' };
 };
 
+const resolveBannerUrl = (activity: ActivityData | null, admin: AdminSettings | null): string | undefined => {
+  if (activity?.bannerUrl && activity.bannerUrl.trim() !== '') return activity.bannerUrl;
+  const a: any = admin || {};
+  return (
+    a.activityDefaultBannerUrl ||
+    a.bannerUrl ||
+    a.landingBannerUrl ||
+    a.publicBannerUrl ||
+    (a.branding && a.branding.bannerUrl) ||
+    undefined
+  );
+};
+
+// =============================
+// Modern Activity Banner
+// =============================
+const ModernActivityBanner: React.FC<{ activity: ActivityData; status: ActivityStatusInfo; adminSettings: AdminSettings | null }> = ({ activity, status, adminSettings }) => {
+  const fallbackBanners = [
+    'https://images.unsplash.com/photo-1523580494863-6f3031224c94?q=80&w=1600&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?q=80&w=1600&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1515165562835-c3b8c4a4306c?q=80&w=1600&auto=format&fit=crop',
+  ];
+  const adminBanner = resolveBannerUrl(activity, adminSettings);
+  const banner = adminBanner || fallbackBanners[(activity.activityName?.length || 0) % fallbackBanners.length];
+
+  const statusColor: 'default' | 'success' | 'warning' | 'error' | 'info' =
+    status.status === 'active' ? 'success' :
+    status.status === 'upcoming' ? 'info' :
+    status.status === 'full' ? 'warning' :
+    status.status === 'ended' || status.status === 'inactive' ? 'default' : 'default';
+
+  const statusLabel =
+    status.status === 'active' ? 'เปิดลงทะเบียน' :
+    status.status === 'upcoming' ? 'ยังไม่เปิด' :
+    status.status === 'full' ? 'เต็มแล้ว' :
+    status.status === 'ended' ? 'สิ้นสุดแล้ว' :
+    'ปิดใช้งาน';
+
+  return (
+    <Box sx={{ position: 'relative', borderRadius: { xs: 0, md: 4 }, overflow: 'hidden', mb: 3 }}>
+      <Box component="img" src={banner} alt={activity.activityName} loading="lazy" sx={{ width: '100%', height: { xs: 220, md: 320 }, objectFit: 'cover', display: 'block' }} />
+      <Box sx={{ position: 'absolute', inset: 0, background: `linear-gradient(180deg, ${alpha('#000', 0.42)}, ${alpha('#000', 0.25)} 40%, ${alpha('#000', 0.6)})` }} />
+
+      {/* Liquid bubbles */}
+      <Box sx={{ position: 'absolute', top: -40, left: -60, width: 220, height: 220, borderRadius: '50%', background: alpha('#fff', 0.25), filter: 'blur(20px)', animation: `${float1} 12s ease-in-out infinite` }} />
+      <Box sx={{ position: 'absolute', bottom: -60, right: -40, width: 280, height: 280, borderRadius: '50%', background: alpha('#fff', 0.18), filter: 'blur(24px)', animation: `${float2} 14s ease-in-out infinite` }} />
+
+      {/* Glass info card */}
+      <Container maxWidth="md" sx={{ position: 'relative', zIndex: 1 }}>
+        <Box sx={{ mt: { xs: -6, md: -8 } }}>
+          <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, borderRadius: 3, backdropFilter: 'blur(14px)', background: 'linear-gradient(145deg, rgba(255,255,255,0.65), rgba(255,255,255,0.35))', border: '1px solid rgba(255,255,255,0.3)', boxShadow: '0 10px 30px rgba(0,0,0,0.25)' }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between">
+              <Box>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                  <Chip label={activity.activityCode} size="small" color="primary" sx={{ borderRadius: 2 }} />
+                  {activity.singleUserMode && <Chip label="Single User" size="small" color="warning" sx={{ borderRadius: 2 }} />}
+                  <Chip label={statusLabel} color={statusColor} size="small" sx={{ borderRadius: 2 }} />
+                </Stack>
+                <Typography variant="h5" fontWeight={800}>{activity.activityName}</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{activity.location}</Typography>
+              </Box>
+              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' } }} />
+              <Box>
+                <Stack spacing={0.5}>
+                  <Typography variant="overline">ช่วงเวลา</Typography>
+                  <Typography variant="body2">{formatDateTime(activity.startDateTime)} — {formatDateTime(activity.endDateTime)}</Typography>
+                  {activity.maxParticipants > 0 && (
+                    <Typography variant="body2" color="text.secondary">ผู้สมัคร {activity.currentParticipants}/{activity.maxParticipants}</Typography>
+                  )}
+                </Stack>
+              </Box>
+            </Stack>
+          </Paper>
+        </Box>
+      </Container>
+    </Box>
+  );
+};
+
+// =============================
+// Main content
+// =============================
 const RegisterPageContent: React.FC = () => {
   const searchParams = useSearchParams();
-  const activityCode = searchParams.get('activity') || '';
-  
-  const { user, userData, loading: authLoading, login, logout } = useAuth();
-  
-  // State management
+  const activityCodeRaw = searchParams.get('activity') || '';
+  const activityCode = useMemo(() => activityCodeRaw.trim().toUpperCase(), [activityCodeRaw]);
+
+  const { user, userData, loading: authLoading, logout } = useAuth();
+
+  // States
   const [adminSettings, setAdminSettings] = useState<AdminSettings | null>(null);
   const [activityData, setActivityData] = useState<ActivityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [validActivity, setValidActivity] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
-  
-  // Session management states
+
+  // Session
   const [sessionExpired, setSessionExpired] = useState(false);
   const [sessionWarning, setSessionWarning] = useState('');
-  const [sessionRemainingTime, setSessionRemainingTime] = useState(0);
   const [sessionValidating, setSessionValidating] = useState(false);
-  
-  // IP restriction states
+
+  // IP restriction
   const [ipBlocked, setIpBlocked] = useState(false);
   const [blockRemainingTime, setBlockRemainingTime] = useState(0);
   const [checkingIP, setCheckingIP] = useState(false);
-  
-  // Duplicate registration states
+
+  // Duplicate
   const [isDuplicateRegistration, setIsDuplicateRegistration] = useState(false);
-  
-  // Profile edit dialog state
+
+  // Profile
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
 
-  // Single User Mode states
+  // Single user mode
   const [singleUserBlocked, setSingleUserBlocked] = useState(false);
   const [singleUserMessage, setSingleUserMessage] = useState('');
 
-  // Initial session validation when user is detected
+  // GPS / Geofence
+  const [geoSupported, setGeoSupported] = useState(true);
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [geoAllowed, setGeoAllowed] = useState(false);
+  const [geoError, setGeoError] = useState('');
+  const [distanceM, setDistanceM] = useState<number | null>(null);
+  const [inRadius, setInRadius] = useState(false);
+  const [userPos, setUserPos] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
+
+  // =============================
+  // Effects — initial
+  // =============================
+  useEffect(() => {
+    loadInitialData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityCode]);
+
   useEffect(() => {
     if (user && !sessionExpired && !sessionValidating) {
       validateInitialSession();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Session monitoring interval
   useEffect(() => {
-    let sessionCheckInterval: NodeJS.Timeout;
-
+    let sessionCheck: any;
     if (user && !sessionExpired) {
-      // ตั้งค่าการตรวจสอบเซสชันทุก 2 นาที (หลังจากตรวจสอบครั้งแรกแล้ว)
-      sessionCheckInterval = setInterval(() => {
-        validateUserSession(false); // false = ไม่ใช่ initial check
-      }, 120000);
+      sessionCheck = setInterval(() => validateUserSession(false), 120000);
     }
-
-    return () => {
-      if (sessionCheckInterval) {
-        clearInterval(sessionCheckInterval);
-      }
-    };
+    return () => sessionCheck && clearInterval(sessionCheck);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, sessionExpired]);
-
-  const validateInitialSession = async () => {
-    if (!user?.uid) return;
-    
-    setSessionValidating(true);
-    console.log('Validating initial session for user:', user.uid);
-
-    try {
-      // รอ 2 วินาทีเพื่อให้ session ถูกสร้างเสร็จก่อน (ถ้าเพิ่งเข้าสู่ระบบ)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const sessionResult = await SessionManager.validateSession(user.uid);
-      console.log('Initial session validation result:', sessionResult);
-      
-      if (!sessionResult.isValid) {
-        console.log('Session is invalid:', sessionResult.message);
-        setSessionExpired(true);
-        setError(sessionResult.message || 'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
-        return;
-      }
-
-      console.log('Session is valid, remaining time:', sessionResult.remainingTime);
-      setSessionRemainingTime(sessionResult.remainingTime || 0);
-      setSessionExpired(false);
-      
-      // แสดงการเตือนเมื่อเหลือเวลา 5 นาที
-      if (sessionResult.remainingTime && sessionResult.remainingTime <= 5) {
-        setSessionWarning(`เซสชันจะหมดอายุในอีก ${sessionResult.remainingTime} นาที กรุณาเตรียมตัวเข้าสู่ระบบใหม่`);
-      } else {
-        setSessionWarning('');
-      }
-    } catch (error) {
-      console.error('Error validating initial session:', error);
-      // ถ้า error ในการตรวจสอบ session แต่ยัง login อยู่ ให้ถือว่าใช้ได้
-      console.log('Session validation error, but user still logged in - assuming valid');
-    } finally {
-      setSessionValidating(false);
-    }
-  };
-
-  const validateUserSession = async (isInitial: boolean = false) => {
-    if (!user?.uid) return;
-
-    try {
-      const sessionResult = await SessionManager.validateSession(user.uid);
-      
-      if (!sessionResult.isValid) {
-        console.log('Session validation failed:', sessionResult.message);
-        setSessionExpired(true);
-        setError(sessionResult.message || 'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
-        setSessionWarning('');
-        return;
-      }
-
-      setSessionRemainingTime(sessionResult.remainingTime || 0);
-      
-      // แสดงการเตือนเมื่อเหลือเวลา 5 นาที
-      if (sessionResult.remainingTime && sessionResult.remainingTime <= 5) {
-        setSessionWarning(`เซสชันจะหมดอายุในอีก ${sessionResult.remainingTime} นาที กรุณาเตรียมตัวเข้าสู่ระบบใหม่`);
-      } else {
-        setSessionWarning('');
-      }
-      
-      // ถ้าเป็นการตรวจสอบครั้งแรกและมี error อยู่ ให้ล้าง error
-      if (isInitial && error && !sessionExpired) {
-        setError('');
-      }
-    } catch (error) {
-      console.error('Error validating session:', error);
-    }
-  };
-
-  // Activity status helpers
-  const getActivityStatus = (activity: ActivityData) => {
-    const now = new Date();
-    const startTime = activity.startDateTime?.toDate() || new Date();
-    const endTime = activity.endDateTime?.toDate() || new Date();
-    
-    if (!activity.isActive) return { 
-      status: 'inactive' as const, 
-      message: 'กิจกรรมนี้ถูกปิดใช้งานแล้ว' 
-    };
-    if (now < startTime) return { 
-      status: 'upcoming' as const, 
-      message: `กิจกรรมจะเปิดลงทะเบียนในวันที่ ${startTime.toLocaleString('th-TH')}`,
-      startTime 
-    };
-    if (now > endTime) return { 
-      status: 'ended' as const, 
-      message: `กิจกรรมสิ้นสุดแล้วเมื่อวันที่ ${endTime.toLocaleString('th-TH')}`,
-      endTime 
-    };
-    
-    if (activity.maxParticipants > 0 && activity.currentParticipants >= activity.maxParticipants) {
-      return { 
-        status: 'full' as const, 
-        message: 'กิจกรรมนี้มีผู้สมัครครบจำนวนแล้ว'
-      };
-    }
-    
-    return { status: 'active' as const, message: '' };
-  };
-
-  // Check conditions
-  const canProceedToRegistration = () => {
-    if (!activityData) return false;
-    if (!user) return false;
-    if (sessionExpired) return false;
-    if (sessionValidating) return false;
-    if (ipBlocked) return false;
-    if (isDuplicateRegistration) return false;
-    if (needsProfileSetup) return false;
-    if (singleUserBlocked) return false;
-    return true;
-  };
-
-  const shouldShowMicrosoftLogin = () => {
-    return (!user || sessionExpired) && !ipBlocked && !isDuplicateRegistration && !singleUserBlocked;
-  };
-
-  // Determine existing auth status for ActivityRegistrationForm
-  const getExistingAuthStatus = (): boolean => {
-    return !!(user && userData && !sessionExpired && !sessionValidating);
-  };
-
-  // Effects
-  useEffect(() => {
-    loadInitialData();
-  }, [activityCode]);
 
   useEffect(() => {
     if (user && activityCode && !isDuplicateRegistration && !sessionExpired && !sessionValidating) {
       checkForDuplicateRegistration();
       checkForSingleUserMode();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, activityCode, sessionExpired, sessionValidating]);
 
   useEffect(() => {
     if (user && userData !== null && !sessionExpired && !sessionValidating) {
       const needsSetup = !userData?.firstName || !userData?.lastName;
       setNeedsProfileSetup(needsSetup);
-      
-      if (needsSetup && !showProfileDialog) {
-        setShowProfileDialog(true);
-      }
+      if (needsSetup && !showProfileDialog) setShowProfileDialog(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, userData, showProfileDialog, sessionExpired, sessionValidating]);
 
   useEffect(() => {
     if (activityData?.id) {
-      const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityData.id), (doc) => {
-        if (doc.exists()) {
-          const data = doc.data();
-          setActivityData(prev => prev ? {
-            ...prev,
-            currentParticipants: data.currentParticipants || 0,
-            isActive: data.isActive !== undefined ? data.isActive : true,
-            singleUserMode: data.singleUserMode || false
-          } : prev);
+      const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityData.id), (docSnap) => {
+        if (docSnap.exists()) {
+          const data: any = docSnap.data();
+          setActivityData((prev) =>
+            prev ? { ...prev, currentParticipants: data.currentParticipants || 0, isActive: data.isActive !== undefined ? data.isActive : true, singleUserMode: data.singleUserMode || false } : prev
+          );
         }
       });
-
       return () => unsubscribe();
     }
   }, [activityData?.id]);
 
-  // Event handlers
+  // เมื่อ activity พร้อมให้ตรวจตำแหน่งทันที
+  useEffect(() => {
+    if (activityData) {
+      triggerGeoCheck();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityData]);
+
+  // =============================
+  // Helpers & Actions
+  // =============================
+const canProceedToRegistration = () => {
+  if (!activityData) return false;
+  if (!user) return false;
+  if (sessionExpired) return false;
+  if (sessionValidating) return false;
+  if (ipBlocked) return false;
+  if (isDuplicateRegistration) return false;
+  if (needsProfileSetup) return false;
+  if (singleUserBlocked) return false;
+
+  // ✅ ไม่บังคับอยู่ในรัศมี เพื่อให้หลัง login ขึ้นฟอร์มได้เลย
+  return true;
+};
+
+  const shouldShowMicrosoftLogin = () => (!user || sessionExpired) && !ipBlocked && !isDuplicateRegistration && !singleUserBlocked;
+  const getExistingAuthStatus = (): boolean => !!(user && userData && !sessionExpired && !sessionValidating);
+
   const loadInitialData = async () => {
     try {
       setLoading(true);
       setError('');
-
       const { getAdminSettings } = await import('../../lib/firebaseUtils');
       const settings = await getAdminSettings();
-
       if (!settings?.isActive) {
         setAdminSettings(null);
         setError('ระบบลงทะเบียนถูกปิดใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ');
         setLoading(false);
         return;
       }
-
       setAdminSettings(settings);
-
       if (!activityCode) {
         setError('ไม่พบรหัสกิจกรรม กรุณาสแกน QR Code ใหม่');
         setLoading(false);
         return;
       }
-
-      const q = query(
-        collection(db, 'activityQRCodes'),
-        where('activityCode', '==', activityCode)
-      );
-      const querySnapshot = await getDocs(q);
-
+      const qAct = query(collection(db, 'activityQRCodes'), where('activityCode', '==', activityCode), limit(1));
+      const querySnapshot = await getDocs(qAct);
       if (querySnapshot.empty) {
         setError('ไม่พบรหัสกิจกรรมนี้ในระบบ กรุณาติดต่อผู้ดูแล');
         setValidActivity(false);
       } else {
         const docRef = querySnapshot.docs[0];
-        const docData = docRef.data();
+        const docData: any = docRef.data();
         const activity: ActivityData = {
           id: docRef.id,
           ...docData,
@@ -521,21 +451,13 @@ const RegisterPageContent: React.FC = () => {
           checkInRadius: docData.checkInRadius || 100,
           userCode: docData.userCode || '',
           requiresUniversityLogin: docData.requiresUniversityLogin || false,
-          singleUserMode: docData.singleUserMode || false
+          singleUserMode: docData.singleUserMode || false,
         } as ActivityData;
-
         setActivityData(activity);
-
         const statusInfo = getActivityStatus(activity);
-        
-        if (statusInfo.status === 'active') {
-          setValidActivity(true);
-        } else {
-          setValidActivity(false);
-        }
+        setValidActivity(statusInfo.status === 'active');
       }
     } catch (err) {
-      console.error('Error loading admin settings or activity:', err);
       setError('เกิดข้อผิดพลาดในการโหลดข้อมูล กรุณาลองใหม่อีกครั้ง');
     } finally {
       setLoading(false);
@@ -544,422 +466,405 @@ const RegisterPageContent: React.FC = () => {
 
   const checkForDuplicateRegistration = async () => {
     if (!user?.email || !activityCode) return;
-
     try {
-      const result = await checkDuplicateRegistration(activityCode, user.email);
-      setIsDuplicateRegistration(result.isDuplicate);
-      if (result.isDuplicate && result.message) {
-        setError(result.message);
-      }
-    } catch (error) {
-      console.error('Error checking duplicate registration:', error);
-    }
+      const q = query(collection(db, 'registrations'), where('activityCode', '==', activityCode), where('userEmail', '==', user.email), limit(1));
+      const snap = await getDocs(q);
+      const dup = !snap.empty;
+      setIsDuplicateRegistration(dup);
+      if (dup) setError('บัญชีนี้เคยลงทะเบียนกิจกรรมนี้แล้ว');
+    } catch {}
   };
 
   const checkForSingleUserMode = async () => {
     if (!user?.email || !activityCode) return;
-
     try {
-      const result = await checkSingleUserModeForActivity(activityCode, user.email);
-      
-      if (!result.canRegister) {
-        setSingleUserBlocked(true);
-        setSingleUserMessage(result.message || 'ไม่สามารถลงทะเบียนได้');
-        setError(result.message || 'ไม่สามารถลงทะเบียนได้');
-      } else {
-        setSingleUserBlocked(false);
-        setSingleUserMessage('');
+      const actQ = query(collection(db, 'activityQRCodes'), where('activityCode', '==', activityCode), limit(1));
+      const actSnap = await getDocs(actQ);
+      if (actSnap.empty) return;
+      const act = actSnap.docs[0].data() as any;
+      if (!act.singleUserMode) return;
+      const regQ = query(collection(db, 'activityRecords'), where('activityCode', '==', activityCode), limit(1));
+      const regSnap = await getDocs(regQ);
+      if (!regSnap.empty) {
+        const existing = regSnap.docs[0].data() as any;
+        if (existing.email && existing.email !== user.email) {
+          setSingleUserBlocked(true);
+          const msg = `กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียว และมีผู้ใช้ ${existing.email} ลงทะเบียนไปแล้ว`;
+          setSingleUserMessage(msg);
+          setError(msg);
+        } else if (existing.email === user.email) {
+          setSingleUserBlocked(true);
+          setSingleUserMessage('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+          setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+        }
       }
-    } catch (error) {
-      console.error('Error checking single user mode:', error);
-    }
+    } catch {}
   };
 
-  const handlePreLoginCheck = async (userEmail: string): Promise<boolean> => {
-    setCheckingIP(true);
-    
+  // =============================
+  // GEOLOCATION
+  // =============================
+  const triggerGeoCheck = () => {
+    if (!activityData) return;
+    if (!('geolocation' in navigator)) {
+      setGeoSupported(false);
+      setGeoAllowed(false);
+      setGeoError('อุปกรณ์ของคุณไม่รองรับการระบุตำแหน่ง');
+      setInRadius(false);
+      setUserPos(null);
+      return;
+    }
+    setGeoSupported(true);
+    setGeoLoading(true);
+    setGeoError('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        setUserPos({ lat: latitude, lng: longitude, accuracy });
+        const d = haversineMeters(latitude, longitude, activityData.latitude, activityData.longitude);
+        setDistanceM(Math.round(d));
+        setGeoAllowed(true);
+        setInRadius(d <= (activityData.checkInRadius || 0));
+        setGeoLoading(false);
+      },
+      (err) => {
+        setUserPos(null);
+        setGeoAllowed(false);
+        setGeoLoading(false);
+        const msg = err.code === err.PERMISSION_DENIED ? 'กรุณาอนุญาตการเข้าถึงตำแหน่ง (Location) เพื่อยืนยันการอยู่ในพื้นที่กิจกรรม' : 'ไม่สามารถตรวจสอบตำแหน่งได้ โปรดลองใหม่';
+        setGeoError(msg);
+        setInRadius(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  // =============================
+  // Session helpers
+  // =============================
+  const validateInitialSession = async () => {
+    if (!user?.uid) return;
+    setSessionValidating(true);
     try {
-      const ipCheck = await checkIPRestriction(userEmail);
-      
-      if (!ipCheck.canLogin) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const result = await SessionManager.validateSession(user.uid);
+      if (!result.isValid) {
+        setSessionExpired(true);
+        setError(result.message || 'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+        return;
+      }
+      if (result.remainingTime && result.remainingTime <= 5) setSessionWarning(`เซสชันจะหมดอายุในอีก ${result.remainingTime} นาที กรุณาเตรียมตัวเข้าสู่ระบบใหม่`);
+      else setSessionWarning('');
+    } catch {}
+    finally { setSessionValidating(false); }
+  };
+
+  const validateUserSession = async (isInitial = false) => {
+    if (!user?.uid) return;
+    try {
+      const result = await SessionManager.validateSession(user.uid);
+      if (!result.isValid) {
+        setSessionExpired(true);
+        setError(result.message || 'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+        setSessionWarning('');
+        return;
+      }
+      if (result.remainingTime && result.remainingTime <= 5) setSessionWarning(`เซสชันจะหมดอายุในอีก ${result.remainingTime} นาที กรุณาเตรียมตัวเข้าสู่ระบบใหม่`);
+      else setSessionWarning('');
+      if (isInitial && error && !sessionExpired) setError('');
+    } catch {}
+  };
+
+  // =============================
+  // Login hooks for MicrosoftAuthSection
+  // =============================
+  const [checkingPreLogin, setCheckingPreLogin] = useState(false);
+  const handlePreLoginCheck = async (userEmail: string): Promise<boolean> => {
+    setCheckingPreLogin(true);
+    try {
+      const res = await checkIPRestriction(userEmail);
+      if (!res.canLogin) {
         setIpBlocked(true);
-        setBlockRemainingTime(ipCheck.remainingTime || 60);
-        setError(ipCheck.message || 'ไม่สามารถเข้าสู่ระบบได้');
+        setBlockRemainingTime(res.remainingTime || 60);
+        setError(res.message || 'ไม่สามารถเข้าสู่ระบบได้');
         return false;
       }
-      
       setIpBlocked(false);
       setError('');
       return true;
-    } catch (error) {
-      console.error('Error in pre-login check:', error);
-      return true;
-    } finally {
-      setCheckingIP(false);
-    }
+    } finally { setCheckingPreLogin(false); }
   };
 
   const handleLoginSuccess = async (userProfile: any) => {
-    console.log('Login successful:', userProfile);
-    
     try {
       const userIP = await getUserIP();
       const now = new Date();
-      
-      const q = query(
-        collection(db, 'ipLoginRecords'),
-        where('ipAddress', '==', userIP)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        await updateDoc(querySnapshot.docs[0].ref, {
-          userEmail: userProfile.email,
-          loginTime: now,
-          expiresAt: new Date(now.getTime() + 60 * 60 * 1000)
-        });
+      const q = query(collection(db, 'ipLoginRecords'), where('ipAddress', '==', userIP), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(snap.docs[0].ref, { userEmail: userProfile.email, loginTime: now, expiresAt: new Date(now.getTime() + 60 * 60 * 1000) });
       }
-      
-      // Reset session states
       setSessionExpired(false);
       setSessionWarning('');
       setError('');
-      
-      if (activityCode) {
-        setTimeout(() => {
-          checkForDuplicateRegistration();
-          checkForSingleUserMode();
-        }, 1000);
-      }
-    } catch (error) {
-      console.error('Error updating IP record after login:', error);
-    }
+      if (activityCode) setTimeout(() => { checkForDuplicateRegistration(); checkForSingleUserMode(); }, 800);
+    } catch {}
   };
 
-  const handleLoginError = (errorMessage: string) => {
-    setError(errorMessage);
-  };
+  const handleLoginError = (msg: string) => setError(msg);
 
   const handleLogout = async () => {
     try {
-      // ทำลาย session ก่อน logout หาก user มี uid
-      if (user?.uid) {
-        await SessionManager.destroySession(user.uid);
-      }
-      
+      if (user?.uid) await SessionManager.destroySession(user.uid);
       await logout();
-      setError('');
-      setSuccessMessage('');
-      setIpBlocked(false);
-      setBlockRemainingTime(0);
-      setIsDuplicateRegistration(false);
-      setNeedsProfileSetup(false);
-      setSessionExpired(false);
-      setSessionWarning('');
-      setSessionRemainingTime(0);
-      setSessionValidating(false);
-      setSingleUserBlocked(false);
-      setSingleUserMessage('');
-    } catch (error) {
-      console.error('Logout error:', error);
-      setError('เกิดข้อผิดพลาดในการออกจากระบบ');
-    }
+      setError(''); setSuccessMessage(''); setIpBlocked(false); setBlockRemainingTime(0);
+      setIsDuplicateRegistration(false); setNeedsProfileSetup(false);
+      setSessionExpired(false); setSessionWarning(''); setSessionValidating(false);
+      setSingleUserBlocked(false); setSingleUserMessage('');
+    } catch { setError('เกิดข้อผิดพลาดในการออกจากระบบ'); }
   };
 
-  const handleSessionExpired = () => {
-    setSessionExpired(true);
-    setSessionWarning('');
-    setError('เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่เพื่อดำเนินการต่อ');
-  };
-
-  const handleIPBlockExpired = () => {
-    setIpBlocked(false);
-    setBlockRemainingTime(0);
-    setError('');
-  };
-
-  const handleEditProfile = () => {
-    setShowProfileDialog(true);
-  };
+  const handleIPBlockExpired = () => { setIpBlocked(false); setBlockRemainingTime(0); setError(''); };
 
   const handleSaveProfile = async (updatedData: Partial<UniversityUserProfile>) => {
-    try {
-      if (!user?.uid) throw new Error('ไม่พบข้อมูลผู้ใช้');
-      
-      // Use the local function since updateUserProfile is not available in useAuth
-      await updateUserProfileInFirestore(user.uid, updatedData);
-      setNeedsProfileSetup(false);
-      setSuccessMessage('บันทึกข้อมูลเรียบร้อยแล้ว');
-      
-      setTimeout(() => {
-        setSuccessMessage('');
-      }, 3000);
-    } catch (error: any) {
-      throw new Error(error.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
-    }
+    if (!user?.uid) throw new Error('ไม่พบข้อมูลผู้ใช้');
+    await setDoc(doc(db, 'users', user.uid), { ...updatedData, updatedAt: new Date() }, { merge: true });
+    setNeedsProfileSetup(false);
+    setSuccessMessage('บันทึกข้อมูลเรียบร้อยแล้ว');
+    setTimeout(() => setSuccessMessage(''), 3000);
   };
 
   const handleRegistrationSuccess = async () => {
-    if (activityData) {
-      try {
-        const docRef = doc(db, 'activityQRCodes', activityData.id);
-        await updateDoc(docRef, {
-          currentParticipants: increment(1)
-        });
-        
-        if (user?.email) {
-          await addDoc(collection(db, 'registrations'), {
-            activityCode: activityCode,
-            userEmail: user.email,
-            registeredAt: new Date()
-          });
-        }
-        
-        setActivityData(prev => prev ? {
-          ...prev,
-          currentParticipants: prev.currentParticipants + 1
-        } : prev);
-      } catch (error) {
-        console.error('Error updating participant count:', error);
+    if (!activityData) return;
+    try {
+      const docRef = doc(db, 'activityQRCodes', activityData.id);
+      await updateDoc(docRef, { currentParticipants: increment(1) });
+      if (user?.email) {
+        const regId = `${activityCode}_${user.email}`;
+        await setDoc(doc(db, 'registrations', regId), { activityCode, userEmail: user.email, registeredAt: serverTimestamp() }, { merge: false });
       }
-    }
+      setActivityData((prev) => (prev ? { ...prev, currentParticipants: prev.currentParticipants + 1 } : prev));
+    } catch {}
   };
 
-  // Render loading state
+  // =============================
+  // Render
+  // =============================
   if (loading || authLoading || sessionValidating) {
     return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center',
-        minHeight: '50vh',
-        flexDirection: 'column',
-        gap: 2
-      }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh', flexDirection: 'column', gap: 2 }}>
         <CircularProgress size={40} />
-        <Typography variant="body1" color="text.secondary">
-          {sessionValidating ? 'กำลังตรวจสอบเซสชัน...' : 'กำลังโหลดข้อมูล...'}
-        </Typography>
+        <Typography variant="body1" color="text.secondary">{sessionValidating ? 'กำลังตรวจสอบเซสชัน...' : 'กำลังโหลดข้อมูล...'}</Typography>
       </Box>
     );
   }
 
-  // Render error state (non-recoverable errors)
   if (error && !ipBlocked && !isDuplicateRegistration && !successMessage && !sessionExpired && !sessionWarning && !singleUserBlocked) {
     return (
       <Alert severity="error" sx={{ mt: 2 }}>
         {error}
-        <Button 
-          color="inherit" 
-          size="small" 
-          onClick={loadInitialData}
-          sx={{ ml: 2 }}
-          startIcon={<RefreshIcon />}
-        >
-          ลองใหม่
-        </Button>
+        <Button color="inherit" size="small" onClick={loadInitialData} sx={{ ml: 2 }} startIcon={<RefreshIcon />}>ลองใหม่</Button>
       </Alert>
     );
   }
 
-  // Get activity status for conditional rendering
-  const activityStatus = activityData ? getActivityStatus(activityData) : null;
+  const statusInfo = activityData ? getActivityStatus(activityData) : null;
 
   return (
     <>
-      {/* Navigation Bar */}
-      <NavigationBar 
-        user={user}
-        userData={userData}
-        onLogout={handleLogout}
-        onEditProfile={handleEditProfile}
-      />
+      <NavigationBar user={user} userData={userData} onLogout={handleLogout} onEditProfile={() => setShowProfileDialog(true)} />
 
-      {/* Success Message */}
-      {successMessage && (
-        <SuccessAlert 
-          message={successMessage}
-          onClose={() => setSuccessMessage('')}
-        />
-      )}
+      <Box sx={{ position: 'relative', background: 'linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)', minHeight: '100vh', pb: 6 }}>
+        <Box sx={{ position: 'absolute', top: -60, left: -80, width: 260, height: 260, borderRadius: '50%', background: alpha('#7c3aed', 0.12), filter: 'blur(24px)', animation: `${float1} 12s ease-in-out infinite` }} />
+        <Box sx={{ position: 'absolute', bottom: -70, right: -60, width: 320, height: 320, borderRadius: '50%', background: alpha('#2563eb', 0.12), filter: 'blur(28px)', animation: `${float2} 14s ease-in-out infinite` }} />
 
-      {/* Session Warning Alert */}
-      {sessionWarning && !sessionExpired && (
-        <Alert 
-          severity="warning" 
-          sx={{ mt: 2 }}
-          icon={<TimeIcon />}
-        >
-          <Typography variant="body2" fontWeight="medium">
-            {sessionWarning}
-          </Typography>
-        </Alert>
-      )}
+        <Container maxWidth="md" sx={{ position: 'relative', zIndex: 1, pt: 2 }}>
+          {/* Banner + Status */}
+          {activityData && statusInfo && !ipBlocked && !singleUserBlocked && (
+            <ModernActivityBanner activity={activityData} status={statusInfo} adminSettings={adminSettings} />
+          )}
 
-      {/* Session Expired Alert */}
-      {sessionExpired && (
-        <Alert 
-          severity="error" 
-          sx={{ mt: 2 }}
-          icon={<WarningIcon />}
-        >
-          <Typography variant="body1" fontWeight="medium">
-            เซสชันหมดอายุแล้ว
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            เซสชันการเข้าสู่ระบบของคุณหมดอายุแล้ว (30 นาที) กรุณาเข้าสู่ระบบใหม่เพื่อดำเนินการต่อ
-          </Typography>
-        </Alert>
-      )}
+          {/* Success */}
+          {successMessage && <SuccessAlert message={successMessage} onClose={() => setSuccessMessage('')} />}
 
-      {/* Activity Banner */}
-      {activityData && !ipBlocked && !singleUserBlocked && (
-        <ActivityBanner activity={activityData} />
-      )}
+          {/* Session warnings */}
+          {sessionWarning && !sessionExpired && (
+            <Alert severity="warning" sx={{ mb: 2 }} icon={<TimeIcon />}>
+              <Typography variant="body2" fontWeight="medium">{sessionWarning}</Typography>
+            </Alert>
+          )}
 
-      {/* IP Restriction Alert */}
-      {ipBlocked && (
-        <IPRestrictionAlert 
-          remainingTime={blockRemainingTime}
-          onClose={handleIPBlockExpired}
-        />
-      )}
+          {sessionExpired && (
+            <Alert severity="error" sx={{ mb: 2 }} icon={<WarningIcon />}>
+              <Typography variant="body1" fontWeight="medium">เซสชันหมดอายุแล้ว</Typography>
+              <Typography variant="body2" color="text.secondary">เซสชันการเข้าสู่ระบบของคุณหมดอายุแล้ว (30 นาที) กรุณาเข้าสู่ระบบใหม่เพื่อดำเนินการต่อ</Typography>
+            </Alert>
+          )}
 
-      {/* Single User Mode Blocked Alert */}
-      {singleUserBlocked && user && !sessionExpired && (
-        <Alert 
-          severity="error" 
-          sx={{ mt: 2 }}
-          icon={<WarningIcon />}
-        >
-          <Typography variant="body1" fontWeight="medium">
-            ไม่สามารถลงทะเบียนได้
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {singleUserMessage}
-          </Typography>
-          <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-            <Button 
-              color="inherit" 
-              size="small" 
-              onClick={handleLogout}
-              variant="outlined"
-            >
-              ออกจากระบบ
-            </Button>
-            <Button 
-              color="inherit" 
-              size="small" 
-              onClick={() => window.close()}
-              variant="outlined"
-            >
-              ปิดหน้าต่าง
-            </Button>
-          </Box>
-        </Alert>
-      )}
+          {/* IP Restriction */}
+          {ipBlocked && (
+            <IPRestrictionAlert remainingTime={blockRemainingTime} onClose={() => { setIpBlocked(false); setBlockRemainingTime(0); setError(''); }} />
+          )}
 
-      {/* Duplicate Registration Alert */}
-      {isDuplicateRegistration && user && !sessionExpired && !singleUserBlocked && (
-        <DuplicateRegistrationAlert />
-      )}
+          {/* Single-user block */}
+          {singleUserBlocked && user && !sessionExpired && (
+            <Alert severity="error" sx={{ mb: 2 }} icon={<WarningIcon />}>
+              <Typography variant="body1" fontWeight="medium">ไม่สามารถลงทะเบียนได้</Typography>
+              <Typography variant="body2" color="text.secondary">{singleUserMessage}</Typography>
+              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                <Button color="inherit" size="small" onClick={handleLogout} variant="outlined">ออกจากระบบ</Button>
+                <Button color="inherit" size="small" onClick={() => window.close()} variant="outlined">ปิดหน้าต่าง</Button>
+              </Box>
+            </Alert>
+          )}
 
-      {/* Activity Status Alert (for non-active activities) */}
-      {activityData && activityStatus && activityStatus.status !== 'active' && !ipBlocked && !singleUserBlocked && (
-        <ActivityStatusAlert
-          status={activityStatus.status}
-          message={activityStatus.message}
-          startTime={activityStatus.startTime}
-          endTime={activityStatus.endTime}
-        />
-      )}
+          {/* Duplicate */}
+          {isDuplicateRegistration && user && !sessionExpired && !singleUserBlocked && <DuplicateRegistrationAlert />}
 
-      {/* Microsoft Login Section */}
-      {shouldShowMicrosoftLogin() && activityData && validActivity && (
-        <MicrosoftAuthSection
-          activityData={activityData}
-          onLoginSuccess={handleLoginSuccess}
-          onLoginError={handleLoginError}
-          onPreLoginCheck={handlePreLoginCheck}
-          checkingIP={checkingIP}
-        />
-      )}
+          {/* Non-active activity status */}
+          {activityData && statusInfo && statusInfo.status !== 'active' && !ipBlocked && !singleUserBlocked && (
+            <ActivityStatusAlert status={statusInfo.status} message={statusInfo.message} startTime={statusInfo.startTime} endTime={statusInfo.endTime} />
+          )}
 
-      {/* Profile Setup Alert */}
-      {user && needsProfileSetup && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && !singleUserBlocked && (
-        <ProfileSetupAlert onEditProfile={handleEditProfile} />
-      )}
+          {/* Map + Details */}
+          {activityData && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !singleUserBlocked && (
+            <>
+              <Box sx={{ mb: 2 }}>
+                <GeofenceMap
+                  center={{ lat: activityData.latitude, lng: activityData.longitude }}
+                  radius={activityData.checkInRadius}
+                  userPos={userPos}
+                  inRadius={inRadius}
+                  onUseCurrentLocation={triggerGeoCheck}
+                  title={activityData.activityName}   // ← ชื่อกิจกรรมจะไปโชว์บนแผนที่
+                />
+              </Box>
 
-      {/* Activity Information Card */}
-      {activityData && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && !singleUserBlocked && (
-        <ActivityInfoCard 
-          activity={activityData}
-          showRegistrationButton={canProceedToRegistration()}
-        />
-      )}
+              {/* GPS Status Card */}
+              <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+                <CardContent>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                    <GpsFixedIcon />
+                    <Typography variant="h6" fontWeight={800}>สถานะตำแหน่งของคุณ</Typography>
+                  </Stack>
 
-      {/* Registration Form */}
-      {validActivity && adminSettings && activityCode && canProceedToRegistration() && (
-        <ActivityRegistrationForm
-          activityCode={activityCode}
-          adminSettings={adminSettings}
-          existingAuthStatus={getExistingAuthStatus()}
-          existingUserProfile={user ? {
-            id: user.uid,
-            email: user.email || '',
-            displayName: user.displayName || '',
-            givenName: userData?.firstName || '',
-            surname: userData?.lastName || ''
-          } : undefined}
-          onSuccess={handleRegistrationSuccess}
-          onLogout={handleLogout}
-        />
-      )}
+                  <Grid container spacing={2} alignItems="center">
+                    <Grid item xs={12} md={8}>
+                      {geoLoading ? (
+                        <Typography variant="body2" color="text.secondary">กำลังตรวจสอบตำแหน่ง...</Typography>
+                      ) : !geoSupported ? (
+                        <Alert severity="error" icon={<ErrorIcon />} sx={{ borderRadius: 2 }}>อุปกรณ์ของคุณไม่รองรับการระบุตำแหน่ง</Alert>
+                      ) : geoError ? (
+                        <Alert severity="warning" icon={<WarningIcon />} sx={{ borderRadius: 2 }}>{geoError}</Alert>
+                      ) : (
+                        <Stack direction="row" spacing={2} alignItems="center">
+                          {inRadius ? <CheckIcon color="success" /> : <ErrorIcon color="error" />}
+                          <Typography variant="body2">
+                            {inRadius ? 'คุณอยู่ในพื้นที่ที่กำหนด' : 'คุณอยู่นอกพื้นที่ที่กำหนด'}
+                            {typeof distanceM === 'number' && (
+                              <> — ระยะห่างประมาณ <b>{distanceM}</b> เมตร (กำหนดไม่เกิน <b>{activityData.checkInRadius}</b> เมตร)</>
+                            )}
+                          </Typography>
+                        </Stack>
+                      )}
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Stack direction="row" spacing={1} justifyContent={{ xs: 'flex-start', md: 'flex-end' }}>
+                        <Button variant="outlined" onClick={triggerGeoCheck}>ตรวจสอบตำแหน่งอีกครั้ง</Button>
+                      </Stack>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
 
-      {/* Profile Edit Dialog */}
-      <ProfileEditDialog
-        open={showProfileDialog}
-        onClose={() => {
-          setShowProfileDialog(false);
-          // หากยังต้องการข้อมูล ให้เปิด dialog อีกครั้งหลัง 500ms
-          if (needsProfileSetup && !sessionExpired && !sessionValidating) {
-            setTimeout(() => {
-              setShowProfileDialog(true);
-            }, 500);
-          }
-        }}
-        user={user}
-        userData={userData}
-        onSave={handleSaveProfile}
-      />
+              {/* รายละเอียดกิจกรรม */}
+              <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+                <CardContent>
+                  <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>รายละเอียดกิจกรรม</Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <Stack spacing={0.5}>
+                        <Typography variant="overline">วันที่เริ่ม</Typography>
+                        <Typography variant="body2">{formatDateTime(activityData.startDateTime)}</Typography>
+                      </Stack>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Stack spacing={0.5}>
+                        <Typography variant="overline">วันที่สิ้นสุด</Typography>
+                        <Typography variant="body2">{formatDateTime(activityData.endDateTime)}</Typography>
+                      </Stack>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Stack spacing={0.5}>
+                        <Typography variant="overline">คำอธิบาย</Typography>
+                        <Typography variant="body2" color="text.secondary">{activityData.description || '-'}</Typography>
+                      </Stack>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {/* Microsoft login */}
+          {shouldShowMicrosoftLogin() && activityData && validActivity && (
+            <MicrosoftAuthSection activityData={activityData} onLoginSuccess={handleLoginSuccess} onLoginError={handleLoginError} onPreLoginCheck={handlePreLoginCheck} checkingIP={checkingPreLogin} />
+          )}
+
+          {/* Profile setup */}
+          {user && needsProfileSetup && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && !singleUserBlocked && (
+            <ProfileSetupAlert onEditProfile={() => setShowProfileDialog(true)} />
+          )}
+
+          {/* Registration form */}
+          {validActivity && adminSettings && activityCode && canProceedToRegistration() && (
+            <ActivityRegistrationForm
+              activityCode={activityCode}
+              adminSettings={adminSettings}
+              existingAuthStatus={getExistingAuthStatus()}
+              existingUserProfile={
+                user
+                  ? { id: user.uid, email: user.email || '', displayName: user.displayName || '', givenName: userData?.firstName || '', surname: userData?.lastName || '' }
+                  : undefined
+              }
+              onSuccess={handleRegistrationSuccess}
+              onLogout={handleLogout}
+            />
+          )}
+
+          {/* Profile dialog */}
+          <ProfileEditDialog
+            open={showProfileDialog}
+            onClose={() => {
+              setShowProfileDialog(false);
+              if (needsProfileSetup && !sessionExpired && !sessionValidating) setTimeout(() => setShowProfileDialog(true), 500);
+            }}
+            user={user}
+            userData={userData}
+            onSave={handleSaveProfile}
+          />
+        </Container>
+      </Box>
     </>
   );
 };
 
-// Main RegisterPage Component
+// =============================
+// Page Wrapper with Suspense
+// =============================
 const RegisterPage: React.FC = () => {
   return (
-    <Box sx={{ 
-      minHeight: '100vh', 
-      background: 'linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)'
-    }}>
+    <Box sx={{ minHeight: '100vh', background: 'transparent' }}>
       <Container maxWidth="md" sx={{ py: 0 }}>
-        <Suspense fallback={
-          <Box sx={{ 
-            display: 'flex', 
-            justifyContent: 'center', 
-            alignItems: 'center',
-            minHeight: '50vh',
-            flexDirection: 'column',
-            gap: 2
-          }}>
-            <CircularProgress size={40} />
-            <Typography variant="body1" color="text.secondary">
-              กำลังโหลดหน้าลงทะเบียน...
-            </Typography>
-          </Box>
-        }>
+        <Suspense
+          fallback={
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh', flexDirection: 'column', gap: 2 }}>
+              <CircularProgress size={40} />
+              <Typography variant="body1" color="text.secondary">กำลังโหลดหน้าลงทะเบียน...</Typography>
+            </Box>
+          }
+        >
           <RegisterPageContent />
         </Suspense>
       </Container>

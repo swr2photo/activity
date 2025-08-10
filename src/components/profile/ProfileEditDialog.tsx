@@ -29,6 +29,7 @@ import {
   Info as InfoIcon
 } from '@mui/icons-material';
 import { UniversityUserProfile } from '../../lib/firebaseAuth';
+import { alpha, keyframes, useTheme } from '@mui/material/styles';
 
 interface ProfileEditDialogProps {
   open: boolean;
@@ -38,6 +39,12 @@ interface ProfileEditDialogProps {
   onSave: (updatedData: Partial<UniversityUserProfile>) => Promise<void>;
 }
 
+const float = keyframes`
+  0%   { transform: translateY(0px); }
+  50%  { transform: translateY(-8px); }
+  100% { transform: translateY(0px); }
+`;
+
 const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({ 
   open, 
   onClose, 
@@ -45,6 +52,8 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   userData, 
   onSave 
 }) => {
+  const theme = useTheme();
+
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     displayName: '',
@@ -58,19 +67,14 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   const [error, setError] = useState('');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  // ฟังก์ชันดึงข้อมูลจาก email
   const extractInfoFromEmail = (email: string) => {
     const username = email.split('@')[0];
-    return {
-      studentId: username,
-      displayName: username
-    };
+    return { studentId: username, displayName: username };
   };
 
   useEffect(() => {
     if (open && user) {
       const emailInfo = extractInfoFromEmail(user.email || '');
-      
       setFormData({
         displayName: userData?.displayName || user?.displayName || emailInfo.displayName,
         firstName: userData?.firstName || '',
@@ -85,45 +89,26 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     }
   }, [open, userData, user]);
 
-  // Validation function
   const validateForm = () => {
     const errors: Record<string, string> = {};
-
-    if (!formData.firstName.trim()) {
-      errors.firstName = 'กรุณากรอกชื่อ';
-    } else if (formData.firstName.trim().length < 2) {
-      errors.firstName = 'ชื่อต้องมีอย่างน้อย 2 ตัวอักษร';
-    }
-    
-    if (!formData.lastName.trim()) {
-      errors.lastName = 'กรุณากรอกนามสกุล';
-    } else if (formData.lastName.trim().length < 2) {
-      errors.lastName = 'นามสกุลต้องมีอย่างน้อย 2 ตัวอักษร';
-    }
-
-    // Validate photo URL if provided
+    if (!formData.firstName.trim()) errors.firstName = 'กรุณากรอกชื่อ';
+    else if (formData.firstName.trim().length < 2) errors.firstName = 'ชื่อต้องมีอย่างน้อย 2 ตัวอักษร';
+    if (!formData.lastName.trim()) errors.lastName = 'กรุณากรอกนามสกุล';
+    else if (formData.lastName.trim().length < 2) errors.lastName = 'นามสกุลต้องมีอย่างน้อย 2 ตัวอักษร';
     if (formData.photoURL && formData.photoURL.trim()) {
-      try {
-        new URL(formData.photoURL);
-      } catch {
-        errors.photoURL = 'รูปแบบ URL ไม่ถูกต้อง';
-      }
+      try { new URL(formData.photoURL); } catch { errors.photoURL = 'รูปแบบ URL ไม่ถูกต้อง'; }
     }
-
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  // Handle input changes with real-time validation
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
-    // Clear specific field error when user starts typing
     if (validationErrors[field]) {
       setValidationErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
+        const e = { ...prev };
+        delete e[field];
+        return e;
       });
     }
   };
@@ -132,16 +117,9 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     try {
       setSaving(true);
       setError('');
+      if (!validateForm()) { setSaving(false); return; }
 
-      // Validate form
-      if (!validateForm()) {
-        setSaving(false);
-        return;
-      }
-
-      // สร้างชื่อที่แสดงจากชื่อ + นามสกุล
       const fullDisplayName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
-
       const updatedData = {
         ...formData,
         displayName: fullDisplayName,
@@ -151,7 +129,6 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         faculty: formData.faculty.trim(),
         studentId: formData.studentId.trim(),
         photoURL: formData.photoURL.trim(),
-        // Auto-approve user เมื่อกรอกข้อมูลครบ
         isVerified: true,
         isActive: true,
         updatedAt: new Date()
@@ -166,22 +143,15 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     }
   };
 
-  const getPreviewAvatar = () => {
-    if (formData.photoURL) return formData.photoURL;
-    return null;
-  };
+  const getPreviewAvatar = () => formData.photoURL || null;
+  const getPreviewAvatarLetter = () =>
+    formData.firstName ? formData.firstName.charAt(0).toUpperCase() :
+    formData.displayName ? formData.displayName.charAt(0).toUpperCase() : 'U';
 
-  const getPreviewAvatarLetter = () => {
-    if (formData.firstName) return formData.firstName.charAt(0).toUpperCase();
-    if (formData.displayName) return formData.displayName.charAt(0).toUpperCase();
-    return 'U';
-  };
-
-  const isFormValid = () => {
-    return formData.firstName.trim().length >= 2 && 
-           formData.lastName.trim().length >= 2 && 
-           Object.keys(validationErrors).length === 0;
-  };
+  const isFormValid = () =>
+    formData.firstName.trim().length >= 2 &&
+    formData.lastName.trim().length >= 2 &&
+    Object.keys(validationErrors).length === 0;
 
   return (
     <Dialog 
@@ -191,8 +161,45 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
       fullWidth
       PaperProps={{
         sx: {
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.2)'
+          background: `linear-gradient(135deg,
+            ${alpha(theme.palette.background.paper, 0.5)} 0%,
+            ${alpha(theme.palette.background.paper, 0.3)} 100%)`,
+          backdropFilter: 'saturate(180%) blur(20px)',
+          WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+          border: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
+          boxShadow: `
+            0 26px 80px ${alpha('#000', 0.28)},
+            inset 0 1px 0 ${alpha('#fff', 0.18)}
+          `,
+          borderRadius: 3,
+          overflow: 'hidden',
+          position: 'relative',
+          animation: `${float} 12s ease-in-out infinite`,
+          // glossy blobs
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: -120,
+            left: -80,
+            width: 260,
+            height: 260,
+            borderRadius: '50%',
+            background: `radial-gradient(closest-side, ${alpha('#fff', 0.35)}, transparent)`,
+            filter: 'blur(20px)',
+            pointerEvents: 'none'
+          },
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            bottom: -140,
+            right: -100,
+            width: 320,
+            height: 320,
+            borderRadius: '50%',
+            background: `radial-gradient(closest-side, ${alpha(theme.palette.primary.main, 0.22)}, transparent)`,
+            filter: 'blur(28px)',
+            pointerEvents: 'none'
+          }
         }
       }}
     >
@@ -200,26 +207,25 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         display: 'flex', 
         alignItems: 'center', 
         gap: 1,
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white',
-        py: 2
+        background: 'transparent',
+        color: 'text.primary',
+        py: 2,
+        borderBottom: `1px solid ${alpha(theme.palette.divider, 0.2)}`
       }}>
         <EditIcon />
         <Box>
-          <Typography variant="h6" component="div">
-            กรอกข้อมูलส่วนตัว
+          <Typography variant="h6" component="div" fontWeight={700}>
+            กรอกข้อมูลส่วนตัว
           </Typography>
-          <Typography variant="caption" sx={{ opacity: 0.9 }}>
+          <Typography variant="caption" color="text.secondary">
             กรุณากรอกข้อมูลให้ครบถ้วนเพื่อใช้ในการลงทะเบียน
           </Typography>
         </Box>
       </DialogTitle>
       
-      <DialogContent sx={{ pt: 3 }}>
+      <DialogContent sx={{ pt: 3, position: 'relative' }}>
         <Stack spacing={3}>
-          {error && (
-            <Alert severity="error">{error}</Alert>
-          )}
+          {error && <Alert severity="error">{error}</Alert>}
 
           {/* Avatar Preview */}
           <Box sx={{ textAlign: 'center' }}>
@@ -230,9 +236,11 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                 height: 100, 
                 mx: 'auto', 
                 mb: 2,
-                border: '4px solid',
-                borderColor: 'primary.main',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+                border: `4px solid ${alpha(theme.palette.common.white, 0.8)}`,
+                boxShadow: `
+                  0 14px 36px ${alpha('#000', 0.22)},
+                  inset 0 1px 0 ${alpha('#fff', 0.4)}
+                `,
                 fontSize: '2rem'
               }}
             >
@@ -338,8 +346,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
             </Grid>
           </Grid>
 
-          {/* Read-only Information */}
-          <Card variant="outlined" sx={{ bgcolor: 'grey.50' }}>
+          <Card variant="outlined" sx={{ bgcolor: alpha(theme.palette.background.paper, 0.4), backdropFilter: 'blur(6px)' }}>
             <CardContent>
               <Typography variant="subtitle2" gutterBottom color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <EmailIcon fontSize="small" />
@@ -362,7 +369,6 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
             </CardContent>
           </Card>
 
-          {/* Info Alert */}
           <Alert severity="info" icon={<InfoIcon />}>
             <Typography variant="body2">
               <strong>หมายเหตุ:</strong> ข้อมูลที่กรอกจะใช้สำหรับการลงทะเบียนกิจกรรม 
@@ -372,7 +378,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         </Stack>
       </DialogContent>
       
-      <DialogActions sx={{ p: 3, gap: 1 }}>
+      <DialogActions sx={{ p: 3, gap: 1, borderTop: `1px solid ${alpha(theme.palette.divider, 0.2)}` }}>
         <Button 
           onClick={onClose} 
           disabled={saving} 
@@ -388,9 +394,11 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
           disabled={saving || !isFormValid()}
           size="large"
           sx={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.9)} 0%, ${alpha(theme.palette.primary.dark, 0.9)} 100%)`,
+            boxShadow: `0 14px 34px ${alpha(theme.palette.primary.main, 0.35)}`,
             '&:hover': {
-              background: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)'
+              background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 1)} 0%, ${alpha(theme.palette.primary.dark, 1)} 100%)`,
+              boxShadow: `0 18px 40px ${alpha(theme.palette.primary.main, 0.45)}`
             },
             px: 4,
             '&:disabled': {
