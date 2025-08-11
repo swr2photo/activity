@@ -1,4 +1,6 @@
 // src/components/admin/AdminLayout.tsx
+'use client';
+
 import React, { useState } from 'react';
 import {
   Box, Drawer, AppBar, Toolbar, List, Typography, Divider, IconButton, ListItem, ListItemButton,
@@ -12,7 +14,7 @@ import {
   SupervisorAccount as SupervisorIcon, Warning as WarningIcon
 } from '@mui/icons-material';
 import { signOut } from 'firebase/auth';
-import { auth } from '../../lib/firebase'; // ⬅️ ปรับชั้น import ให้ตรงตำแหน่งไฟล์
+import { auth } from '../../lib/firebase';
 import type { AdminProfile, AdminPermission } from '../../types/admin';
 import { DEPARTMENT_LABELS, ROLE_LABELS } from '../../types/admin';
 
@@ -51,6 +53,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const [logoutDialog, setLogoutDialog] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
+
+  // ✅ กันเหนียว: ทำ permissions ให้เป็นอาเรย์เสมอ
+  const safePerms: AdminPermission[] = Array.isArray(currentAdmin?.permissions)
+    ? (currentAdmin.permissions as AdminPermission[])
+    : [];
+
+  // ✅ helper เช็คสิทธิ์ (ใช้แทน .includes() ตรงๆ ทุกที่)
+  const hasPerm = (p?: AdminPermission) => !p || safePerms.includes(p);
 
   const menuItems: NavEntry[] = [
     { id: 'dashboard', label: 'แดชบอร์ด', icon: <DashboardIcon /> },
@@ -96,8 +106,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const handleLogoutCancel = () => { setLogoutDialog(false); setLogoutError(''); };
 
   const renderItem = (item: NavEntry, depth = 0) => {
-    const hasPermission = !item.permission || currentAdmin.permissions.includes(item.permission);
-    if (!hasPermission) return null;
+    // ✅ ใช้ hasPerm ป้องกัน permissions เป็น undefined
+    if (!hasPerm(item.permission)) return null;
 
     const isExpanded = expandedMenus.includes(item.id);
     const hasChildren = !!item.children?.length;

@@ -6,25 +6,20 @@ import {
   where,
   orderBy,
   doc,
-  getDoc,              // ⬅️ เพิ่ม
   updateDoc,
   deleteDoc,
   increment,
   addDoc,
   serverTimestamp,
-  setDoc,              // ⬅️ ย้าย/รวมมาไว้ที่บรรทัดเดียว
+  setDoc,
 } from 'firebase/firestore';
 
-import { auth, db } from './firebase'; // ⬅️ เอา auth มาด้วย
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth'; // ⬅️ ฟังก์ชัน auth
+import { db } from './firebase';
+import type { AdminDepartment } from '../types/admin';
 
-import type {
-  AdminDepartment,
-  AdminProfile,
-  AdminRole,
-  AdminPermission,
-} from '../types/admin';
-import { ROLE_PERMISSIONS, normalizeDepartment } from '../types/admin'; // ⬅️ ใช้ map permission/normalize dept
+// ====== Admin Management (adminUsers) ======
+import type { AdminProfile, AdminRole, AdminPermission } from '../types/admin';
+import { ROLE_PERMISSIONS } from '../types/admin';
 
 // ---------- Helpers ----------
 const toDateSafe = (v: any): Date | undefined => {
@@ -37,81 +32,6 @@ const toDateSafe = (v: any): Date | undefined => {
   return undefined;
 };
 
-// ---------- Auth helpers (NEW) ----------
-const roleMap: Record<string, AdminRole> = {
-  super_admin: 'super_admin',
-  admin: 'department_admin',     // เก็บแบบเก่า -> map เป็น department_admin
-  department_admin: 'department_admin',
-  moderator: 'moderator',
-  viewer: 'viewer',
-};
-
-async function mapAdminDocToProfile(uid: string): Promise<AdminProfile> {
-  const ref = doc(db, 'adminUsers', uid);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) {
-    throw new Error('ไม่พบสิทธิ์แอดมินของผู้ใช้นี้');
-  }
-
-  const d = snap.data() as any;
-
-  if (d.isActive === false) {
-    throw new Error('บัญชีแอดมินถูกปิดการใช้งาน');
-  }
-
-  const mappedRole: AdminRole = roleMap[d.role] ?? 'viewer';
-  const dept = normalizeDepartment(d.department) as AdminDepartment;
-
-  const permissions: AdminPermission[] =
-    Array.isArray(d.permissions) && d.permissions.length > 0
-      ? (d.permissions as AdminPermission[])
-      : ROLE_PERMISSIONS[mappedRole];
-
-  return {
-    uid,
-    email: d.email ?? '',
-    displayName: d.displayName ?? `${d.firstName ?? 'Admin'} ${d.lastName ?? ''}`.trim(),
-    firstName: d.firstName ?? d.displayName?.split(' ')?.[0] ?? 'Admin',
-    lastName: d.lastName ?? d.displayName?.split(' ')?.[1] ?? 'User',
-    role: mappedRole,
-    department: dept,
-    permissions,
-    isActive: d.isActive ?? true,
-    lastLoginAt: toDateSafe(d.lastLoginAt ?? d.lastLogin),
-    createdAt: toDateSafe(d.createdAt) ?? new Date(),
-    updatedAt: toDateSafe(d.updatedAt) ?? new Date(),
-    createdBy: d.createdBy,
-    profileImage: d.profileImage ?? '',
-  };
-}
-
-// ✅ ให้ hook/useAdminAuth เรียกใช้ได้
-export async function getCurrentAdmin(): Promise<AdminProfile | null> {
-  const u = auth.currentUser;
-  if (!u) return null;
-  return await mapAdminDocToProfile(u.uid);
-}
-
-// ✅ ล็อกอิน + อัปเดต lastLoginAt
-export async function signInAdmin(email: string, password: string): Promise<AdminProfile> {
-  const cred = await signInWithEmailAndPassword(auth, email, password);
-  try {
-    await updateDoc(doc(db, 'adminUsers', cred.user.uid), {
-      lastLoginAt: serverTimestamp(),
-    });
-  } catch {
-    // เงียบไว้ ไม่ให้พังทั้งฟังก์ชันถ้าอัปเดตเวลาไม่ได้
-  }
-  return await mapAdminDocToProfile(cred.user.uid);
-}
-
-// ✅ ออกจากระบบ
-export async function signOutAdmin(): Promise<void> {
-  await signOut(auth);
-}
-
-// ====== Admin Management (adminUsers) ======
-
 // ดึงแอดมินทั้งหมด (สำหรับ super_admin)
 export const getAllAdmins = async (): Promise<AdminProfile[]> => {
   const snap = await getDocs(collection(db, 'adminUsers'));
@@ -123,17 +43,17 @@ export const getAllAdmins = async (): Promise<AdminProfile[]> => {
       displayName: data.displayName ?? '',
       firstName: data.firstName ?? '',
       lastName: data.lastName ?? '',
-      role: roleMap[data.role] ?? 'viewer',
-      department: normalizeDepartment(data.department) as AdminDepartment,
-      permissions:
-        (Array.isArray(data.permissions) && data.permissions.length > 0
-          ? data.permissions
-          : ROLE_PERMISSIONS[roleMap[data.role] ?? 'viewer']) as AdminPermission[],
+      role: data.role as AdminRole,
+      department: data.department as AdminDepartment,
+      // ✅ กันเหนียว: ถ้า permissions ไม่มี ให้ fallback เป็นของ role นั้นๆ หรือ []
+      permissions: Array.isArray(data.permissions)
+        ? (data.permissions as AdminPermission[])
+        : (ROLE_PERMISSIONS[data.role as AdminRole] ?? []),
       isActive: data.isActive ?? true,
       createdAt: toDateSafe(data.createdAt) ?? new Date(),
       updatedAt: toDateSafe(data.updatedAt) ?? new Date(),
       createdBy: data.createdBy,
-      lastLoginAt: toDateSafe(data.lastLoginAt ?? data.lastLogin),
+      lastLoginAt: toDateSafe(data.lastLoginAt),
       profileImage: data.profileImage,
     } as AdminProfile;
   });
@@ -154,32 +74,28 @@ export const getAdminsByDepartment = async (
       displayName: data.displayName ?? '',
       firstName: data.firstName ?? '',
       lastName: data.lastName ?? '',
-      role: roleMap[data.role] ?? 'viewer',
-      department: normalizeDepartment(data.department) as AdminDepartment,
-      permissions:
-        (Array.isArray(data.permissions) && data.permissions.length > 0
-          ? data.permissions
-          : ROLE_PERMISSIONS[roleMap[data.role] ?? 'viewer']) as AdminPermission[],
+      role: data.role as AdminRole,
+      department: data.department as AdminDepartment,
+      permissions: Array.isArray(data.permissions)
+        ? (data.permissions as AdminPermission[])
+        : (ROLE_PERMISSIONS[data.role as AdminRole] ?? []),
       isActive: data.isActive ?? true,
       createdAt: toDateSafe(data.createdAt) ?? new Date(),
       updatedAt: toDateSafe(data.updatedAt) ?? new Date(),
       createdBy: data.createdBy,
-      lastLoginAt: toDateSafe(data.lastLoginAt ?? data.lastLogin),
+      lastLoginAt: toDateSafe(data.lastLoginAt),
       profileImage: data.profileImage,
     } as AdminProfile;
   });
 };
 
 // สร้างแอดมิน (ต้องทราบ uid ของผู้ใช้ใน Auth)
-export const createAdminUser = async (
-  profile: Omit<AdminProfile, 'createdAt' | 'updatedAt'> & { uid: string }
-) => {
+export const createAdminUser = async (profile: Omit<AdminProfile, 'createdAt' | 'updatedAt'> & { uid: string }) => {
   const ref = doc(db, 'adminUsers', profile.uid);
   const payload = {
     ...profile,
-    // เก็บ role ให้เป็นค่าที่ระบบใช้สม่ำเสมอ
-    role: roleMap[profile.role] ?? profile.role,
-    department: normalizeDepartment(profile.department),
+    // ✅ บังคับเป็นอาเรย์เสมอ
+    permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -191,8 +107,8 @@ export const updateAdminUser = async (uid: string, data: Partial<AdminProfile>) 
   const ref = doc(db, 'adminUsers', uid);
   await updateDoc(ref, {
     ...data,
-    role: data.role ? (roleMap[data.role] ?? data.role) : data.role,
-    department: data.department ? normalizeDepartment(data.department) : data.department,
+    // ✅ coerces permissions เป็นอาเรย์ถ้าถูกส่งมา
+    ...(data.permissions ? { permissions: Array.isArray(data.permissions) ? data.permissions : [] } : {}),
     updatedAt: serverTimestamp(),
   });
 };
@@ -218,7 +134,6 @@ export interface Activity {
   currentParticipants?: number;
   isActive: boolean;
   qrUrl?: string;
-  // อนุโลมข้อมูลเก่าให้เป็น string ได้ด้วย
   department?: AdminDepartment | string;
   createdAt?: Date;
 }
@@ -229,7 +144,6 @@ export interface ActivityRecord {
   studentId: string;
   firstName: string;
   lastName: string;
-  // อนุโลมข้อมูลเก่าให้เป็น string ได้ด้วย
   department: AdminDepartment | string;
   activityCode: string;
   faculty?: string;
@@ -243,7 +157,6 @@ export interface UnivUser {
   email?: string;
   studentId?: string;
   faculty?: string;
-  // อนุโลมข้อมูลเก่าให้เป็น string ได้ด้วย
   department?: AdminDepartment | string;
   degreeLevel?: string;
   isVerified: boolean;
@@ -344,7 +257,6 @@ export const createActivity = async (payload: CreateActivityInput) => {
 export const updateActivity = async (activityId: string, patch: UpdateActivityInput) => {
   await updateDoc(doc(db, 'activities', activityId), {
     ...patch,
-    // updatedAt: serverTimestamp(), // ถ้าต้องการ
   });
 };
 

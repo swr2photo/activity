@@ -1,3 +1,4 @@
+// src/app/admin/App.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -5,7 +6,7 @@ import { ThemeProvider, createTheme, CssBaseline, Box, CircularProgress } from '
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
-// default import ให้ตรงกับ default export
+// ใช้ default import ให้ตรงกับ default export
 import AdminMain from '../../components/admin/AdminMain';
 import AdminLogin from '../../components/AdminLogin';
 
@@ -13,8 +14,19 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, db } from '../../lib/firebase';
 import { doc, getDoc, Timestamp } from 'firebase/firestore';
 import type { AdminProfile, AdminRole, AdminDepartment } from '../../types/admin';
+import { ROLE_PERMISSIONS, normalizeDepartment } from '../../types/admin';
 
-const theme = createTheme({});
+const theme = createTheme({ /* …กำหนดธีมของคุณ… */ });
+
+// ✅ Normalizer ปลอดภัยทั้งไฟล์ (กันล้มทุกจุด)
+const normalizeAdmin = (a: AdminProfile): AdminProfile => ({
+  ...a,
+  permissions: Array.isArray(a.permissions) ? a.permissions : [],
+  firstName: a.firstName ?? '',
+  lastName: a.lastName ?? '',
+  displayName: a.displayName ?? `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim(),
+  profileImage: a.profileImage ?? '',
+});
 
 function App() {
   const [currentAdmin, setCurrentAdmin] = useState<AdminProfile | null>(null);
@@ -22,13 +34,13 @@ function App() {
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user: User | null) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user: User | null) => {
       if (user) await checkAndSetAdminUser(user);
       else setCurrentAdmin(null);
       setAuthChecked(true);
       setLoading(false);
     });
-    return () => unsub();
+    return () => unsubscribe();
   }, []);
 
   const checkAndSetAdminUser = async (user: User) => {
@@ -41,36 +53,42 @@ function App() {
         email: string; displayName: string;
         firstName?: string; lastName?: string; department?: string;
         role: 'admin' | 'super_admin'; isActive: boolean;
-        lastLogin?: Timestamp | Date; createdAt: Timestamp | Date;
+        lastLogin?: Timestamp | Date; createdAt: Timestamp | Date; permissions?: any;
       };
       if (!adminData.isActive) return;
 
-      const { normalizeDepartment, ROLE_PERMISSIONS } = await import('../../types/admin');
       const roleMap = { super_admin: 'super_admin', admin: 'department_admin' } as const;
       const mappedRole = roleMap[adminData.role] as AdminRole;
+      const dept = normalizeDepartment(adminData.department);
 
       const adminProfile: AdminProfile = {
         uid: user.uid,
         email: adminData.email,
         displayName: adminData.displayName,
         firstName: adminData.firstName || adminData.displayName?.split(' ')[0] || 'Admin',
-        lastName: adminData.lastName || adminData.displayName?.split(' ')[1] || 'User',
-        department: normalizeDepartment(adminData.department),
+        lastName:  adminData.lastName  || adminData.displayName?.split(' ')[1] || 'User',
+        department: dept,
         role: mappedRole,
         isActive: adminData.isActive,
-        lastLoginAt: adminData.lastLogin instanceof Timestamp
-          ? adminData.lastLogin.toDate()
-          : (adminData.lastLogin as Date) ?? new Date(),
-        createdAt: adminData.createdAt instanceof Timestamp
-          ? adminData.createdAt.toDate()
-          : (adminData.createdAt as Date),
-        permissions: ROLE_PERMISSIONS[mappedRole],
+        lastLoginAt:
+          adminData.lastLogin instanceof Timestamp
+            ? adminData.lastLogin.toDate()
+            : (adminData.lastLogin as Date) ?? new Date(),
+        createdAt:
+          adminData.createdAt instanceof Timestamp
+            ? adminData.createdAt.toDate()
+            : (adminData.createdAt as Date),
+        // ✅ ถ้าเอกสารไม่มี permissions ให้ fallback เป็นของบทบาท
+        permissions: Array.isArray((adminData as any).permissions)
+          ? (adminData as any).permissions
+          : (ROLE_PERMISSIONS[mappedRole] ?? []),
         updatedAt: new Date(),
+        profileImage: '',
       };
 
-      setCurrentAdmin(adminProfile);
-    } catch (e) {
-      console.error('Error checking admin user:', e);
+      setCurrentAdmin(normalizeAdmin(adminProfile));
+    } catch (error) {
+      console.error('Error checking admin user:', error);
     }
   };
 
@@ -80,24 +98,26 @@ function App() {
     lastLogin: Date; createdAt: Date;
   }) => {
     (async () => {
-      const { ROLE_PERMISSIONS } = await import('../../types/admin');
       const roleMap = { super_admin: 'super_admin', admin: 'department_admin' } as const;
       const mappedRole = roleMap[adminUser.role] as AdminRole;
 
-      setCurrentAdmin({
+      const profile: AdminProfile = {
         uid: adminUser.id,
         email: adminUser.email,
         displayName: adminUser.displayName,
         firstName: adminUser.displayName?.split(' ')[0] || 'Admin',
-        lastName: adminUser.displayName?.split(' ')[1] || 'User',
+        lastName:  adminUser.displayName?.split(' ')[1] || 'User',
         department: 'all' as AdminDepartment,
         role: mappedRole,
         isActive: adminUser.isActive,
         lastLoginAt: adminUser.lastLogin,
         createdAt: adminUser.createdAt,
-        permissions: ROLE_PERMISSIONS[mappedRole],
+        permissions: ROLE_PERMISSIONS[mappedRole] ?? [],
         updatedAt: new Date(),
-      });
+        profileImage: '',
+      };
+
+      setCurrentAdmin(normalizeAdmin(profile));
     })();
   };
 
