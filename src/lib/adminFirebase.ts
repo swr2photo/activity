@@ -446,3 +446,138 @@ export const approveUser = async (uid: string): Promise<void> => {
 export const suspendUser = async (uid: string): Promise<void> => {
   await updateDoc(doc(db, 'universityUsers', uid), { isActive: false });
 };
+// ---- logging helpers (append to src/lib/adminFirebase.ts) ----
+
+export const logAdminEvent = async (
+  action: string,
+  meta: Record<string, any> = {},
+  actor?: { uid?: string; email?: string }
+) => {
+  try {
+    await addDoc(collection(db, 'logs'), {
+      action,               // e.g. 'LOGIN', 'LOGOUT', 'ADMIN_PROMOTE', 'APPROVE_USER', 'EXPORT_USERS'
+      meta,                 // payload เพิ่มเติม (targetUid, role, department, query, ฯลฯ)
+      actorUid: actor?.uid ?? null,
+      actorEmail: actor?.email ?? null,
+      ua: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      at: serverTimestamp(),
+    });
+  } catch (e) {
+    // กันแอปล้มจากการ log fail
+    console.warn('logAdminEvent failed:', e);
+  }
+};
+// --- เพิ่มต่อท้ายไฟล์ ---
+
+// ================= Invites =================
+export type InviteStatus = 'pending' | 'accepted' | 'cancelled' | 'expired';
+
+export interface AdminInvite {
+  id: string;
+  email: string;
+  role: AdminRole;
+  department: AdminDepartment;
+  permissions: AdminPermission[];
+  invitedByUid: string;
+  invitedByEmail?: string;
+  status: InviteStatus;
+  token: string;             // ใช้สร้างลิงก์ยืนยัน
+  createdAt?: Date;
+  expiresAt?: Date;
+  acceptedAt?: Date;
+  acceptedByUid?: string;
+}
+
+const genToken = () =>
+  Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+
+// สร้างคำเชิญ (return token สำหรับแนบลิงก์)
+export const createAdminInvite = async (payload: {
+  email: string;
+  role: AdminRole;
+  department: AdminDepartment;
+  permissions: AdminPermission[];
+  invitedByUid: string;
+  invitedByEmail?: string;
+}): Promise<string> => {
+  const token = genToken();
+  const data = {
+    ...payload,
+    status: 'pending' as InviteStatus,
+    token,
+    createdAt: serverTimestamp(),
+    // กำหนดอายุคำเชิญ 14 วัน (ตั้งค่าเพิ่มฝั่ง Cloud Function ก็ได้)
+    expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+  };
+  await addDoc(collection(db, 'adminInvites'), data);
+  return token;
+};
+
+// ดึงคำเชิญตามสังกัด (หรือ 'all' สำหรับ super admin)
+export const getAdminInvitesByDepartment = async (dept: AdminDepartment | 'all'): Promise<AdminInvite[]> => {
+  let snap;
+  if (dept === 'all') {
+    snap = await getDocs(collection(db, 'adminInvites'));
+  } else {
+    const qy = query(collection(db, 'adminInvites'), where('department', '==', dept));
+    snap = await getDocs(qy);
+  }
+  return snap.docs.map((d) => {
+    const v = d.data() as any;
+    return {
+      id: d.id,
+      email: v.email,
+      role: v.role,
+      department: v.department,
+      permissions: (v.permissions || []) as AdminPermission[],
+      invitedByUid: v.invitedByUid,
+      invitedByEmail: v.invitedByEmail,
+      status: (v.status || 'pending') as InviteStatus,
+      token: v.token,
+      createdAt: (v.createdAt?.toDate?.() ?? (v.createdAt instanceof Date ? v.createdAt : undefined)),
+      expiresAt: (v.expiresAt?.toDate?.() ?? (v.expiresAt instanceof Date ? v.expiresAt : undefined)),
+      acceptedAt: (v.acceptedAt?.toDate?.() ?? (v.acceptedAt instanceof Date ? v.acceptedAt : undefined)),
+      acceptedByUid: v.acceptedByUid,
+    } as AdminInvite;
+  });
+};
+
+// ยกเลิกคำเชิญ
+export const cancelAdminInvite = async (inviteId: string): Promise<void> => {
+  await updateDoc(doc(db, 'adminInvites', inviteId), {
+    status: 'cancelled',
+    updatedAt: serverTimestamp(),
+  });
+};
+
+// (ทางเลือก) หน้ารับคำเชิญจะใช้ token เพื่อ accept
+export const acceptAdminInviteByToken = async (token: string, uid: string): Promise<AdminInvite | null> => {
+  const qy = query(collection(db, 'adminInvites'), where('token', '==', token), where('status', '==', 'pending'));
+  const snap = await getDocs(qy);
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  const v = d.data() as any;
+
+  // อัปเดตเป็น accepted
+  await updateDoc(doc(db, 'adminInvites', d.id), {
+    status: 'accepted',
+    acceptedAt: serverTimestamp(),
+    acceptedByUid: uid,
+  });
+
+  return {
+    id: d.id,
+    email: v.email,
+    role: v.role,
+    department: v.department,
+    permissions: (v.permissions || []) as AdminPermission[],
+    invitedByUid: v.invitedByUid,
+    invitedByEmail: v.invitedByEmail,
+    status: 'accepted',
+    token: v.token,
+    createdAt: v.createdAt?.toDate?.(),
+    expiresAt: v.expiresAt?.toDate?.(),
+    acceptedAt: new Date(),
+    acceptedByUid: uid,
+  } as AdminInvite;
+};
