@@ -13,10 +13,6 @@ import {
   Divider,
   Stack,
   Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   LinearProgress,
   Accordion,
   AccordionSummary,
@@ -28,11 +24,8 @@ import {
   Person as PersonIcon,
   Logout as LogoutIcon,
   Verified as VerifiedIcon,
-  HourglassEmpty as HourglassIcon,
   Block as BlockIcon,
-  Warning as WarningIcon,
   AccessTime as TimeIcon,
-  Refresh as RefreshIcon,
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 
@@ -42,12 +35,12 @@ import {
   onAuthStateChanged,
   User,
   OAuthProvider,
-  fetchSignInMethodsForEmail,
   AuthError,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { SessionManager } from '../lib/sessionManager';
+import { mapAuthError } from '../lib/firebaseAuth';
 
 /* =========================
    Types
@@ -64,7 +57,7 @@ interface UniversityUserData {
   faculty: string;
   photoURL?: string;
   isActive: boolean;
-  isVerified: boolean;
+  isVerified?: boolean;
   createdAt: any;
   updatedAt: any;
   lastLoginAt: any;
@@ -84,11 +77,7 @@ interface MicrosoftLoginProps {
    Small inline Microsoft Logo
 ========================= */
 const MicrosoftLogo: React.FC<{ size?: number }> = ({ size = 22 }) => (
-  <Box
-    component="svg"
-    viewBox="0 0 23 23"
-    sx={{ width: size, height: size, borderRadius: 0.5, overflow: 'visible' }}
-  >
+  <Box component="svg" viewBox="0 0 23 23" sx={{ width: size, height: size, borderRadius: 0.5, overflow: 'visible' }}>
     <rect x="0" y="0" width="10.5" height="10.5" fill="#F25022" rx="1" />
     <rect x="12.5" y="0" width="10.5" height="10.5" fill="#7FBA00" rx="1" />
     <rect x="0" y="12.5" width="10.5" height="10.5" fill="#00A4EF" rx="1" />
@@ -118,22 +107,17 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // dialog (account exists with different credential)
-  const [showAccountExistsDialog, setShowAccountExistsDialog] = useState(false);
-  const [existingMethods, setExistingMethods] = useState<string[]>([]);
-  const [pendingEmail, setPendingEmail] = useState('');
-
   // session state
   const [sessionValid, setSessionValid] = useState(true);
   const [sessionRemainingTime, setSessionRemainingTime] = useState(0);
-  const [sessionWarning, setSessionWarning] = useState(false);
-  const [extendingSession, setExtendingSession] = useState(false);
   const [sessionInitialized, setSessionInitialized] = useState(false);
 
   // refs
   const loginInProgressRef = useRef(false);
   const sessionCheckIntervalRef = useRef<number | null>(null);
   const hasCheckedExistingSessionRef = useRef(false);
+  const activityThrottleRef = useRef<number>(0);
+  const currentIpRef = useRef<string>('');
 
   /* =========================
      Utils
@@ -148,21 +132,12 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     }
   };
 
-  const formatTimeRemaining = (minutes: number): string => {
-    if (minutes <= 0) return '0 นาที';
-    if (minutes >= 60) {
-      const hours = Math.floor(minutes / 60);
-      const mins = minutes % 60;
-      return `${hours} ชั่วโมง ${mins} นาที`;
-    }
-    return `${minutes} นาที`;
-  };
-
-  const getTimeProgressColor = (): 'error' | 'warning' | 'info' => {
-    if (sessionRemainingTime <= 5) return 'error';
-    if (sessionRemainingTime <= 10) return 'warning';
-    return 'info';
-  };
+  const formatTimeRemaining = (minutes: number): string =>
+    minutes <= 0
+      ? '0 นาที'
+      : minutes >= 60
+      ? `${Math.floor(minutes / 60)} ชั่วโมง ${minutes % 60} นาที`
+      : `${minutes} นาที`;
 
   const getTimeProgressValue = (): number => (sessionRemainingTime / 30) * 100;
 
@@ -178,15 +153,12 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         await loadUserData(firebaseUser.uid);
 
         if (loginInProgressRef.current) {
-          // หลังล็อกอินสำเร็จ: handleSuccessfulLogin จะสร้างเซสชันแล้ว
           setSessionValid(true);
         } else if (!hasCheckedExistingSessionRef.current) {
-          // รีเฟรชหน้า: ตรวจเซสชันเดิม
           hasCheckedExistingSessionRef.current = true;
           await checkExistingSession(firebaseUser.uid);
         }
       } else {
-        // ออกจากระบบ
         setUser(null);
         setUserData(null);
         stopSessionMonitoring();
@@ -206,7 +178,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   const resetSessionState = () => {
     setSessionInitialized(false);
     setSessionValid(true);
-    setSessionWarning(false);
     setSessionRemainingTime(0);
     hasCheckedExistingSessionRef.current = false;
     loginInProgressRef.current = false;
@@ -224,10 +195,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         setSessionRemainingTime(sessionResult.remainingTime || 0);
         setSessionInitialized(true);
         startSessionMonitoring(userId);
-
-        if (sessionResult.remainingTime && sessionResult.remainingTime <= 5) {
-          setSessionWarning(true);
-        }
       } else {
         setSessionValid(false);
         setSessionInitialized(false);
@@ -241,9 +208,24 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   const createSessionAndInitialize = async (userId: string, email: string) => {
     try {
       const userIP = await getUserIP();
-      await SessionManager.createSession(userId, email, userIP);
-      // เว้นช่วงให้เขียนเสร็จ
-      await new Promise((r) => setTimeout(r, 400));
+      currentIpRef.current = userIP;
+
+      const res = await SessionManager.createSession(userId, email, userIP);
+      if (!('success' in res) || !res.success) {
+        if ((res as any).blocked) {
+          const wait = (res as any).waitMinutes ?? 30;
+          const msg = `IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่นแล้ว กรุณารออีก ${wait} นาที`;
+          setError(msg);
+          await signOut(auth);
+          onLoginError?.(msg);
+          return;
+        }
+        const msg = (res as any).message || 'ไม่สามารถสร้างเซสชันได้';
+        setError(msg);
+        await signOut(auth);
+        onLoginError?.(msg);
+        return;
+      }
 
       const sessionResult = await SessionManager.validateSession(userId);
       if (sessionResult.isValid) {
@@ -251,20 +233,17 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         setSessionRemainingTime(sessionResult.remainingTime || 30);
         setSessionInitialized(true);
         startSessionMonitoring(userId);
-        setSessionWarning((sessionResult.remainingTime || 0) <= 5);
       } else {
-        // อนุญาตให้ใช้งานต่อ แต่ไม่เริ่ม monitor
-        setSessionValid(true);
+        setSessionValid(false);
         setSessionInitialized(false);
       }
     } catch {
-      setSessionValid(true);
-      setSessionInitialized(false);
       setError('เข้าสู่ระบบสำเร็จ แต่เกิดข้อผิดพลาดในการสร้างเซสชัน');
     }
   };
 
   const startSessionMonitoring = (userId: string) => {
+    // periodic validity check
     if (sessionCheckIntervalRef.current) {
       window.clearInterval(sessionCheckIntervalRef.current);
     }
@@ -273,16 +252,29 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         const res = await SessionManager.validateSession(userId);
         if (!res.isValid) {
           setSessionValid(false);
-          setError(res.message || 'เซสชันหมดอายุแล้ว');
-          handleSessionExpiredInternal();
+          handleSessionExpiredInternal(res.message);
           return;
         }
         setSessionRemainingTime(res.remainingTime || 0);
-        setSessionWarning((res.remainingTime || 0) <= 5);
       } catch {
-        // เงียบไว้ ไม่ทำให้หลุด
+        /* noop */
       }
     }, 60_000);
+
+    // real activity listeners → slide expiry via touch()
+    const activityHandler = () => {
+      const now = Date.now();
+      if (now - activityThrottleRef.current < 60_000) return; // throttle 1/min
+      activityThrottleRef.current = now;
+      SessionManager.touch(userId, currentIpRef.current).catch(() => {});
+    };
+
+    const events: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    events.forEach((ev) => window.addEventListener(ev, activityHandler, { passive: true }));
+
+    (window as any).__msAuthActivityCleanup = () => {
+      events.forEach((ev) => window.removeEventListener(ev, activityHandler));
+    };
   };
 
   const stopSessionMonitoring = () => {
@@ -290,42 +282,25 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       window.clearInterval(sessionCheckIntervalRef.current);
       sessionCheckIntervalRef.current = null;
     }
-    setSessionWarning(false);
-    setSessionRemainingTime(0);
+    if ((window as any).__msAuthActivityCleanup) {
+      try {
+        (window as any).__msAuthActivityCleanup();
+      } catch {}
+      (window as any).__msAuthActivityCleanup = undefined;
+    }
   };
 
-  const handleSessionExpiredInternal = async () => {
+  const handleSessionExpiredInternal = async (message?: string) => {
     try {
       stopSessionMonitoring();
       await signOut(auth);
       resetSessionState();
       setUser(null);
       setUserData(null);
-      if (onSessionExpired) onSessionExpired();
+      if (message) setError(message);
+      onSessionExpired?.();
     } catch {
       /* noop */
-    }
-  };
-
-  const handleExtendSession = async () => {
-    if (!user?.uid) return;
-    setExtendingSession(true);
-    try {
-      const result = await SessionManager.extendSession(user.uid);
-      if (result.success) {
-        setSessionWarning(false);
-        setSessionRemainingTime(30);
-        setError('');
-      } else {
-        setError(result.message || 'ไม่สามารถขยายเวลาเซสชันได้');
-        if (result.message?.includes('หมดอายุ')) {
-          handleSessionExpiredInternal();
-        }
-      }
-    } catch {
-      setError('เกิดข้อผิดพลาดในการขยายเวลาเซสชัน');
-    } finally {
-      setExtendingSession(false);
     }
   };
 
@@ -342,7 +317,7 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         onLoginSuccess?.(data);
       }
     } catch {
-      // เงียบไว้
+      // ignore
     }
   };
 
@@ -427,61 +402,14 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
       await handleSuccessfulLogin(firebaseUser);
     } catch (err: any) {
-      await handleAuthError(err, attemptedEmail);
+      // แปลงเป็นข้อความกลาง (ไม่มี “บัญชีมีอยู่แล้ว…”)
+      const msg = mapAuthError(err);
+      setError(msg);
+      onLoginError?.(msg);
     } finally {
       setLoginLoading(false);
       loginInProgressRef.current = false;
     }
-  };
-
-  const handleAuthError = async (err: AuthError, attemptedEmail = '') => {
-    if (err.code === 'auth/account-exists-with-different-credential') {
-      let email = '';
-      if (err.customData?.email) email = err.customData.email as string;
-      else if (attemptedEmail) email = attemptedEmail;
-      else {
-        const m = err.message?.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-        if (m) email = m[1];
-      }
-
-      if (email) {
-        setPendingEmail(email);
-        try {
-          const methods = await fetchSignInMethodsForEmail(auth, email);
-          setExistingMethods(methods);
-          setShowAccountExistsDialog(true);
-        } catch {
-          setError(`มีบัญชีที่ใช้อีเมล ${email} อยู่แล้ว กรุณาเข้าสู่ระบบด้วยวิธีเดิม`);
-        }
-      } else {
-        setError('มีบัญชีที่ใช้อีเมลนี้อยู่แล้ว กรุณาเข้าสู่ระบบด้วยวิธีเดิม');
-      }
-      return;
-    }
-
-    let message = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
-    switch (err.code) {
-      case 'auth/popup-closed-by-user':
-        message = 'การเข้าสู่ระบบถูกยกเลิก กรุณาลองใหม่อีกครั้ง';
-        break;
-      case 'auth/popup-blocked':
-        message = 'เบราว์เซอร์บล็อกหน้าต่างล็อกอิน กรุณาอนุญาต Popup แล้วลองใหม่';
-        break;
-      case 'auth/network-request-failed':
-        message = 'มีปัญหาการเชื่อมต่ออินเทอร์เน็ต กรุณาลองใหม่';
-        break;
-      case 'auth/too-many-requests':
-        message = 'พยายามเข้าสู่ระบบบ่อยเกินไป กรุณารอสักครู่';
-        break;
-      default:
-        if (String(err.message || '').includes('popup')) {
-          message = 'ไม่สามารถเปิดหน้าต่างล็อกอินได้ กรุณาอนุญาต Popup แล้วลองใหม่';
-        } else {
-          message = `เกิดข้อผิดพลาด: ${err.message || err.code}`;
-        }
-    }
-    setError(message);
-    onLoginError?.(message);
   };
 
   const handleSuccessfulLogin = async (firebaseUser: User) => {
@@ -504,7 +432,9 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         photoURL: firebaseUser.photoURL || existing.photoURL,
         updatedAt: serverTimestamp(),
         lastLoginAt: serverTimestamp(),
-      };
+        isActive: true,
+        isVerified: true,
+      } as UniversityUserData;
       await setDoc(userDocRef, finalUserData, { merge: true });
     } else {
       finalUserData = {
@@ -519,11 +449,11 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         faculty,
         photoURL: firebaseUser.photoURL || '',
         isActive: true,
-        isVerified: false,
+        isVerified: true,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         lastLoginAt: serverTimestamp(),
-      };
+      } as UniversityUserData;
       await setDoc(userDocRef, finalUserData);
     }
 
@@ -548,16 +478,11 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     }
   };
 
-  const handleCloseAccountExistsDialog = () => {
-    setShowAccountExistsDialog(false);
-    setPendingEmail('');
-    setExistingMethods([]);
-  };
-
   const getStatusInfo = () => {
-    if (!userData) return { text: 'ไม่มีข้อมูล', color: 'default' as const, icon: <PersonIcon fontSize="small" /> };
-    if (!userData.isActive) return { text: 'บัญชีถูกระงับ', color: 'error' as const, icon: <BlockIcon fontSize="small" /> };
-    if (!userData.isVerified) return { text: 'รอการยืนยัน', color: 'warning' as const, icon: <HourglassIcon fontSize="small" /> };
+    if (!userData)
+      return { text: 'ไม่มีข้อมูล', color: 'default' as const, icon: <PersonIcon fontSize="small" /> };
+    if (!userData.isActive)
+      return { text: 'บัญชีถูกระงับ', color: 'error' as const, icon: <BlockIcon fontSize="small" /> };
     return { text: 'บัญชีใช้งานได้', color: 'success' as const, icon: <VerifiedIcon fontSize="small" /> };
   };
 
@@ -629,29 +554,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         </Box>
 
         <CardContent sx={{ pt: 2.5 }}>
-          {/* session warning */}
-          {sessionWarning && sessionInitialized && (
-            <Alert
-              severity="warning"
-              sx={{ mb: 2 }}
-              action={
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={handleExtendSession}
-                  disabled={extendingSession}
-                  startIcon={extendingSession ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
-                >
-                  {extendingSession ? 'กำลังขยายเวลา...' : 'ขยายเวลา'}
-                </Button>
-              }
-            >
-              <Typography variant="body2" fontWeight="medium">
-                เซสชันจะหมดอายุใน {formatTimeRemaining(sessionRemainingTime)}
-              </Typography>
-            </Alert>
-          )}
-
           {/* session progress */}
           {sessionInitialized && (
             <Box
@@ -668,18 +570,13 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
                   <TimeIcon fontSize="small" color="action" />
                   <Typography variant="subtitle2">เวลาเซสชันที่เหลือ</Typography>
                 </Box>
-                <Typography variant="body2" fontWeight="medium" color={getTimeProgressColor()}>
+                <Typography variant="body2" fontWeight="medium">
                   {formatTimeRemaining(sessionRemainingTime)}
                 </Typography>
               </Box>
-              <LinearProgress
-                variant="determinate"
-                value={getTimeProgressValue()}
-                color={getTimeProgressColor()}
-                sx={{ height: 6, borderRadius: 3 }}
-              />
+              <LinearProgress variant="determinate" value={getTimeProgressValue()} sx={{ height: 6, borderRadius: 3 }} />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
-                หมดอายุอัตโนมัติหลัง 30 นาทีจากการเข้าสู่ระบบหรือการขยายเวลาล่าสุด
+                จะออกจากระบบอัตโนมัติหากไม่มีการใช้งาน 30 นาที
               </Typography>
             </Box>
           )}
@@ -704,18 +601,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
           {/* actions */}
           <Stack spacing={1}>
-            {sessionInitialized && sessionRemainingTime <= 15 && (
-              <Button
-                variant="outlined"
-                color="primary"
-                startIcon={extendingSession ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-                onClick={handleExtendSession}
-                disabled={extendingSession || disabled}
-                fullWidth
-              >
-                {extendingSession ? 'กำลังขยายเวลาเซสชัน...' : 'ขยายเวลาเซสชัน (+30 นาที)'}
-              </Button>
-            )}
             <Button
               variant="outlined"
               color="error"
@@ -844,7 +729,10 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
             {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Microsoft'}
           </Button>
 
-          <Accordion disableGutters sx={{ mt: 2, borderRadius: 2, border: `1px solid ${alpha(theme.palette.divider, 0.12)}` }}>
+          <Accordion
+            disableGutters
+            sx={{ mt: 2, borderRadius: 2, border: `1px solid ${alpha(theme.palette.divider, 0.12)}` }}
+          >
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="subtitle2">คำแนะนำ & นโยบายเซสชัน</Typography>
             </AccordionSummary>
@@ -853,50 +741,17 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
                 กรุณาใช้อีเมล @psu.ac.th เท่านั้น
               </Alert>
               <Alert severity="warning" icon={<TimeIcon />} sx={{ mb: 1.5 }}>
-                หลังเข้าสู่ระบบ คุณจะมีเวลาใช้งาน 30 นาที และสามารถ “ขยายเวลา” ได้ก่อนหมดอายุ
+                ระบบจะออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน 30 นาที (ไม่มีปุ่มขยายเวลา)
               </Alert>
-              <Alert severity="info">
-                ถ้าเบราว์เซอร์บล็อก popup ให้อนุญาต popup สำหรับเว็บนี้แล้วลองใหม่
-              </Alert>
+              <Alert severity="info">ถ้าเบราว์เซอร์บล็อก popup ให้อนุญาต popup สำหรับเว็บนี้แล้วลองใหม่</Alert>
             </AccordionDetails>
           </Accordion>
 
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
-            ระบบจะบันทึกข้อมูลที่จำเป็นเพื่อใช้งานการลงทะเบียนกิจกรรม
+            ระบบจะบันทึกข้อมูลที่จำเป็นเพื่อใช้งานการลงทะเบียนกิจกรรม และล็อกการใช้งาน 1 บัญชีต่อ 1 IP ชั่วคราว 30 นาที
           </Typography>
         </CardContent>
       </Card>
-
-      {/* Dialog: account exists with different credential */}
-      <Dialog open={showAccountExistsDialog} onClose={handleCloseAccountExistsDialog} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <WarningIcon color="warning" />
-          บัญชีมีอยู่แล้ว
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body1" gutterBottom>
-            อีเมล <strong>{pendingEmail}</strong> มีบัญชีอยู่แล้วในระบบ
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            กรุณาเข้าสู่ระบบด้วยวิธีที่เคยใช้สร้างบัญชีครั้งแรก:
-          </Typography>
-          <Box sx={{ pl: 2, mb: 2 }}>
-            {existingMethods.map((method, i) => (
-              <Typography key={i} variant="body2" sx={{ mb: 0.5 }}>
-                • {method === 'google.com' ? 'Google' : method === 'microsoft.com' ? 'Microsoft' : method === 'password' ? 'อีเมล/รหัสผ่าน' : method}
-              </Typography>
-            ))}
-          </Box>
-          <Alert severity="info">
-            หากต้องการใช้ Microsoft แทน กรุณาติดต่อผู้ดูแลระบบเพื่อรวมบัญชีหรือย้ายข้อมูล
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseAccountExistsDialog} color="primary">
-            เข้าใจแล้ว
-          </Button>
-        </DialogActions>
-      </Dialog>
     </>
   );
 };

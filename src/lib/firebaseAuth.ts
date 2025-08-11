@@ -1,25 +1,26 @@
 'use client';
+
 // lib/firebaseAuth.ts
-import { 
-  Auth, 
+import {
   User,
   OAuthProvider,
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
-  getAdditionalUserInfo
+  getAdditionalUserInfo,
 } from 'firebase/auth';
-import React, { useState, useEffect, useContext, createContext, ReactNode } from 'react';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  collection, 
-  query, 
-  where, 
+import React from 'react';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  collection,
+  query,
+  where,
   getDocs,
-  serverTimestamp 
+  serverTimestamp,
 } from 'firebase/firestore';
+import type { DocumentData } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
 export interface UniversityUserProfile {
@@ -34,7 +35,8 @@ export interface UniversityUserProfile {
   faculty: string;
   photoURL?: string;
   isActive: boolean;
-  isVerified: boolean;
+  /** kept for compatibility; no longer used for gating */
+  isVerified?: boolean;
   createdAt: any;
   updatedAt: any;
   lastLoginAt: any;
@@ -48,17 +50,14 @@ export interface AuthState {
   error: string | null;
 }
 
-// ฟังก์ชันสำหรับแยกข้อมูลนักศึกษาจาก email
-export const parseStudentInfo = (email: string): {
-  studentId: string;
-  degreeLevel: string;
-  department: string;
-  faculty: string;
-} => {
+/** อนุญาตเฉพาะโดเมน PSU */
+export const AUTH_ALLOWED_DOMAINS = ['@psu.ac.th'] as const;
+
+/** แมปข้อมูลจากอีเมลนักศึกษาเป็น faculty/department/degree */
+export const parseStudentInfo = (email: string) => {
   const studentId = email.split('@')[0];
-  
-  // การแมปรหัสคณะ (ปรับตามมหาวิทยาลัยของคุณ)
-  const facultyMap: { [key: string]: string } = {
+
+  const facultyMap: Record<string, string> = {
     '01': 'คณะวิศวกรรมศาสตร์',
     '02': 'คณะวิทยาศาสตร์',
     '03': 'คณะมนุษยศาสตร์และสังคมศาสตร์',
@@ -68,35 +67,34 @@ export const parseStudentInfo = (email: string): {
     '07': 'คณะบริหารธุรกิจ',
     '08': 'คณะศิลปกรรมศาสตร์',
     '09': 'คณะเกษตรศาสตร์',
-    '10': 'คณะสัตวแพทยศาสตร์'
+    '10': 'คณะสัตวแพทยศาสตร์',
   };
 
-  // การแมปรหัสสาขา (ตัวอย่าง)
-  const departmentMap: { [key: string]: { [key: string]: string } } = {
-    '01': { // วิศวกรรมศาสตร์
+  const departmentMap: Record<string, Record<string, string>> = {
+    '01': {
       '01': 'วิศวกรรมคอมพิวเตอร์',
       '02': 'วิศวกรรมไฟฟ้า',
       '03': 'วิศวกรรมเครื่องกล',
       '04': 'วิศวกรรมโยธา',
       '05': 'วิศวกรรมเคมี',
-      '06': 'วิศวกรรมอุตสาหการ'
+      '06': 'วิศวกรรมอุตสาหการ',
     },
-    '02': { // วิทยาศาสตร์
+    '02': {
       '01': 'คณิตศาสตร์',
       '02': 'ฟิสิกส์',
       '03': 'เคมี',
       '04': 'ชีววิทยา',
       '05': 'วิทยาการคอมพิวเตอร์',
-      '06': 'สถิติ'
+      '06': 'สถิติ',
     },
-    '03': { // มนุษยศาสตร์และสังคมศาสตร์
+    '03': {
       '01': 'ภาษาไทย',
       '02': 'ภาษาอังกฤษ',
       '03': 'ประวัติศาสตร์',
       '04': 'รัฐศาสตร์',
       '05': 'สังคมวิทยา',
-      '06': 'จิตวิทยา'
-    }
+      '06': 'จิตวิทยา',
+    },
   };
 
   let degreeLevel = 'ไม่ระบุ';
@@ -104,365 +102,236 @@ export const parseStudentInfo = (email: string): {
   let department = 'ไม่ระบุ';
 
   if (studentId.length >= 8) {
-    // รูปแบบ: YYFFDDNN (YY=ปี, FF=คณะ, DD=สาขา, NN=เลขที่)
     const yearCode = studentId.substring(0, 2);
     const facultyCode = studentId.substring(2, 4);
     const deptCode = studentId.substring(4, 6);
-    
-    // กำหนดระดับปริญญา
-    const currentYear = new Date().getFullYear() % 100;
-    const studentYear = parseInt(yearCode);
-    
-    if (studentId.startsWith('M') || studentId.startsWith('m')) {
-      degreeLevel = 'ปริญญาโท';
-    } else if (studentId.startsWith('D') || studentId.startsWith('d')) {
-      degreeLevel = 'ปริญญาเอก';
-    } else if (studentYear >= currentYear - 6) {
-      degreeLevel = 'ปริญญาตรี';
-    } else {
-      degreeLevel = 'ไม่ระบุ';
-    }
 
-    // แมปคณะและสาขา
+    const currentYear = new Date().getFullYear() % 100;
+    const studentYear = parseInt(yearCode, 10);
+
+    if (/^[Mm]/.test(studentId)) degreeLevel = 'ปริญญาโท';
+    else if (/^[Dd]/.test(studentId)) degreeLevel = 'ปริญญาเอก';
+    else if (!Number.isNaN(studentYear) && studentYear >= currentYear - 6) degreeLevel = 'ปริญญาตรี';
+
     faculty = facultyMap[facultyCode] || 'ไม่ระบุ';
     department = departmentMap[facultyCode]?.[deptCode] || 'ไม่ระบุ';
   }
 
-  return {
-    studentId,
-    degreeLevel,
-    faculty,
-    department
-  };
+  return { studentId, degreeLevel, faculty, department };
 };
 
-// ฟังก์ชันสำหรับตรวจสอบว่าเป็น email ของมหาวิทยาลัย
+/** ตรวจโดเมนอีเมลว่าเป็น PSU */
 export const isUniversityEmail = (email: string): boolean => {
-  const allowedDomains = [
-    '@university.ac.th',
-    '@student.university.ac.th',
-    '@su.ac.th', // ตัวอย่าง domain มหาวิทยาลัย
-    '@students.su.ac.th'
-  ];
-  
-  return allowedDomains.some(domain => email.toLowerCase().endsWith(domain.toLowerCase()));
+  return AUTH_ALLOWED_DOMAINS.some((d) => email.toLowerCase().endsWith(d));
 };
 
-// ฟังก์ชันสำหรับเข้าสู่ระบบด้วย Microsoft
+/** แปลง Firebase Auth error → ข้อความภาษาไทยแบบกลาง (ไม่มี “บัญชีมีอยู่แล้ว…”) */
+export const mapAuthError = (err: any): string => {
+  const code = String(err?.code || '');
+  const rawMsg = String(err?.message || '');
+
+  switch (code) {
+    case 'auth/account-exists-with-different-credential':
+      // แสดงเป็นข้อผิดพลาดการเข้าสู่ระบบทั่วไป โดยไม่พูดถึง “บัญชีมีอยู่แล้ว…”
+      return 'ไม่สามารถเข้าสู่ระบบด้วย Microsoft สำหรับอีเมลนี้ กรุณาใช้วิธีที่ผูกไว้กับบัญชีนี้';
+    case 'auth/popup-closed-by-user':
+      return 'การเข้าสู่ระบบถูกยกเลิก กรุณาลองใหม่อีกครั้ง';
+    case 'auth/popup-blocked':
+      return 'เบราว์เซอร์บล็อกหน้าต่างล็อกอิน กรุณาอนุญาต Popup แล้วลองใหม่';
+    case 'auth/network-request-failed':
+      return 'มีปัญหาการเชื่อมต่ออินเทอร์เน็ต กรุณาลองใหม่';
+    case 'auth/too-many-requests':
+      return 'พยายามเข้าสู่ระบบบ่อยเกินไป กรุณารอสักครู่';
+    default:
+      if (rawMsg.toLowerCase().includes('popup')) {
+        return 'ไม่สามารถเปิดหน้าต่างล็อกอินได้ กรุณาอนุญาต Popup แล้วลองใหม่';
+      }
+      return `เกิดข้อผิดพลาด: ${rawMsg || code}`;
+  }
+};
+
+/** ล็อกอินด้วย Microsoft + บันทึก/อัปเดตโปรไฟล์ (ไม่มี admin verify) */
 export const signInWithMicrosoft = async (): Promise<{
   user: User;
   userData: UniversityUserProfile;
 }> => {
-  try {
-    // สร้าง Microsoft OAuth provider
-    const provider = new OAuthProvider('microsoft.com');
-    
-    // กำหนด scope
-    provider.addScope('openid');
-    provider.addScope('email');
-    provider.addScope('profile');
-    
-    // เพิ่ม custom parameters (ถ้าจำเป็น)
-    provider.setCustomParameters({
-      prompt: 'select_account', // ให้ผู้ใช้เลือกบัญชี
-    });
+  const provider = new OAuthProvider('microsoft.com');
+  provider.addScope('openid');
+  provider.addScope('email');
+  provider.addScope('profile');
+  provider.setCustomParameters({ prompt: 'select_account' });
 
-    const result = await signInWithPopup(auth, provider);
-    const firebaseUser = result.user;
+  const result = await signInWithPopup(auth, provider);
+  const firebaseUser = result.user;
 
-    // ตรวจสอบ email domain
-    if (!firebaseUser.email || !isUniversityEmail(firebaseUser.email)) {
-      await firebaseSignOut(auth);
-      throw new Error('กรุณาใช้บัญชีของมหาวิทยาลัยเท่านั้น');
-    }
-
-    // ดึงข้อมูลเพิ่มเติม
-    const additionalUserInfo = getAdditionalUserInfo(result);
-    const { studentId, degreeLevel, department, faculty } = parseStudentInfo(firebaseUser.email);
-    
-    // แยกชื่อ-นามสกุล
-    const displayName = firebaseUser.displayName || '';
-    const nameParts = displayName.trim().split(/\s+/);
-    const firstName = nameParts[0] || 'ไม่ระบุ';
-    const lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
-
-    // ตรวจสอบว่ามีข้อมูลผู้ใช้ในระบบหรือไม่
-    const userDocRef = doc(db, 'universityUsers', firebaseUser.uid);
-    const existingUserDoc = await getDoc(userDocRef);
-    
-    let userData: UniversityUserProfile;
-
-    if (existingUserDoc.exists()) {
-      // อัพเดทข้อมูลผู้ใช้ที่มีอยู่
-      const existingData = existingUserDoc.data() as UniversityUserProfile;
-      userData = {
-        ...existingData,
-        displayName: firebaseUser.displayName || existingData.displayName,
-        photoURL: firebaseUser.photoURL || existingData.photoURL,
-        updatedAt: serverTimestamp(),
-        lastLoginAt: serverTimestamp(),
-        loginCount: (existingData.loginCount || 0) + 1
-      };
-      
-      await setDoc(userDocRef, userData, { merge: true });
-    } else {
-      // สร้างข้อมูลผู้ใช้ใหม่
-      userData = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email,
-        displayName,
-        firstName,
-        lastName,
-        studentId,
-        degreeLevel,
-        department,
-        faculty,
-        photoURL: firebaseUser.photoURL || '',
-        isActive: true,
-        isVerified: false, // ต้องให้ admin verify
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        lastLoginAt: serverTimestamp(),
-        loginCount: 1
-      };
-      
-      await setDoc(userDocRef, userData);
-    }
-
-    return { user: firebaseUser, userData };
-  } catch (error: any) {
-    console.error('Microsoft sign-in error:', error);
-    throw error;
-  }
-};
-
-// ฟังก์ชันสำหรับออกจากระบบ
-export const signOutUser = async (): Promise<void> => {
-  try {
+  // ตรวจโดเมน PSU
+  if (!firebaseUser.email || !isUniversityEmail(firebaseUser.email)) {
     await firebaseSignOut(auth);
-  } catch (error) {
-    console.error('Sign out error:', error);
-    throw error;
+    throw new Error('กรุณาใช้บัญชีของมหาวิทยาลัยเท่านั้น (@psu.ac.th)');
   }
-};
 
-// ฟังก์ชันสำหรับดึงข้อมูลผู้ใช้จาก Firestore
-export const getUserProfile = async (uid: string): Promise<UniversityUserProfile | null> => {
   try {
-    const userDocRef = doc(db, 'universityUsers', uid);
-    const userDoc = await getDoc(userDocRef);
-    
-    if (userDoc.exists()) {
-      return userDoc.data() as UniversityUserProfile;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Error getting user profile:', error);
-    throw error;
+    getAdditionalUserInfo(result);
+  } catch {
+    /* noop */
   }
+
+  const { studentId, degreeLevel, department, faculty } = parseStudentInfo(firebaseUser.email);
+  const displayName = firebaseUser.displayName || '';
+  const nameParts = displayName.trim().split(/\s+/);
+  const firstName = nameParts[0] || 'ไม่ระบุ';
+  const lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
+
+  const userDocRef = doc(db, 'universityUsers', firebaseUser.uid);
+  const existing = await getDoc(userDocRef);
+
+  let userData: UniversityUserProfile;
+  if (existing.exists()) {
+    const prev = existing.data() as UniversityUserProfile;
+    userData = {
+      ...prev,
+      displayName: firebaseUser.displayName || prev.displayName,
+      photoURL: firebaseUser.photoURL || prev.photoURL,
+      updatedAt: serverTimestamp(),
+      lastLoginAt: serverTimestamp(),
+      loginCount: (prev.loginCount || 0) + 1,
+      isActive: true,
+      isVerified: true, // no admin gate — always true
+    };
+    await setDoc(userDocRef, userData, { merge: true });
+  } else {
+    userData = {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email,
+      displayName,
+      firstName,
+      lastName,
+      studentId,
+      degreeLevel,
+      department,
+      faculty,
+      photoURL: firebaseUser.photoURL || '',
+      isActive: true,
+      isVerified: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      lastLoginAt: serverTimestamp(),
+      loginCount: 1,
+    };
+    await setDoc(userDocRef, userData as DocumentData);
+  }
+
+  return { user: firebaseUser, userData };
 };
 
-// ฟังก์ชันสำหรับอัพเดทข้อมูลผู้ใช้
+/** ออกจากระบบ */
+export const signOutUser = async (): Promise<void> => {
+  await firebaseSignOut(auth);
+};
+
+/** ดึงโปรไฟล์ผู้ใช้ */
+export const getUserProfile = async (uid: string): Promise<UniversityUserProfile | null> => {
+  const ref = doc(db, 'universityUsers', uid);
+  const snap = await getDoc(ref);
+  return snap.exists() ? (snap.data() as UniversityUserProfile) : null;
+};
+
+/** อัปเดตโปรไฟล์ */
 export const updateUserProfile = async (
-  uid: string, 
+  uid: string,
   updates: Partial<UniversityUserProfile>
 ): Promise<void> => {
-  try {
-    const userDocRef = doc(db, 'universityUsers', uid);
-    await setDoc(userDocRef, {
+  const ref = doc(db, 'universityUsers', uid);
+  await setDoc(
+    ref,
+    {
       ...updates,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-  } catch (error) {
-    console.error('Error updating user profile:', error);
-    throw error;
-  }
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 };
 
-// ฟังก์ชันสำหรับตรวจสอบสถานะผู้ใช้
+/** เช็กสถานะผู้ใช้ (ไม่มี pending/verify gate แล้ว) */
 export const checkUserStatus = async (uid: string): Promise<{
   isActive: boolean;
   isVerified: boolean;
   canRegister: boolean;
 }> => {
-  try {
-    const userData = await getUserProfile(uid);
-    
-    if (!userData) {
-      return { isActive: false, isVerified: false, canRegister: false };
-    }
-
-    return {
-      isActive: userData.isActive,
-      isVerified: userData.isVerified,
-      canRegister: userData.isActive && userData.isVerified
-    };
-  } catch (error) {
-    console.error('Error checking user status:', error);
-    return { isActive: false, isVerified: false, canRegister: false };
+  const userData = await getUserProfile(uid);
+  if (!userData) {
+    return { isActive: false, isVerified: true, canRegister: false };
   }
+  return {
+    isActive: userData.isActive,
+    isVerified: true,
+    canRegister: userData.isActive,
+  };
 };
 
-// ฟังก์ชันสำหรับค้นหาผู้ใช้ตามรหัสนักศึกษา
-export const findUserByStudentId = async (studentId: string): Promise<UniversityUserProfile | null> => {
-  try {
-    const q = query(
-      collection(db, 'universityUsers'),
-      where('studentId', '==', studentId)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    
-    if (!querySnapshot.empty) {
-      return querySnapshot.docs[0].data() as UniversityUserProfile;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Error finding user by student ID:', error);
-    throw error;
-  }
+/** ค้นหาผู้ใช้ด้วยรหัสนักศึกษา */
+export const findUserByStudentId = async (
+  studentId: string
+): Promise<UniversityUserProfile | null> => {
+  const qy = query(collection(db, 'universityUsers'), where('studentId', '==', studentId));
+  const snap = await getDocs(qy);
+  return !snap.empty ? (snap.docs[0].data() as UniversityUserProfile) : null;
 };
 
-// Hook สำหรับจัดการ auth state
+/** Hook จัดการ auth state */
 export const useAuth = () => {
   const [authState, setAuthState] = React.useState<AuthState>({
     user: null,
     userData: null,
     loading: true,
-    error: null
+    error: null,
   });
 
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setAuthState(prev => ({ ...prev, loading: true, error: null }));
-      
+      setAuthState((prev) => ({ ...prev, loading: true, error: null }));
       try {
         if (firebaseUser) {
           const userData = await getUserProfile(firebaseUser.uid);
-          setAuthState({
-            user: firebaseUser,
-            userData,
-            loading: false,
-            error: null
-          });
+          setAuthState({ user: firebaseUser, userData, loading: false, error: null });
         } else {
-          setAuthState({
-            user: null,
-            userData: null,
-            loading: false,
-            error: null
-          });
+          setAuthState({ user: null, userData: null, loading: false, error: null });
         }
-      } catch (error: any) {
-        setAuthState({
-          user: null,
-          userData: null,
-          loading: false,
-          error: error.message
-        });
+      } catch (e: any) {
+        setAuthState({ user: null, userData: null, loading: false, error: e.message });
       }
     });
-
     return () => unsubscribe();
   }, []);
 
   const login = async () => {
-    try {
-      setAuthState(prev => ({ ...prev, loading: true, error: null }));
-      const { user, userData } = await signInWithMicrosoft();
-      setAuthState({
-        user,
-        userData,
-        loading: false,
-        error: null
-      });
-      return { user, userData };
-    } catch (error: any) {
-      setAuthState(prev => ({
-        ...prev,
-        loading: false,
-        error: error.message
-      }));
-      throw error;
-    }
+    const { user, userData } = await signInWithMicrosoft();
+    setAuthState({ user, userData, loading: false, error: null });
+    return { user, userData };
   };
 
   const logout = async () => {
-    try {
-      await signOutUser();
-      setAuthState({
-        user: null,
-        userData: null,
-        loading: false,
-        error: null
-      });
-    } catch (error: any) {
-      setAuthState(prev => ({
-        ...prev,
-        error: error.message
-      }));
-      throw error;
-    }
+    await signOutUser();
+    setAuthState({ user: null, userData: null, loading: false, error: null });
   };
 
-  return {
-    ...authState,
-    login,
-    logout
-  };
+  return { ...authState, login, logout };
 };
 
-// ฟังก์ชันสำหรับ admin ในการอนุมัติผู้ใช้
+/** สำหรับ admin (คงฟังก์ชันไว้เพื่อความเข้ากันได้) */
 export const approveUser = async (uid: string): Promise<void> => {
-  try {
-    await updateUserProfile(uid, {
-      isVerified: true,
-      isActive: true
-    });
-  } catch (error) {
-    console.error('Error approving user:', error);
-    throw error;
-  }
+  await updateUserProfile(uid, { isActive: true, isVerified: true });
 };
-
-// ฟังก์ชันสำหรับ admin ในการระงับผู้ใช้
 export const suspendUser = async (uid: string): Promise<void> => {
-  try {
-    await updateUserProfile(uid, {
-      isActive: false
-    });
-  } catch (error) {
-    console.error('Error suspending user:', error);
-    throw error;
-  }
+  await updateUserProfile(uid, { isActive: false });
 };
 
-// ฟังก์ชันสำหรับดึงรายชื่อผู้ใช้ทั้งหมด (สำหรับ admin)
+/** Utility เพิ่มเติม */
 export const getAllUsers = async (): Promise<UniversityUserProfile[]> => {
-  try {
-    const querySnapshot = await getDocs(collection(db, 'universityUsers'));
-    return querySnapshot.docs.map(doc => doc.data() as UniversityUserProfile);
-  } catch (error) {
-    console.error('Error getting all users:', error);
-    throw error;
-  }
+  const snap = await getDocs(collection(db, 'universityUsers'));
+  return snap.docs.map((d) => d.data() as UniversityUserProfile);
 };
-
-// ฟังก์ชันสำหรับดึงผู้ใช้ที่รอการอนุมัติ
+/** ไม่มีแนวคิด pending อีกต่อไป เพื่อความเข้ากันได้ คืนค่าเป็น [] */
 export const getPendingUsers = async (): Promise<UniversityUserProfile[]> => {
-  try {
-    const q = query(
-      collection(db, 'universityUsers'),
-      where('isVerified', '==', false),
-      where('isActive', '==', true)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => doc.data() as UniversityUserProfile);
-  } catch (error) {
-    console.error('Error getting pending users:', error);
-    throw error;
-  }
+  return [];
 };

@@ -1,4 +1,3 @@
-// components/auth/MicrosoftAuthSection.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
 import {
@@ -16,11 +15,7 @@ import {
 } from '@mui/material';
 import {
   Security as SecurityIcon,
-  Block as BlockIcon,
   School as SchoolIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Info as InfoIcon,
   Warning as WarningIcon
 } from '@mui/icons-material';
 import MicrosoftLogin from '../MicrosoftLogin';
@@ -51,7 +46,7 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
   onPreLoginCheck,
   disabled = false,
   checkingIP = false,
-  allowedDomains = ['university.edu', 'univ.ac.th'],
+  allowedDomains = ['psu.ac.th'],
   maxRetries = 3
 }) => {
   const [authState, setAuthState] = useState<AuthState>({
@@ -62,13 +57,11 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
     lastAttempt: null
   });
 
-  // Reset error after some time
   useEffect(() => {
     if (authState.error) {
       const timer = setTimeout(() => {
         setAuthState(prev => ({ ...prev, error: null }));
-      }, 10000); // Clear error after 10 seconds
-
+      }, 10000);
       return () => clearTimeout(timer);
     }
   }, [authState.error]);
@@ -76,20 +69,15 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
   const handleLoginSuccess = async (userProfile: any) => {
     try {
       setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
-      
-      // Validate domain if required
+
       if (activityData?.requiresUniversityLogin && userProfile?.email) {
         const email = userProfile.email.toLowerCase();
-        const isValidDomain = allowedDomains.some(domain => 
-          email.endsWith(`@${domain}`)
-        );
-        
+        const isValidDomain = allowedDomains.some(domain => email.endsWith(`@${domain}`));
         if (!isValidDomain) {
           throw new Error(`กรุณาใช้บัญชีมหาวิทยาลัยที่ลงท้ายด้วย: ${allowedDomains.map(d => `@${d}`).join(', ')}`);
         }
       }
 
-      // Pre-login check
       if (onPreLoginCheck && userProfile?.email) {
         const canProceed = await onPreLoginCheck(userProfile.email);
         if (!canProceed) {
@@ -97,15 +85,9 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
         }
       }
 
-      setAuthState(prev => ({ 
-        ...prev, 
-        retryCount: 0,
-        lastAttempt: new Date()
-      }));
-
+      setAuthState(prev => ({ ...prev, retryCount: 0, lastAttempt: new Date() }));
       onLoginSuccess(userProfile);
     } catch (error: any) {
-      console.error('Login success processing error:', error);
       handleLoginError(error.message || 'เกิดข้อผิดพลาดในการประมวลผลการเข้าสู่ระบบ');
     } finally {
       setAuthState(prev => ({ ...prev, isLoading: false }));
@@ -113,8 +95,8 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
   };
 
   const handleLoginError = (error: string) => {
-    setAuthState(prev => ({ 
-      ...prev, 
+    setAuthState(prev => ({
+      ...prev,
       error,
       retryCount: prev.retryCount + 1,
       isLoading: false,
@@ -133,161 +115,73 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
   };
 
   return (
-    <Card sx={{ 
-      mb: 4,
-      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-      border: '1px solid rgba(255,255,255,0.2)',
-      position: 'relative',
-      overflow: 'visible'
-    }}>
-      {/* Loading Overlay */}
+    <Card sx={{ mb: 4, background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', boxShadow: '0 8px 32px rgba(0,0,0,0.1)', border: '1px solid rgba(255,255,255,0.2)', position: 'relative', overflow: 'visible' }}>
       <Fade in={checkingIP || authState.isLoading}>
-        <Box 
-          sx={{ 
-            position: 'absolute', 
-            top: 0, 
-            left: 0, 
-            right: 0, 
-            bottom: 0, 
-            bgcolor: 'rgba(255,255,255,0.95)', 
-            display: checkingIP || authState.isLoading ? 'flex' : 'none',
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            zIndex: 10,
-            borderRadius: 2,
-            backdropFilter: 'blur(4px)'
-          }}
-        >
+        <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, bgcolor: 'rgba(255,255,255,0.95)', display: checkingIP || authState.isLoading ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', zIndex: 10, borderRadius: 2, backdropFilter: 'blur(4px)' }}>
           <Box sx={{ textAlign: 'center' }}>
             <CircularProgress size={32} sx={{ mb: 2 }} />
             <Typography variant="body1" fontWeight="medium">
               {checkingIP ? 'ตรวจสอบสิทธิ์การเข้าใช้งาน...' : 'กำลังเข้าสู่ระบบ...'}
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              กรุณารอสักครู่
-            </Typography>
+            <Typography variant="body2" color="text.secondary">กรุณารอสักครู่</Typography>
           </Box>
         </Box>
       </Fade>
 
       <CardContent sx={{ p: 4 }}>
-        {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 3 }}>
-          <SecurityIcon sx={{ 
-            fontSize: 48, 
-            color: 'primary.main', 
-            mb: 2,
-            filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.1))'
-          }} />
-          <Typography variant="h5" gutterBottom sx={{ 
-            fontWeight: 'bold',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            backgroundClip: 'text',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent'
-          }}>
+          <SecurityIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.1))' }} />
+          <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             เข้าสู่ระบบเพื่อลงทะเบียน
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            ใช้บัญชี Microsoft ของมหาวิทยาลัยในการเข้าสู่ระบบ
+            ใช้บัญชี Microsoft ของมหาวิทยาลัย (ล็อกการใช้งาน 1 บัญชีต่อ 1 IP ชั่วคราว 30 นาที)
           </Typography>
-          
-          {/* Retry Counter */}
+
           {authState.retryCount > 0 && (
             <Box sx={{ mt: 2 }}>
-              <Chip 
-                label={`ลองครั้งที่ ${authState.retryCount}/${maxRetries}`}
-                color={authState.retryCount >= maxRetries ? 'error' : 'warning'}
-                size="small"
-              />
+              <Chip label={`ลองครั้งที่ ${authState.retryCount}/${maxRetries}`} color={authState.retryCount >= maxRetries ? 'error' : 'warning'} size="small" />
             </Box>
           )}
         </Box>
 
-        {/* Error Alert */}
         <Collapse in={!!authState.error}>
-          <Alert 
-            severity={getErrorSeverity(authState.error || '')}
-            sx={{ mb: 3 }}
-            action={
-              canRetry && (
-                <Button 
-                  color="inherit" 
-                  size="small"
-                  onClick={() => setAuthState(prev => ({ ...prev, error: null }))}
-                >
-                  ปิด
-                </Button>
-              )
-            }
-          >
-            <Typography variant="body2">
-              <strong>เกิดข้อผิดพลาด:</strong> {authState.error}
-            </Typography>
-            {!canRetry && (
-              <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-                หากยังคงมีปัญหา กรุณาติดต่อผู้ดูแลระบบ
-              </Typography>
-            )}
+          <Alert severity={getErrorSeverity(authState.error || '')} sx={{ mb: 3 }} action={canRetry && (<Button color="inherit" size="small" onClick={() => setAuthState(prev => ({ ...prev, error: null }))}>ปิด</Button>)}>
+            <Typography variant="body2"><strong>เกิดข้อผิดพลาด:</strong> {authState.error}</Typography>
+            {!canRetry && (<Typography variant="caption" display="block" sx={{ mt: 1 }}>หากยังคงมีปัญหา กรุณาติดต่อผู้ดูแลระบบ</Typography>)}
           </Alert>
         </Collapse>
 
-        {/* University Login Required Alert */}
         {activityData?.requiresUniversityLogin && (
           <>
-            <Alert severity="info" sx={{ 
-              mb: 3,
-              background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
-              border: '1px solid #3b82f6'
-            }}>
+            <Alert severity="info" sx={{ mb: 3, background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', border: '1px solid #3b82f6' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <SchoolIcon fontSize="small" />
-                <Typography variant="subtitle2" fontWeight="bold">
-                  กิจกรรมนี้สำหรับบุคลากรมหาวิทยาลัยเท่านั้น
-                </Typography>
+                <Typography variant="subtitle2" fontWeight="bold">กิจกรรมนี้สำหรับบุคลากรมหาวิทยาลัยเท่านั้น</Typography>
               </Box>
-              <Typography variant="body2" sx={{ mb: 1 }}>
-                จำเป็นต้องใช้บัญชี Microsoft ที่ลงท้ายด้วย:
-              </Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>จำเป็นต้องใช้บัญชี Microsoft ที่ลงท้ายด้วย:</Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {allowedDomains.map(domain => (
-                  <Chip
-                    key={domain}
-                    label={`@${domain}`}
-                    size="small"
-                    color="info"
-                    variant="outlined"
-                  />
-                ))}
+                {allowedDomains.map(domain => (<Chip key={domain} label={`@${domain}`} size="small" color="info" variant="outlined" />))}
               </Box>
             </Alert>
             <Divider sx={{ my: 3 }} />
           </>
         )}
 
-        {/* Security Notice */}
-        <Alert severity="success" sx={{ 
-          mb: 3,
-          background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-          border: '1px solid #10b981'
-        }}>
-          <Typography variant="body2">
-            <strong>ความปลอดภัย:</strong> ระบบใช้การยืนยันตัวตนผ่าน Microsoft เพื่อความปลอดภัยสูงสุด 
-            ข้อมูลของคุณจะได้รับการปกป้องตามมาตรฐานสากล
-          </Typography>
+        <Alert severity="success" sx={{ mb: 3, background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', border: '1px solid #10b981' }}>
+          <Typography variant="body2"><strong>ความปลอดภัย:</strong> เซสชันหมดอายุอัตโนมัติเมื่อไม่มีการใช้งาน 30 นาที และมีการล็อก 1 บัญชีต่อ 1 IP ชั่วคราว 30 นาที</Typography>
         </Alert>
 
-        {/* Microsoft Login Component */}
-        <MicrosoftLogin
-          onLoginSuccess={handleLoginSuccess}
-          onLoginError={handleLoginError}
-          onLogout={() => {}}
-          disabled={disabled || checkingIP || authState.isLoading || !canRetry}
-        />
+        <MicrosoftLogin onLoginSuccess={handleLoginSuccess} onLoginError={handleLoginError} onLogout={() => {}} disabled={disabled || checkingIP || authState.isLoading || !canRetry} />
 
-        {/* Advanced Help Section */}
-        <Collapse in={shouldShowHelp}>
+        {/* Help */}
+        {!(authState.retryCount >= 2) ? (
+          <Box sx={{ textAlign: 'center', mt: 2 }}>
+            <Button variant="text" size="small" onClick={() => setAuthState(prev => ({ ...prev, showAdvancedHelp: true }))}>มีปัญหา? คลิกเพื่อดูวิธีแก้ไข</Button>
+          </Box>
+        ) : null}
+
+        <Collapse in={authState.retryCount >= 2 || authState.showAdvancedHelp}>
           <Box sx={{ mt: 3, p: 2, bgcolor: 'warning.50', borderRadius: 1, border: '1px solid', borderColor: 'warning.200' }}>
             <Typography variant="subtitle2" color="warning.main" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
               <WarningIcon fontSize="small" />
@@ -297,37 +191,18 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
               <strong>วิธีแก้ไขปัญหา:</strong><br/>
               • ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต<br/>
               • ลองปิดและเปิดเบราว์เซอร์ใหม่<br/>
-              • ตรวจสอบว่าใช้บัญชี Microsoft ที่ถูกต้อง<br/>
-              • หากยังคงมีปัญหา ลองใช้เบราว์เซอร์อื่น<br/>
-              • ติดต่อแผนกเทคโนโลยีสารสนเทศ โทร. 02-XXX-XXXX
+              • ตรวจสอบว่าใช้บัญชี Microsoft ที่ถูกต้อง (@psu.ac.th)<br/>
+              • หากยังคงมีปัญหา ลองใช้เบราว์เซอร์อื่น
             </Typography>
           </Box>
         </Collapse>
 
-        {!shouldShowHelp && authState.retryCount > 0 && (
-          <Box sx={{ textAlign: 'center', mt: 2 }}>
-            <Button
-              variant="text"
-              size="small"
-              onClick={() => setAuthState(prev => ({ ...prev, showAdvancedHelp: true }))}
-            >
-              มีปัญหา? คลิกเพื่อดูวิธีแก้ไข
-            </Button>
-          </Box>
-        )}
-
-        {/* Help Text */}
         <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-            <strong>หมายเหตุ:</strong>
-          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}><strong>หมายเหตุ:</strong></Typography>
           <Typography variant="caption" color="text.secondary" component="div">
-            • ใช้บัญชี Microsoft ที่ได้รับจากมหาวิทยาลัยเท่านั้น<br/>
             • หากไม่มีบัญชี กรุณาติดต่อแผนกเทคโนโลยีสารสนเทศ<br/>
-            • การลงทะเบียนจะเสร็จสิ้นหลังจากเข้าสู่ระบบและกรอกข้อมูลครบถ้วน<br/>
-            • ระบบจะบันทึกข้อมูลการเข้าสู่ระบบเพื่อความปลอดภัย
+            • การลงทะเบียนจะเสร็จสิ้นหลังจากเข้าสู่ระบบและกรอกข้อมูลครบถ้วน
           </Typography>
-          
           {authState.lastAttempt && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
               ความพยายามล่าสุด: {authState.lastAttempt.toLocaleString('th-TH')}
