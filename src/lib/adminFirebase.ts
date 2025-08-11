@@ -12,16 +12,28 @@ import {
   addDoc,
   serverTimestamp,
   setDoc,
+  getDoc,
 } from 'firebase/firestore';
 
-import { db } from './firebase';
-import type { AdminDepartment } from '../types/admin';
+import { db, auth } from './firebase';
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut as fbSignOut,
+  type User,
+} from 'firebase/auth';
 
-// ====== Admin Management (adminUsers) ======
-import type { AdminProfile, AdminRole, AdminPermission } from '../types/admin';
+import type {
+  AdminDepartment,
+  AdminProfile,
+  AdminRole,
+  AdminPermission,
+} from '../types/admin';
 import { ROLE_PERMISSIONS } from '../types/admin';
 
-// ---------- Helpers ----------
+/* =========================
+ * Utils
+ * ========================= */
 const toDateSafe = (v: any): Date | undefined => {
   if (v?.toDate) return v.toDate();
   if (v instanceof Date) return v;
@@ -32,6 +44,9 @@ const toDateSafe = (v: any): Date | undefined => {
   return undefined;
 };
 
+/* =========================
+ * Admins (adminUsers)
+ * ========================= */
 // ดึงแอดมินทั้งหมด (สำหรับ super_admin)
 export const getAllAdmins = async (): Promise<AdminProfile[]> => {
   const snap = await getDocs(collection(db, 'adminUsers'));
@@ -45,7 +60,6 @@ export const getAllAdmins = async (): Promise<AdminProfile[]> => {
       lastName: data.lastName ?? '',
       role: data.role as AdminRole,
       department: data.department as AdminDepartment,
-      // ✅ กันเหนียว: ถ้า permissions ไม่มี ให้ fallback เป็นของ role นั้นๆ หรือ []
       permissions: Array.isArray(data.permissions)
         ? (data.permissions as AdminPermission[])
         : (ROLE_PERMISSIONS[data.role as AdminRole] ?? []),
@@ -90,11 +104,12 @@ export const getAdminsByDepartment = async (
 };
 
 // สร้างแอดมิน (ต้องทราบ uid ของผู้ใช้ใน Auth)
-export const createAdminUser = async (profile: Omit<AdminProfile, 'createdAt' | 'updatedAt'> & { uid: string }) => {
+export const createAdminUser = async (
+  profile: Omit<AdminProfile, 'createdAt' | 'updatedAt'> & { uid: string }
+) => {
   const ref = doc(db, 'adminUsers', profile.uid);
   const payload = {
     ...profile,
-    // ✅ บังคับเป็นอาเรย์เสมอ
     permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -107,8 +122,9 @@ export const updateAdminUser = async (uid: string, data: Partial<AdminProfile>) 
   const ref = doc(db, 'adminUsers', uid);
   await updateDoc(ref, {
     ...data,
-    // ✅ coerces permissions เป็นอาเรย์ถ้าถูกส่งมา
-    ...(data.permissions ? { permissions: Array.isArray(data.permissions) ? data.permissions : [] } : {}),
+    ...(data.permissions
+      ? { permissions: Array.isArray(data.permissions) ? data.permissions : [] }
+      : {}),
     updatedAt: serverTimestamp(),
   });
 };
@@ -118,7 +134,9 @@ export const deleteAdminUser = async (uid: string) => {
   await deleteDoc(doc(db, 'adminUsers', uid));
 };
 
-// ---------- Types ----------
+/* =========================
+ * Activities
+ * ========================= */
 export interface Activity {
   id: string;
   activityName: string;
@@ -165,7 +183,6 @@ export interface UnivUser {
   createdAt?: Date;
 }
 
-// ---------- Activities ----------
 export const getAllActivities = async (): Promise<Activity[]> => {
   const snap = await getDocs(collection(db, 'activities'));
   return snap.docs.map((d) => {
@@ -225,7 +242,7 @@ export const toggleActivityStatus = async (activityId: string, currentStatus: bo
   await updateDoc(ref, { isActive: !currentStatus });
 };
 
-// ---------- Create/Update/Delete Activities ----------
+// Create/Update/Delete Activities
 export type CreateActivityInput = {
   activityName: string;
   activityCode: string;
@@ -264,7 +281,9 @@ export const deleteActivity = async (activityId: string) => {
   await deleteDoc(doc(db, 'activities', activityId));
 };
 
-// ---------- Activity Records ----------
+/* =========================
+ * Activity Records
+ * ========================= */
 export const getAllActivityRecords = async (): Promise<ActivityRecord[]> => {
   const qy = query(collection(db, 'activityRecords'), orderBy('timestamp', 'desc'));
   const snap = await getDocs(qy);
@@ -308,7 +327,9 @@ export const getActivityRecordsByDepartment = async (
   });
 };
 
-// ---------- Users ----------
+/* =========================
+ * Users
+ * ========================= */
 export const getAllUsers = async (): Promise<UnivUser[]> => {
   const snap = await getDocs(collection(db, 'universityUsers'));
   return snap.docs.map((d) => {
@@ -410,7 +431,9 @@ export const getPendingUsersByDepartment = async (
   });
 };
 
-// ---------- Attendance helpers ----------
+/* =========================
+ * Attendance helpers
+ * ========================= */
 export const deleteActivityRecord = async (recordId: string): Promise<void> => {
   await deleteDoc(doc(db, 'activityRecords', recordId));
 };
@@ -438,7 +461,9 @@ export const adjustParticipantsByActivityCode = async (
   }
 };
 
-// ---------- User status ----------
+/* =========================
+ * User status
+ * ========================= */
 export const approveUser = async (uid: string): Promise<void> => {
   await updateDoc(doc(db, 'universityUsers', uid), { isVerified: true, isActive: true });
 };
@@ -446,8 +471,10 @@ export const approveUser = async (uid: string): Promise<void> => {
 export const suspendUser = async (uid: string): Promise<void> => {
   await updateDoc(doc(db, 'universityUsers', uid), { isActive: false });
 };
-// ---- logging helpers (append to src/lib/adminFirebase.ts) ----
 
+/* =========================
+ * Logging
+ * ========================= */
 export const logAdminEvent = async (
   action: string,
   meta: Record<string, any> = {},
@@ -456,20 +483,20 @@ export const logAdminEvent = async (
   try {
     await addDoc(collection(db, 'logs'), {
       action,               // e.g. 'LOGIN', 'LOGOUT', 'ADMIN_PROMOTE', 'APPROVE_USER', 'EXPORT_USERS'
-      meta,                 // payload เพิ่มเติม (targetUid, role, department, query, ฯลฯ)
+      meta,                 // payload เพิ่มเติม
       actorUid: actor?.uid ?? null,
       actorEmail: actor?.email ?? null,
       ua: typeof navigator !== 'undefined' ? navigator.userAgent : '',
       at: serverTimestamp(),
     });
   } catch (e) {
-    // กันแอปล้มจากการ log fail
     console.warn('logAdminEvent failed:', e);
   }
 };
-// --- เพิ่มต่อท้ายไฟล์ ---
 
-// ================= Invites =================
+/* =========================
+ * Invites
+ * ========================= */
 export type InviteStatus = 'pending' | 'accepted' | 'cancelled' | 'expired';
 
 export interface AdminInvite {
@@ -481,7 +508,7 @@ export interface AdminInvite {
   invitedByUid: string;
   invitedByEmail?: string;
   status: InviteStatus;
-  token: string;             // ใช้สร้างลิงก์ยืนยัน
+  token: string;
   createdAt?: Date;
   expiresAt?: Date;
   acceptedAt?: Date;
@@ -506,7 +533,7 @@ export const createAdminInvite = async (payload: {
     status: 'pending' as InviteStatus,
     token,
     createdAt: serverTimestamp(),
-    // กำหนดอายุคำเชิญ 14 วัน (ตั้งค่าเพิ่มฝั่ง Cloud Function ก็ได้)
+    // อายุคำเชิญ 14 วัน
     expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
   };
   await addDoc(collection(db, 'adminInvites'), data);
@@ -514,7 +541,9 @@ export const createAdminInvite = async (payload: {
 };
 
 // ดึงคำเชิญตามสังกัด (หรือ 'all' สำหรับ super admin)
-export const getAdminInvitesByDepartment = async (dept: AdminDepartment | 'all'): Promise<AdminInvite[]> => {
+export const getAdminInvitesByDepartment = async (
+  dept: AdminDepartment | 'all'
+): Promise<AdminInvite[]> => {
   let snap;
   if (dept === 'all') {
     snap = await getDocs(collection(db, 'adminInvites'));
@@ -534,9 +563,9 @@ export const getAdminInvitesByDepartment = async (dept: AdminDepartment | 'all')
       invitedByEmail: v.invitedByEmail,
       status: (v.status || 'pending') as InviteStatus,
       token: v.token,
-      createdAt: (v.createdAt?.toDate?.() ?? (v.createdAt instanceof Date ? v.createdAt : undefined)),
-      expiresAt: (v.expiresAt?.toDate?.() ?? (v.expiresAt instanceof Date ? v.expiresAt : undefined)),
-      acceptedAt: (v.acceptedAt?.toDate?.() ?? (v.acceptedAt instanceof Date ? v.acceptedAt : undefined)),
+      createdAt: v.createdAt?.toDate?.() ?? (v.createdAt instanceof Date ? v.createdAt : undefined),
+      expiresAt: v.expiresAt?.toDate?.() ?? (v.expiresAt instanceof Date ? v.expiresAt : undefined),
+      acceptedAt: v.acceptedAt?.toDate?.() ?? (v.acceptedAt instanceof Date ? v.acceptedAt : undefined),
       acceptedByUid: v.acceptedByUid,
     } as AdminInvite;
   });
@@ -550,15 +579,21 @@ export const cancelAdminInvite = async (inviteId: string): Promise<void> => {
   });
 };
 
-// (ทางเลือก) หน้ารับคำเชิญจะใช้ token เพื่อ accept
-export const acceptAdminInviteByToken = async (token: string, uid: string): Promise<AdminInvite | null> => {
-  const qy = query(collection(db, 'adminInvites'), where('token', '==', token), where('status', '==', 'pending'));
+// รับคำเชิญด้วย token
+export const acceptAdminInviteByToken = async (
+  token: string,
+  uid: string
+): Promise<AdminInvite | null> => {
+  const qy = query(
+    collection(db, 'adminInvites'),
+    where('token', '==', token),
+    where('status', '==', 'pending')
+  );
   const snap = await getDocs(qy);
   if (snap.empty) return null;
   const d = snap.docs[0];
   const v = d.data() as any;
 
-  // อัปเดตเป็น accepted
   await updateDoc(doc(db, 'adminInvites', d.id), {
     status: 'accepted',
     acceptedAt: serverTimestamp(),
@@ -581,3 +616,95 @@ export const acceptAdminInviteByToken = async (token: string, uid: string): Prom
     acceptedByUid: uid,
   } as AdminInvite;
 };
+
+/* =========================
+ * Auth helpers (for useAdminAuth)
+ * ========================= */
+const ADMIN_COLLECTIONS = ['adminUsers', 'admins'] as const;
+
+type RawAdminDoc = Partial<AdminProfile> & {
+  permissions?: string[];
+};
+
+const toAdminProfileFrom = (user: User, raw: RawAdminDoc): AdminProfile => ({
+  uid: user.uid,
+  email: user.email ?? raw.email ?? '',
+  displayName: user.displayName ?? raw.displayName ?? '',
+  firstName: raw.firstName ?? '',
+  lastName: raw.lastName ?? '',
+  role: (raw.role as AdminRole) ?? 'viewer',
+  department: (raw.department as AdminDepartment) ?? 'all',
+  permissions: Array.isArray(raw.permissions)
+    ? (raw.permissions as AdminPermission[])
+    : (ROLE_PERMISSIONS[(raw.role as AdminRole) ?? 'viewer'] ?? []),
+  isActive: raw.isActive ?? true,
+  createdAt: raw.createdAt ?? null,
+  updatedAt: raw.updatedAt ?? null,
+  createdBy: raw.createdBy,
+  lastLoginAt: raw.lastLoginAt ?? null,
+  profileImage: raw.profileImage,
+});
+
+async function readAdminDoc(uid: string) {
+  for (const col of ADMIN_COLLECTIONS) {
+    const ref = doc(db, col, uid);
+    const snap = await getDoc(ref);
+    if (snap.exists()) return { ref, data: snap.data() as RawAdminDoc };
+  }
+  return { ref: null as any, data: null as RawAdminDoc | null };
+}
+
+async function waitForAuthUser(): Promise<User | null> {
+  if (auth.currentUser) return auth.currentUser;
+  return await new Promise<User | null>((resolve) => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      unsub();
+      resolve(u);
+    });
+  });
+}
+
+export async function getCurrentAdmin(): Promise<AdminProfile | null> {
+  const user = await waitForAuthUser();
+  if (!user) return null;
+  const { data } = await readAdminDoc(user.uid);
+  if (!data) throw new Error('NOT_ADMIN');
+  if (data.isActive === false) throw new Error('ADMIN_DISABLED');
+  return toAdminProfileFrom(user, data);
+}
+
+export async function signInAdmin(
+  email: string,
+  password: string
+): Promise<AdminProfile> {
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  const user = cred.user;
+
+  const { data, ref } = await readAdminDoc(user.uid);
+  if (!data) {
+    await fbSignOut(auth);
+    throw new Error('NOT_ADMIN');
+  }
+  if (data.isActive === false) {
+    await fbSignOut(auth);
+    throw new Error('ADMIN_DISABLED');
+  }
+
+  try {
+    if (ref) {
+      await updateDoc(ref, {
+        lastLoginAt: serverTimestamp(),
+        email: user.email ?? data.email ?? email,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch {
+    /* ignore write-permission errors */
+  }
+
+  return toAdminProfileFrom(user, data);
+}
+
+export async function signOutAdmin(): Promise<void> {
+  await fbSignOut(auth);
+}

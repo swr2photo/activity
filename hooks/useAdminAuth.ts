@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { AdminProfile } from '../src/types/admin';
 // hooks/useAdminAuth.ts
-import { getCurrentAdmin, signInAdmin, signOutAdmin } from '@/lib/adminFirebase';
+import { getCurrentAdmin, signInAdmin, signOutAdmin } from '../src/lib/adminFirebase';
 
 
 // Rest of your hook implementation
