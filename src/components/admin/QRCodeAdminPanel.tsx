@@ -2,15 +2,16 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Box, Grid, Card, CardContent, Typography, Button, Chip, IconButton, Paper, Tooltip,
-  Container, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Switch,
-  FormControlLabel, Stack, Divider, Alert, CircularProgress, InputAdornment, MenuItem,
-  Select, FormControl, InputLabel, Slider, Menu, ListItemIcon, ListItemText,
-  Tabs, Tab, TableContainer, Table, TableHead, TableRow, TableCell, TableBody
+  Box, Grid, Card, CardContent, Typography, Button, Chip, Accordion, AccordionSummary,
+  AccordionDetails, IconButton, Paper, Avatar, Tooltip, Container, Dialog, DialogTitle,
+  DialogContent, DialogActions, TextField, Switch, FormControlLabel, Stack, Divider, Alert,
+  CircularProgress, InputAdornment, MenuItem, Select, FormControl, InputLabel, Slider,
+  Menu, ListItemIcon, ListItemText, Tabs, Tab, TableContainer, Table, TableHead, TableRow,
+  TableCell, TableBody
 } from '@mui/material';
 
 import {
-  QrCode2 as QrCodeIcon, Add as AddIcon, Edit as EditIcon,
+  ExpandMore as ExpandMoreIcon, QrCode2 as QrCodeIcon, Add as AddIcon, Edit as EditIcon,
   Delete as DeleteIcon, Visibility as ViewIcon, Image as ImageIcon,
   Clear as ClearIcon, ColorLens as ColorIcon, Shuffle as ShuffleIcon,
   ContentCopy as CopyIcon, Preview as PreviewIcon, Place as PlaceIcon,
@@ -37,7 +38,7 @@ import {
   updateDoc, deleteDoc, deleteField
 } from 'firebase/firestore';
 import { db, storage } from '../../lib/firebase';
-  import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 import GeofenceMap from '../maps/GeofenceMap';
 
@@ -115,8 +116,67 @@ const generateQrPng = async (text: string, size = 600) => {
   return QR.toDataURL(text, { margin: 1, width: size, errorCorrectionLevel: 'M' });
 };
 
+/* ===================== Time helpers ===================== */
+const INVALID_DJ = dayjs(new Date(NaN)); // invalid instance (หลบ TS ไม่มี dayjs.invalid())
+const toDay = (v: any | undefined) => {
+  if (v == null) return INVALID_DJ;
+  // รองรับ Firestore Timestamp (มีเมธอด toDate)
+  const d = typeof v?.toDate === 'function' ? v.toDate() : v;
+  return dayjs(d);
+};
+const fmt = (v: any, f = 'DD MMM YYYY HH:mm') => {
+  const d = toDay(v);
+  return d.isValid() ? d.format(f) : '-';
+};
+
+/* ===================== Image helpers (safe) ===================== */
+const loadImageSafe = async (src: string, timeoutMs = 12000): Promise<HTMLImageElement | null> => {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      if (/^https?:/i.test(src)) img.crossOrigin = 'anonymous';
+
+      let done = false;
+      const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
+        resolve(ok && img.naturalWidth > 0 && img.naturalHeight > 0 ? img : null);
+      };
+
+      const t = setTimeout(() => finish(false), timeoutMs);
+      img.onload = () => { clearTimeout(t); finish(true); };
+      img.onerror = () => { clearTimeout(t); finish(false); };
+
+      img.src = src;
+    } catch {
+      resolve(null);
+    }
+  });
+};
+
+const drawCover = (
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  dx: number, dy: number, dWidth: number, dHeight: number
+) => {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const ir = iw / ih, tr = dWidth / dHeight;
+  let sx = 0, sy = 0, sw = iw, sh = ih;
+  if (ir > tr) {
+    const newW = ih * tr;
+    sx = Math.round((iw - newW) / 2);
+    sw = Math.round(newW);
+  } else {
+    const newH = iw / tr;
+    sy = Math.round((ih - newH) / 2);
+    sh = Math.round(newH);
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dWidth, dHeight);
+};
+
 /* ===================== Types for local use ===================== */
 type BannerMode = 'image' | 'color' | 'none';
+type PosterVariant = 'square' | 'a4';
 
 type CreateForm = {
   activityName: string;
@@ -177,17 +237,126 @@ interface Props {
 }
 
 /* ===================== Poster (Canvas) ===================== */
-// ---- Safe Day.js helpers (ต้องอยู่เหนือ buildPosterCanvas) ----
-const INVALID_DJ = dayjs(new Date(NaN)); // อินสแตนซ์ invalid แบบพกพา
-const toDay = (v: any | undefined) => {
-  if (v == null) return INVALID_DJ;                    // แทน dayjs.invalid()
-  const d = typeof v?.toDate === 'function' ? v.toDate() : v; // รองรับ Firestore Timestamp
-  return dayjs(d);
-};
-// รูปแบบวันที่แบบปลอดภัย (ถ้าไม่ valid -> คืน "-")
-const fmt = (v: any, f = 'DD MMM YYYY HH:mm') => {
-  const d = toDay(v);
-  return d.isValid() ? d.format(f) : '-';
+/**
+ * สร้างโปสเตอร์ (Canvas) แบบสวยงาม
+ * - ใช้ short URL ใน QR (ป้องกันข้อมูลเยอะเกิน)
+ * - วางหัวเรื่อง / เวลา / สถานที่ / QR / โค้ด
+ */
+const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square') => {
+  const shortUrl = makeShortUrl(a.activityCode);
+  const qrData = await generateQrPng(shortUrl, 1024);
+
+  // ขนาด
+  const size = variant === 'a4'
+    ? { w: 1240, h: 1754 }   // A4 ~150dpi
+    : { w: 1080, h: 1350 };  // สี่เหลี่ยมแนวตั้ง
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size.w;
+  canvas.height = size.h;
+  const ctx = canvas.getContext('2d')!;
+
+  // พื้นหลังไล่เฉดนุ่ม ๆ
+  const grd = ctx.createLinearGradient(0, 0, 0, size.h);
+  grd.addColorStop(0, '#e6efff');
+  grd.addColorStop(1, '#dff4ff');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, size.w, size.h);
+
+  // หัวโปสเตอร์ (รูปหรือสี)
+  const bannerColor = (a as any).bannerColor as string | undefined;
+  const tintColor = (a as any).bannerTintColor as string | undefined;
+  const tintOpacity = typeof (a as any).bannerTintOpacity === 'number'
+    ? Number((a as any).bannerTintOpacity) : 0.42;
+
+  const headerH = Math.round(size.h * 0.20);
+  let drewImage = false;
+  const bannerUrl = (a as any).bannerUrl as string | undefined;
+  if (bannerUrl) {
+    const img = await loadImageSafe(bannerUrl);
+    if (img) {
+      drawCover(ctx, img, 0, 0, size.w, headerH);
+      drewImage = true;
+      if (tintColor && tintOpacity > 0) {
+        ctx.fillStyle = tintColor;
+        ctx.globalAlpha = clamp(tintOpacity, 0, 1);
+        ctx.fillRect(0, 0, size.w, headerH);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  if (!drewImage) {
+    const bg = (bannerColor || '').startsWith('linear-gradient')
+      ? '#4f46e5' // ถ้า gradient string → ใช้สีหลักแทน (canvas ใช้ CSS gradient ตรงๆไม่ได้)
+      : (bannerColor || '#c7d2fe');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, size.w, headerH);
+  }
+
+  // ข้อความหัว
+  const pad = Math.round(size.w * 0.04);
+  ctx.fillStyle = '#0b1220';
+  ctx.font = `600 ${Math.round(size.w * 0.04)}px Inter, "Noto Sans Thai", system-ui`;
+  ctx.fillText(deptLabelOf((a as any).department), pad, pad + Math.round(size.w * 0.04));
+
+  ctx.fillStyle = '#111827';
+  ctx.font = `800 ${Math.round(size.w * 0.065)}px Inter, "Noto Sans Thai", system-ui`;
+  const titleY = pad + Math.round(size.w * 0.04) + Math.round(size.w * 0.065) + 8;
+  wrapText(ctx, a.activityName || '-', pad, titleY, size.w - pad * 2, Math.round(size.w * 0.075));
+
+  ctx.fillStyle = '#334155';
+  ctx.font = `500 ${Math.round(size.w * 0.038)}px Inter, "Noto Sans Thai", system-ui`;
+  ctx.fillText(`${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`, pad, Math.round(headerH - pad * 0.8));
+
+  // โซน QR กล่องขาวมุมโค้ง
+  const panelY = headerH + Math.round(size.h * 0.02);
+  const panelH = size.h - panelY - Math.round(size.h * 0.05);
+  const panelR = Math.round(size.w * 0.02);
+  ctx.fillStyle = '#ffffff';
+  const rr = new Path2D();
+  rr.moveTo(pad + panelR, panelY);
+  rr.arcTo(size.w - pad, panelY, size.w - pad, panelY + panelR, panelR);
+  rr.arcTo(size.w - pad, panelY + panelH, size.w - pad - panelR, panelY + panelH, panelR);
+  rr.arcTo(pad, panelY + panelH, pad, panelY + panelH - panelR, panelR);
+  rr.arcTo(pad, panelY, pad + panelR, panelY, panelR);
+  ctx.fill(rr);
+
+  // QR
+  const qrImg = await loadImageSafe(qrData);
+  const qrSize = Math.min(Math.round(panelH * 0.7), Math.round(size.w * 0.75));
+  const qrX = Math.round((size.w - qrSize) / 2);
+  const qrY = Math.round(panelY + panelH * 0.08);
+  if (qrImg) {
+    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+  } else {
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillRect(qrX, qrY, qrSize, qrSize);
+    ctx.fillStyle = '#64748b';
+    ctx.font = `600 ${Math.round(size.w * 0.035)}px Inter, system-ui`;
+    ctx.fillText('QR โหลดไม่สำเร็จ', qrX + 16, qrY + Math.round(qrSize / 2));
+  }
+
+  // รหัสกิจกรรม
+  ctx.fillStyle = '#111827';
+  ctx.font = `800 ${Math.round(size.w * 0.045)}px Inter, "Noto Sans Thai", system-ui`;
+  const codeText = `รหัสกิจกรรม: ${a.activityCode}`;
+  const codeY = qrY + qrSize + Math.round(size.w * 0.08);
+  ctx.fillText(codeText, pad, codeY);
+
+  // สถานที่
+  if ((a as any).location) {
+    ctx.fillStyle = '#334155';
+    ctx.font = `600 ${Math.round(size.w * 0.036)}px Inter, "Noto Sans Thai", system-ui`;
+    wrapText(ctx, (a as any).location, pad, codeY + Math.round(size.w * 0.06), size.w - pad * 2, Math.round(size.w * 0.05));
+  }
+
+  // footer เล็ก ๆ
+  ctx.fillStyle = '#64748b';
+  ctx.font = `400 ${Math.round(size.w * 0.028)}px Inter, system-ui`;
+  const u = new URL(shortUrl);
+  ctx.fillText(`สร้างด้วย ระบบลงทะเบียนกิจกรรม • ${u.host}${u.pathname}`, pad, size.h - Math.round(size.w * 0.02));
+
+  return canvas;
 };
 
 const wrapText = (
@@ -215,123 +384,6 @@ const wrapText = (
   }
   ctx.fillText(line, x, yy);
   return yy;
-};
-
-type PosterVariant = 'square' | 'a4';
-
-/**
- * สร้างโปสเตอร์ (Canvas) แบบสวยงาม
- * - ใช้ short URL ใน QR (ป้องกันข้อมูลเยอะเกิน)
- * - วางหัวเรื่อง / เวลา / สถานที่ / QR / โค้ด
- */
-const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square') => {
-  const shortUrl = makeShortUrl(a.activityCode);
-  const qrData = await generateQrPng(shortUrl, 1024);
-
-  // ขนาด
-  const size = variant === 'a4'
-    ? { w: 1240, h: 1754 }   // A4 ~150dpi (ไฟล์ไม่ใหญ่)
-    : { w: 1080, h: 1350 };  // สี่เหลี่ยมแนวตั้ง
-
-  const canvas = document.createElement('canvas');
-  canvas.width = size.w;
-  canvas.height = size.h;
-  const ctx = canvas.getContext('2d')!;
-
-  // พื้นหลังไล่เฉดนุ่ม ๆ
-  const grd = ctx.createLinearGradient(0, 0, 0, size.h);
-  grd.addColorStop(0, '#e6efff');
-  grd.addColorStop(1, '#dff4ff');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, size.w, size.h);
-
-  // หัวโปสเตอร์ (รูปหรือสี)
-  const bannerColor = (a as any).bannerColor as string | undefined;
-  const tintColor = (a as any).bannerTintColor as string | undefined;
-  const tintOpacity = typeof (a as any).bannerTintOpacity === 'number'
-    ? Number((a as any).bannerTintOpacity) : 0.42;
-
-  const headerH = Math.round(size.h * 0.20);
-  if ((a as any).bannerUrl) {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = (a as any).bannerUrl;
-    await new Promise<void>((resolve) => { img.onload = () => resolve(); img.onerror = () => resolve(); });
-    ctx.drawImage(img, 0, 0, size.w, headerH);
-    if (tintColor && tintOpacity > 0) {
-      ctx.fillStyle = tintColor;
-      ctx.globalAlpha = clamp(tintOpacity, 0, 1);
-      ctx.fillRect(0, 0, size.w, headerH);
-      ctx.globalAlpha = 1;
-    }
-  } else {
-    // ถ้าเป็น gradient css canvas ใช้ตรงๆไม่ได้ → ดึงสีหลักแทน
-    const bg = (bannerColor || '').startsWith('linear-gradient') ? '#4f46e5' : (bannerColor || '#c7d2fe');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, size.w, headerH);
-  }
-
-  // ข้อความหัว
-  const pad = Math.round(size.w * 0.04);
-  ctx.fillStyle = '#0b1220';
-  ctx.font = `600 ${Math.round(size.w * 0.04)}px Inter, "Noto Sans Thai", system-ui`;
-  ctx.fillText(deptLabelOf((a as any).department), pad, pad + Math.round(size.w * 0.04));
-
-  ctx.fillStyle = '#111827';
-  ctx.font = `800 ${Math.round(size.w * 0.065)}px Inter, "Noto Sans Thai", system-ui`;
-  const titleY = pad + Math.round(size.w * 0.04) + Math.round(size.w * 0.065) + 8;
-  wrapText(ctx, a.activityName || '-', pad, titleY, size.w - pad * 2, Math.round(size.w * 0.075));
-
-  ctx.fillStyle = '#334155';
-  ctx.font = `500 ${Math.round(size.w * 0.038)}px Inter, "Noto Sans Thai", system-ui`;
-  const tStartTxt = fmt(a.startDateTime);
-  const tEndTxt   = fmt(a.endDateTime);
-  ctx.fillText(`${tStartTxt} - ${tEndTxt}`, pad, Math.round(headerH - pad * 0.8));
-
-  // โซน QR กล่องขาวมุมโค้ง
-  const panelY = headerH + Math.round(size.h * 0.02);
-  const panelH = size.h - panelY - Math.round(size.h * 0.05);
-  const panelR = Math.round(size.w * 0.02);
-  ctx.fillStyle = '#ffffff';
-  // round rect
-  const rr = new Path2D();
-  rr.moveTo(pad + panelR, panelY);
-  rr.arcTo(size.w - pad, panelY, size.w - pad, panelY + panelR, panelR);
-  rr.arcTo(size.w - pad, panelY + panelH, size.w - pad - panelR, panelY + panelH, panelR);
-  rr.arcTo(pad, panelY + panelH, pad, panelY + panelH - panelR, panelR);
-  rr.arcTo(pad, panelY, pad + panelR, panelY, panelR);
-  ctx.fill(rr);
-
-  // QR
-  const qrImg = new Image();
-  qrImg.src = qrData;
-  await new Promise<void>((resolve) => { qrImg.onload = () => resolve(); qrImg.onerror = () => resolve(); });
-  const qrSize = Math.min(Math.round(panelH * 0.7), Math.round(size.w * 0.75));
-  const qrX = Math.round((size.w - qrSize) / 2);
-  const qrY = Math.round(panelY + panelH * 0.08);
-  ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-
-  // รหัสกิจกรรม
-  ctx.fillStyle = '#111827';
-  ctx.font = `800 ${Math.round(size.w * 0.045)}px Inter, "Noto Sans Thai", system-ui`;
-  const codeText = `รหัสกิจกรรม: ${a.activityCode}`;
-  const codeY = qrY + qrSize + Math.round(size.w * 0.08);
-  ctx.fillText(codeText, pad, codeY);
-
-  // สถานที่
-  if ((a as any).location) {
-    ctx.fillStyle = '#334155';
-    ctx.font = `600 ${Math.round(size.w * 0.036)}px Inter, "Noto Sans Thai", system-ui`;
-    wrapText(ctx, (a as any).location, pad, codeY + Math.round(size.w * 0.06), size.w - pad * 2, Math.round(size.w * 0.05));
-  }
-
-  // footer เล็ก ๆ
-  ctx.fillStyle = '#64748b';
-  ctx.font = `400 ${Math.round(size.w * 0.028)}px Inter, system-ui`;
-  const u = new URL(shortUrl);
-  ctx.fillText(`สร้างด้วย ระบบลงทะเบียนกิจกรรม • ${u.host}${u.pathname}`, pad, size.h - Math.round(size.w * 0.02));
-
-  return canvas;
 };
 
 /* ===================== Main ===================== */
@@ -576,7 +628,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         activityCode: a.activityCode || '',
         headerTitle: qr?.headerTitle || '',
         description: a.description || qr?.description || '',
-        location: (a as any).location || qr?.location || '',
+        location: a.location || qr?.location || '',
         latitude: qr?.latitude,
         longitude: qr?.longitude,
         checkInRadius: a.checkInRadius ?? qr?.checkInRadius ?? 100,
@@ -592,10 +644,10 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         singleUserMode: qr?.singleUserMode ?? false,
         maxParticipants: a.maxParticipants || qr?.maxParticipants || undefined,
         targetUrl: makeRegisterUrl(a.activityCode),
-        qrDataUrl: (a as any).qrUrl || qr?.qrUrl || '',
+        qrDataUrl: a.qrUrl || qr?.qrUrl || '',
         userCode: (a as any).userCode || qr?.userCode || '',
         bannerMode: qr?.bannerUrl ? 'image' : qr?.bannerColor ? 'color' : 'none',
-        bannerUrl: (a as any).bannerUrl || qr?.bannerUrl || undefined,
+        bannerUrl: a.bannerUrl || qr?.bannerUrl || undefined,
         bannerFile: null,
         bannerColor: qr?.bannerColor || '#0ea5e9',
         bannerTintColor: qr?.bannerTintColor || '#0ea5e9',
@@ -851,14 +903,14 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
             <Grid container spacing={2}>
               {activities.map((a) => {
                 const st = statusOf(a);
-                const when = `${a.startDateTime?.toLocaleString('th-TH') || '-'} - ${a.endDateTime?.toLocaleString('th-TH') || '-'}`;
+                const when = `${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`;
                 const bannerColor = (a as any).bannerColor as string | undefined;
                 return (
                   <Grid item xs={12} sm={6} md={4} key={a.id}>
                     <QrPreviewCard
                       title={a.activityName || 'กิจกรรม'}
                       code={a.activityCode}
-                      qr={(a as any).qrUrl}
+                      qr={a.qrUrl}
                       dept={deptLabelOf((a as any).department ?? currentAdmin.department)}
                       when={when}
                       place={(a as any).location || ''}
@@ -907,7 +959,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <TableBody>
                   {activities.map((a) => {
                     const st = statusOf(a);
-                    const when = `${a.startDateTime?.toLocaleString('th-TH') || '-'} - ${a.endDateTime?.toLocaleString('th-TH') || '-'}`;
+                    const when = `${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`;
                     const bannerColor = (a as any).bannerColor as string | undefined;
                     return (
                       <TableRow key={a.id} hover>
@@ -1134,7 +1186,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
                   <MyLocationIcon fontSize="small" />
                   <Typography variant="caption" color="text.secondary">
-                    กดปุ่ม “แสดงเส้นทาง” เพื่อบันทึกจุดอย่างรวดเร็ว หรือใช้ “ตำแหน่งปัจจุบัน” ได้
+                    กด “ตำแหน่งปัจจุบัน” เพื่อบันทึกจุดอย่างรวดเร็ว
                   </Typography>
                 </Stack>
               </Grid>
@@ -1198,7 +1250,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   code={form.activityCode}
                   qr={form.qrDataUrl}
                   dept={deptLabelOf(currentAdmin.department)}
-                  when={`${dayjs(form.startDateTime ?? undefined).format('DD MMM YYYY HH:mm')} - ${dayjs(form.endDateTime ?? undefined).format('DD MMM YYYY HH:mm')}`}
+                  when={`${fmt(form.startDateTime)} - ${fmt(form.endDateTime)}`}
                   place={form.location || ''}
                   scanEnabled={form.scanEnabled}
                   bannerUrl={form.bannerUrl}
@@ -1282,7 +1334,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           {form.headerTitle && <Typography color="text.secondary" gutterBottom>{form.headerTitle}</Typography>}
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
             <Chip size="small" label={`สังกัด: ${deptLabelOf(currentAdmin.department)}`} />
-            <Chip size="small" label={`${dayjs(form.startDateTime ?? undefined).format('DD MMM YYYY HH:mm')} - ${dayjs(form.endDateTime ?? undefined).format('DD MMM YYYY HH:mm')}`} />
+            <Chip size="small" label={`${fmt(form.startDateTime)} - ${fmt(form.endDateTime)}`} />
             {form.location && <Chip size="small" icon={<PlaceIcon />} label={form.location} />}
             <Chip size="small" color={form.isActive ? 'success' : 'default'} label={form.isActive ? 'เปิดใช้งาน' : 'ปิดใช้งาน'} />
             <Chip size="small" color={form.scanEnabled ? 'success' : 'warning'} label={form.scanEnabled ? 'สแกนได้' : 'ปิดการสแกน'} />
@@ -1303,7 +1355,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               code={form.activityCode}
               qr={form.qrDataUrl}
               dept={deptLabelOf(currentAdmin.department)}
-              when={`${dayjs(form.startDateTime ?? undefined).format('DD MMM YYYY HH:mm')} - ${dayjs(form.endDateTime ?? undefined).format('DD MMM YYYY HH:mm')}`}
+              when={`${fmt(form.startDateTime)} - ${fmt(form.endDateTime)}`}
               place={form.location || ''}
               scanEnabled={form.scanEnabled}
               bannerUrl={form.bannerUrl}
