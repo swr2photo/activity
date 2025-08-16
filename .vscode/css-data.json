@@ -1,0 +1,9 @@
+{
+  "version": 1.1,
+  "atDirectives": [
+    { "name": "@theme" },
+    { "name": "@custom-variant" },
+    { "name": "@utility" },
+    { "name": "@config" }
+  ]
+}

@@ -1,4 +1,3 @@
-// src/components/maps/GeofenceMap.tsx
 'use client';
 import React, { useMemo, useState, useCallback } from 'react';
 import {
@@ -35,6 +34,7 @@ import {
   LocationOn as LocationIcon,
   DirectionsWalk as WalkIcon,
   DirectionsCar as CarIcon,
+  MyLocation as MyLocationIcon,
 } from '@mui/icons-material';
 
 export interface GeofenceMapProps {
@@ -44,14 +44,20 @@ export interface GeofenceMapProps {
   inRadius?: boolean;
   title?: string;
   height?: number | string;
+
+  // โหมดแก้ไข (ใช้ในแอดมิน)
+  editable?: boolean;
+  minRadius?: number;
+  maxRadius?: number;
+  onCenterChange?: (pos: { lat: number; lng: number }) => void;
+
+  // ปุ่มขอใช้ตำแหน่งปัจจุบัน (ทั้งฝั่งแอดมิน/ผู้ใช้)
   onUseCurrentLocation?: () => void;
 }
 
 const defaultContainerStyle = { width: '100%', height: 480 } as const;
 
-/* =========================
-   Helper types & utils
-========================= */
+/* ============== Utils ============== */
 type ActionColor = 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info';
 type Action = {
   icon: React.ReactNode;
@@ -59,38 +65,30 @@ type Action = {
   onClick: () => void;
   color: ActionColor;
 };
-// อ่านสีจาก theme.palette แบบ type-safe (กัน TS7053)
 const tone = (t: Theme, key: ActionColor) =>
   ((t.palette as any)[key] as PaletteColor).main as string;
 
-/* =========================
-   Animations
-========================= */
+/* ============== Animations ============== */
 const pulse = keyframes`
   0% { transform: scale(1); opacity: .8; box-shadow: 0 0 0 0 rgba(34,197,94,.7); }
   50% { transform: scale(1.2); opacity: .6; box-shadow: 0 0 0 8px rgba(34,197,94,.3); }
   100% { transform: scale(1.6); opacity: 0; box-shadow: 0 0 0 16px rgba(34,197,94,0); }
 `;
-
 const shimmer = keyframes`
   0% { background-position: -200px 0; }
   100% { background-position: calc(200px + 100%) 0; }
 `;
-
 const bounceIn = keyframes`
   0% { transform: translate(-50%, -110%) scale(.3); opacity: 0; }
   50% { transform: translate(-50%, -110%) scale(1.1); opacity: .8; }
   100% { transform: translate(-50%, -110%) scale(1); opacity: 1; }
 `;
-
 const floatUpDown = keyframes`
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-3px); }
 `;
 
-/* =========================
-   Styled
-========================= */
+/* ============== Styled ============== */
 const StyledMapContainer = styled(Box)(({ theme }) => ({
   position: 'relative',
   borderRadius: theme.spacing(2),
@@ -100,14 +98,6 @@ const StyledMapContainer = styled(Box)(({ theme }) => ({
     0 2px 16px rgba(0,0,0,.08),
     inset 0 0 0 1px ${alpha(theme.palette.divider, .1)}
   `,
-  transition: 'box-shadow .3s ease-in-out',
-  '&:hover': {
-    boxShadow: `
-      0 16px 48px rgba(0,0,0,.15),
-      0 8px 24px rgba(0,0,0,.1),
-      inset 0 0 0 1px ${alpha(theme.palette.primary.main, .1)}
-    `,
-  },
 }));
 
 const GlassmorphicChip = styled(Chip)(({ theme }) => ({
@@ -183,9 +173,7 @@ const StatusBar = styled(
   transition: 'all .3s ease-in-out',
 }));
 
-/* =========================
-   Component
-========================= */
+/* ============== Component ============== */
 const GeofenceMap: React.FC<GeofenceMapProps> = ({
   center,
   radius,
@@ -193,6 +181,10 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   inRadius,
   title = 'จุดกิจกรรม',
   height,
+
+  editable = false,
+  onCenterChange,
+
   onUseCurrentLocation,
 }) => {
   const theme = useTheme();
@@ -202,7 +194,6 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
   });
 
-  // ใช้ any ลดการพึ่งพา @types/google.maps ในโปรเจกต์
   const [map, setMap] = useState<any | null>(null);
   const [mode, setMode] = useState<'roadmap' | 'satellite'>('satellite');
   const [wantRoute, setWantRoute] = useState(false);
@@ -211,7 +202,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   const [showingRoute, setShowingRoute] = useState(false);
   const [travelMode, setTravelMode] = useState<'DRIVING' | 'WALKING'>('DRIVING');
 
-  /* Container size */
+  /* Container */
   const containerStyle = useMemo(
     () => ({
       ...defaultContainerStyle,
@@ -221,7 +212,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     [height, isMobile, theme]
   );
 
-  /* Map options (ปิดปุ่มเต็มจอ) */
+  /* Map options */
   const mapOptions = useMemo(
     () =>
       ({
@@ -230,7 +221,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
         zoomControl: !isMobile,
         streetViewControl: false,
         mapTypeControl: false,
-        fullscreenControl: false, // ปิด Fullscreen
+        fullscreenControl: false,
         gestureHandling: 'greedy',
         clickableIcons: false,
         styles:
@@ -238,8 +229,6 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
             ? [
                 { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
                 { featureType: 'transit', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-                { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#a2daf2' }] },
-                { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#f5f5f2' }] },
               ]
             : undefined,
       } as google.maps.MapOptions),
@@ -248,7 +237,10 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
 
   /* Helpers */
   const openInMaps = useCallback(() => {
-    window.open(`https://www.google.com/maps/search/?api=1&query=${center.lat},${center.lng}`, '_blank');
+    window.open(
+      `https://www.google.com/maps/search/?api=1&query=${center.lat},${center.lng}`,
+      '_blank'
+    );
   }, [center]);
 
   const panTo = useCallback(
@@ -280,12 +272,12 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     }
   }, [panTo, userPos, showingRoute]);
 
-  /* Marker icons (หลังโหลด script แล้วเท่านั้น) */
+  /* Icons */
   const eventIcon = useMemo<google.maps.Symbol | undefined>(() => {
     if (!isLoaded || !(window as any).google) return undefined;
     return {
       path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
-      fillColor: '#111111', // ดำ
+      fillColor: '#111111',
       fillOpacity: 1,
       strokeColor: '#FFFFFF',
       strokeWeight: 3,
@@ -319,34 +311,19 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     [inRadius]
   );
 
-  /* Actions (พิมพ์แบบ type-safe) */
-  const actions: Action[] = ([
-    {
-      icon: <FocusIcon />,
-      name: 'โฟกัสจุดกิจกรรม',
-      onClick: panToCenter,
-      color: 'primary',
-    },
+  /* Actions */
+  const rawActions: Array<Action | false | undefined | null> = [
+    { icon: <FocusIcon />, name: 'โฟกัสจุดกิจกรรม', onClick: panToCenter, color: 'primary' },
     userPos
-      ? {
-          icon: <GpsIcon />,
-          name: 'ไปตำแหน่งของฉัน',
-          onClick: panToUser,
-          color: 'info',
-        }
+      ? { icon: <GpsIcon />, name: 'ไปตำแหน่งของฉัน', onClick: panToUser, color: 'info' }
       : onUseCurrentLocation && {
-          icon: <GpsIcon />,
-          name: 'ค้นหาตำแหน่งฉัน',
-          onClick: onUseCurrentLocation!,
-          color: 'secondary',
+          icon: <GpsIcon />, name: 'ค้นหาตำแหน่งฉัน', onClick: onUseCurrentLocation, color: 'secondary',
         },
     { icon: <MapIcon />, name: 'แผนที่', onClick: () => setMode('roadmap'), color: 'success' },
     { icon: <SatelliteIcon />, name: 'ดาวเทียม', onClick: () => setMode('satellite'), color: 'success' },
-    {
-      icon: <LanguageIcon />,
-      name: 'เปิดใน Google Maps',
-      onClick: openInMaps,
-      color: 'warning',
+    { icon: <LanguageIcon />, name: 'เปิดใน Google Maps', onClick: openInMaps, color: 'warning' },
+    editable && onUseCurrentLocation && {
+      icon: <MyLocationIcon />, name: 'ตั้งจุดกิจกรรมเป็นตำแหน่งฉัน', onClick: onUseCurrentLocation, color: 'info',
     },
     userPos && {
       icon: showingRoute ? <RouteIcon sx={{ transform: 'rotate(180deg)' }} /> : <RouteIcon />,
@@ -391,31 +368,8 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
       },
       color: 'error',
     },
-    userPos && showingRoute && travelMode === 'DRIVING' && {
-      icon: <WalkIcon />,
-      name: 'สลับเป็นเดินเท้า',
-      onClick: () => {
-        if (!isLoaded) return;
-        setTravelMode('WALKING');
-        setIsLoadingRoute(true);
-        setWantRoute(true);
-        setDirections(null);
-      },
-      color: 'error',
-    },
-    userPos && showingRoute && travelMode === 'WALKING' && {
-      icon: <CarIcon />,
-      name: 'สลับเป็นขับรถ',
-      onClick: () => {
-        if (!isLoaded) return;
-        setTravelMode('DRIVING');
-        setIsLoadingRoute(true);
-        setWantRoute(true);
-        setDirections(null);
-      },
-      color: 'error',
-    },
-  ] as (Action | false | undefined)[]).filter((a): a is Action => Boolean(a));
+  ];
+  const actions: Action[] = rawActions.filter((a): a is Action => Boolean(a));
 
   /* Directions callback */
   const handleDirections = useCallback((res: any, status: any) => {
@@ -430,44 +384,33 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     }
   }, []);
 
-  /* Load guards */
+  /* Guards */
   if (loadError) {
     return (
       <StyledMapContainer>
         <LoadingOverlay>
-          <Typography variant="h6" color="error" gutterBottom>
-            ไม่สามารถโหลดแผนที่ได้
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต
-          </Typography>
+          <Typography variant="h6" color="error" gutterBottom>ไม่สามารถโหลดแผนที่ได้</Typography>
+          <Typography variant="body2" color="text.secondary">กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</Typography>
         </LoadingOverlay>
       </StyledMapContainer>
     );
   }
-
   if (!isLoaded) {
     return (
       <StyledMapContainer>
         <LoadingOverlay>
           <CircularProgress size={48} thickness={3.6} sx={{ mb: 2 }} />
-          <Typography variant="h6" gutterBottom>
-            กำลังโหลดแผนที่...
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            โปรดรอสักครู่
-          </Typography>
+          <Typography variant="h6" gutterBottom>กำลังโหลดแผนที่...</Typography>
+          <Typography variant="body2" color="text.secondary">โปรดรอสักครู่</Typography>
         </LoadingOverlay>
       </StyledMapContainer>
     );
   }
 
-  /* =========================
-     Render
-  ========================= */
+  /* Render */
   return (
     <StyledMapContainer>
-      {/* Title card */}
+      {/* Title */}
       <EnhancedTitleCard>
         <LocationIcon
           fontSize={isMobile ? 'medium' : 'small'}
@@ -490,12 +433,14 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
               fontSize: isMobile ? '0.75rem' : '0.7rem',
             }}
           >
-            {inRadius ? '✓ อยู่ในพื้นที่' : showingRoute ? '→ กำลังแสดงเส้นทาง' : '⚠ นอกพื้นที่'}
+            {inRadius ? '✓ อยู่ในพื้นที่'
+              : showingRoute ? '→ กำลังแสดงเส้นทาง'
+              : '⚠ นอกพื้นที่'}
           </Typography>
         </Box>
       </EnhancedTitleCard>
 
-      {/* SpeedDial (ขยับขึ้นเล็กน้อย) */}
+      {/* SpeedDial */}
       <SpeedDial
         ariaLabel="เครื่องมือแผนที่"
         icon={<SpeedDialIcon />}
@@ -523,7 +468,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
             onClick={action.onClick}
             FabProps={{
               size: isMobile ? 'small' : 'medium',
-              color: action.color,
+              color: action.color as any,
               sx: (t) => ({
                 bgcolor: 'background.paper',
                 border: `1px solid ${alpha(t.palette.divider, 0.1)}`,
@@ -533,7 +478,6 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
                   bgcolor: alpha(tone(t, action.color), 0.1),
                   transform: 'scale(1.08)',
                   boxShadow: `0 8px 32px ${alpha(tone(t, action.color), 0.3)}`,
-                  '& .MuiSvgIcon-root': { color: tone(t, action.color) },
                 },
               }),
             }}
@@ -541,7 +485,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
         ))}
       </SpeedDial>
 
-      {/* Backdrop โหลดเส้นทาง */}
+      {/* Backdrop loading route */}
       <Backdrop
         sx={{
           position: 'absolute',
@@ -566,14 +510,16 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
         options={mapOptions}
         onLoad={(m) => setMap(m)}
         onUnmount={() => setMap(null)}
+        onClick={(e) => {
+          if (!editable || !e.latLng) return;
+          const pos = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+          onCenterChange?.(pos);
+        }}
       >
-        {/* หมุดกิจกรรม (สีดำ) */}
         <MarkerF position={center} icon={eventIcon} />
-
-        {/* วง Geofence สีเขียว */}
         <CircleF center={center} radius={Math.max(0, radius || 0)} options={circleOptions} />
 
-        {/* ป้ายชื่อกิจกรรม — แสดงข้อความเต็ม (ตัดบรรทัดได้) */}
+        {/* Label */}
         <OverlayView position={center} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
           <Box
             sx={{
@@ -583,7 +529,6 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
               pointerEvents: 'none',
             }}
           >
-            {/* จุด pulse ใต้หมุด */}
             <Box
               sx={{
                 position: 'relative',
@@ -596,7 +541,6 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
                 zIndex: 1,
               }}
             />
-
             <GlassmorphicChip
               label={title}
               size={isMobile ? 'medium' : 'small'}
@@ -611,20 +555,14 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
                 boxShadow: '0 6px 18px rgba(0,0,0,.12)',
                 animation: `${bounceIn} .7s cubic-bezier(.68,-.55,.265,1.55) .2s both`,
                 maxWidth: isMobile ? '86vw' : 520,
-                '& .MuiChip-label': {
-                  wordBreak: 'break-word',
-                  display: 'inline-block',
-                  lineHeight: 1.25,
-                },
+                '& .MuiChip-label': { wordBreak: 'break-word', lineHeight: 1.25 },
               }}
             />
           </Box>
         </OverlayView>
 
-        {/* ตำแหน่งผู้ใช้ */}
         {userPos && <MarkerF position={userPos} icon={userIcon} />}
 
-        {/* คำนวณเส้นทาง */}
         {wantRoute && userPos && (
           <DirectionsService
             options={{
@@ -635,8 +573,6 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
             callback={handleDirections}
           />
         )}
-
-        {/* แสดงเส้นทาง */}
         {directions && showingRoute && (
           <DirectionsRenderer
             options={{
@@ -652,7 +588,9 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
         )}
       </GoogleMap>
 
-      {/* แถบสถานะล่าง */}
+      {/* (ถอดตัวเลื่อนรัศมีในแผนที่ออกตามที่ขอ) */}
+
+      {/* Status */}
       <StatusBar inRadius={inRadius}>
         <Fade in timeout={800}>
           <Typography

@@ -13,6 +13,11 @@ import AdminAttendancePanel from './AdminAttendancePanel';
 import AdminUserManagement from './AdminUserManagement';
 import QRCodeAdminPanel from './QRCodeAdminPanel';
 
+// ✅ ใหม่
+import SystemSettingsPanel from './SystemSettingsPanel';
+import AdminProfileEditor from './AdminProfileEditor';
+import AdminLogsPanel from './AdminLogsPanel';
+
 // กล่องห่อเล็ก ๆ ให้คอนเทนต์ดูสบายตาในมือถือ
 const ResponsiveContainer: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <Box sx={{ padding: { xs: 2, sm: 3, md: 4 }, maxWidth: '100%', overflow: 'hidden' }}>
@@ -27,7 +32,8 @@ type ActiveSection =
   | 'users'
   | 'admin-management'
   | 'reports'
-  | 'settings';
+  | 'settings'
+  | 'profile'; // ✅ เพิ่มหน้าแก้โปรไฟล์
 
 interface AdminMainProps {
   currentAdmin: AdminProfile;
@@ -74,27 +80,31 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
         return <AdminManagement currentAdmin={currentAdmin} />;
 
       case 'reports':
+        // ✅ เปลี่ยนเป็นหน้าแสดง Admin Logs แบบเรียลไทม์
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="view_reports">
             <ResponsiveContainer>
-              <Typography variant="h4" gutterBottom>
-                รายงานและสถิติ
-              </Typography>
-              <Alert severity="info">ส่วนรายงานจะถูกพัฒนาเพิ่มเติมในลำดับถัดไป</Alert>
+              <AdminLogsPanel currentAdmin={currentAdmin} />
             </ResponsiveContainer>
           </AdminRoleGuard>
         );
 
       case 'settings':
+        // ✅ หน้า “ตั้งค่าระบบ” (ปิดปรับปรุง / มาตรฐานแบนเนอร์)
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="system_settings">
             <ResponsiveContainer>
-              <Typography variant="h4" gutterBottom>
-                ตั้งค่าระบบ
-              </Typography>
-              <Alert severity="info">ส่วนตั้งค่า system จะถูกพัฒนาเพิ่มเติมในลำดับถัดไป</Alert>
+              <SystemSettingsPanel currentAdmin={currentAdmin} />
             </ResponsiveContainer>
           </AdminRoleGuard>
+        );
+
+      case 'profile':
+        // ✅ หน้า “แก้ไขโปรไฟล์แอดมิน”
+        return (
+          <ResponsiveContainer>
+            <AdminProfileEditor currentAdmin={currentAdmin} />
+          </ResponsiveContainer>
         );
 
       default:
@@ -118,7 +128,7 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
     <AdminLayout
       currentAdmin={currentAdmin}
       activeSection={activeSection}
-      onSectionChange={(section: string) => setActiveSection(section as ActiveSection)} // ← ห่อให้ตรง
+      onSectionChange={(section: string) => setActiveSection(section as ActiveSection)}
       onLogout={onLogout}
     >
       {renderContent()}

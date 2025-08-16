@@ -337,6 +337,18 @@ export const COLLECTIONS = {
   SYSTEM_LOGS: 'systemLogs',
   BACKUPS: 'backups'
 } as const;
+export interface AdminSettings {
+  isActive: boolean;
+  bannerUrl?: string;
+  publicBannerUrl?: string;
+  landingBannerUrl?: string;
+  activityDefaultBannerUrl?: string;
+  branding?: { bannerUrl?: string };
+
+  // ✅ ใหม่
+  bannerAspect?: '16:9' | '4:3' | '21:9';
+  bannerOverlay?: number; // 0 - 1 ความทึบ overlay
+}
 
 /**
  * Constants

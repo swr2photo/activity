@@ -13,6 +13,10 @@ import {
   serverTimestamp,
   setDoc,
   getDoc,
+  runTransaction,
+  onSnapshot,
+  limit as qLimit,
+  deleteField, // ✅ ใช้ลบฟิลด์ใน update
 } from 'firebase/firestore';
 
 import { db, auth } from './firebase';
@@ -32,8 +36,11 @@ import type {
 import { ROLE_PERMISSIONS } from '../types/admin';
 
 /* =========================
- * Utils
+ * Constants & Utils
  * ========================= */
+const PRIMARY_ACTIVITY_COLLECTION = 'activityQRCodes'; // แหล่งจริงที่ฝั่งผู้ใช้ฟัง onSnapshot
+const LEGACY_ACTIVITY_COLLECTION  = 'activities';      // สำหรับเข้ากันได้ย้อนหลัง
+
 const toDateSafe = (v: any): Date | undefined => {
   if (v?.toDate) return v.toDate();
   if (v instanceof Date) return v;
@@ -43,6 +50,30 @@ const toDateSafe = (v: any): Date | undefined => {
   }
   return undefined;
 };
+
+// ✅ helper: ตัด key ที่เป็น undefined ออก (กัน error Firestore)
+const stripUndefined = (obj: Record<string, any>) => {
+  const out: Record<string, any> = {};
+  Object.keys(obj).forEach((k) => {
+    if (obj[k] !== undefined) out[k] = obj[k];
+  });
+  return out;
+};
+
+async function mirrorLegacyActivityByCode(
+  activityCode: string,
+  patch: Record<string, any>
+) {
+  try {
+    const q1 = query(collection(db, LEGACY_ACTIVITY_COLLECTION), where('activityCode', '==', activityCode));
+    const snap = await getDocs(q1);
+    if (!snap.empty) {
+      await updateDoc(doc(db, LEGACY_ACTIVITY_COLLECTION, snap.docs[0].id), stripUndefined(patch));
+    }
+  } catch {
+    /* best-effort mirroring only */
+  }
+}
 
 /* =========================
  * Admins (adminUsers)
@@ -108,25 +139,36 @@ export const createAdminUser = async (
   profile: Omit<AdminProfile, 'createdAt' | 'updatedAt'> & { uid: string }
 ) => {
   const ref = doc(db, 'adminUsers', profile.uid);
-  const payload = {
+  // ✅ กัน undefined
+  const payload = stripUndefined({
     ...profile,
     permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  };
+  });
   await setDoc(ref, payload, { merge: false });
 };
 
-// แก้ไขแอดมิน
+// แก้ไขแอดมิน — ✅ กัน undefined และลบ profileImage ถ้าค่าว่าง/undefined
 export const updateAdminUser = async (uid: string, data: Partial<AdminProfile>) => {
   const ref = doc(db, 'adminUsers', uid);
-  await updateDoc(ref, {
+  const payload: Record<string, any> = {
     ...data,
-    ...(data.permissions
-      ? { permissions: Array.isArray(data.permissions) ? data.permissions : [] }
-      : {}),
     updatedAt: serverTimestamp(),
-  });
+  };
+
+  if ('permissions' in data) {
+    payload.permissions = Array.isArray(data.permissions) ? data.permissions : [];
+  }
+
+  // ✅ profileImage: ถ้าค่าว่างหรือ undefined -> ลบฟิลด์
+  if ('profileImage' in data) {
+    if (data.profileImage === '' || data.profileImage === undefined) {
+      payload.profileImage = deleteField();
+    }
+  }
+
+  await updateDoc(ref, stripUndefined(payload));
 };
 
 // ลบแอดมิน
@@ -144,6 +186,7 @@ export interface Activity {
   userCode?: string;
   description?: string;
   bannerUrl?: string;
+  bannerAspect?: 'cover' | 'contain';
   location?: string;
   startDateTime?: Date;
   endDateTime?: Date;
@@ -154,6 +197,11 @@ export interface Activity {
   qrUrl?: string;
   department?: AdminDepartment | string;
   createdAt?: Date;
+  closeReason?: string;
+  stateVersion?: number;
+  forceRefresh?: boolean;
+  singleUserMode?: boolean;
+  requiresUniversityLogin?: boolean;
 }
 
 export interface ActivityRecord {
@@ -183,8 +231,12 @@ export interface UnivUser {
   createdAt?: Date;
 }
 
+// ดึงทั้งหมดจากคอลเลกชันหลัก (fallback ไป legacy ถ้าไม่มี)
 export const getAllActivities = async (): Promise<Activity[]> => {
-  const snap = await getDocs(collection(db, 'activities'));
+  let snap = await getDocs(collection(db, PRIMARY_ACTIVITY_COLLECTION));
+  if (snap.empty) {
+    snap = await getDocs(collection(db, LEGACY_ACTIVITY_COLLECTION));
+  }
   return snap.docs.map((d) => {
     const data = d.data() as any;
     return {
@@ -194,6 +246,7 @@ export const getAllActivities = async (): Promise<Activity[]> => {
       userCode: data.userCode,
       description: data.description,
       bannerUrl: data.bannerUrl,
+      bannerAspect: data.bannerAspect || 'cover',
       location: data.location,
       startDateTime: toDateSafe(data.startDateTime),
       endDateTime: toDateSafe(data.endDateTime),
@@ -204,6 +257,11 @@ export const getAllActivities = async (): Promise<Activity[]> => {
       qrUrl: data.qrUrl || data.qrCode || '',
       department: data.department,
       createdAt: toDateSafe(data.createdAt),
+      closeReason: data.closeReason,
+      stateVersion: data.stateVersion,
+      forceRefresh: data.forceRefresh === true,
+      singleUserMode: data.singleUserMode === true,
+      requiresUniversityLogin: data.requiresUniversityLogin === true,
     } as Activity;
   });
 };
@@ -212,8 +270,23 @@ export const getActivitiesByDepartment = async (
   department: AdminDepartment
 ): Promise<Activity[]> => {
   if (department === 'all') return getAllActivities();
-  const qy = query(collection(db, 'activities'), where('department', '==', department));
-  const snap = await getDocs(qy);
+
+  // primary first
+  let qy = query(
+    collection(db, PRIMARY_ACTIVITY_COLLECTION),
+    where('department', '==', department)
+  );
+  let snap = await getDocs(qy);
+
+  if (snap.empty) {
+    // legacy fallback
+    qy = query(
+      collection(db, LEGACY_ACTIVITY_COLLECTION),
+      where('department', '==', department)
+    );
+    snap = await getDocs(qy);
+  }
+
   return snap.docs.map((d) => {
     const data = d.data() as any;
     return {
@@ -223,6 +296,7 @@ export const getActivitiesByDepartment = async (
       userCode: data.userCode,
       description: data.description,
       bannerUrl: data.bannerUrl,
+      bannerAspect: data.bannerAspect || 'cover',
       location: data.location,
       startDateTime: toDateSafe(data.startDateTime),
       endDateTime: toDateSafe(data.endDateTime),
@@ -233,22 +307,69 @@ export const getActivitiesByDepartment = async (
       qrUrl: data.qrUrl || data.qrCode || '',
       department: data.department,
       createdAt: toDateSafe(data.createdAt),
+      closeReason: data.closeReason,
+      stateVersion: data.stateVersion,
+      forceRefresh: data.forceRefresh === true,
+      singleUserMode: data.singleUserMode === true,
+      requiresUniversityLogin: data.requiresUniversityLogin === true,
     } as Activity;
   });
 };
 
+/** เดิม: toggle ธรรมดา (คงไว้เพื่อ backward compatibility) */
 export const toggleActivityStatus = async (activityId: string, currentStatus: boolean) => {
-  const ref = doc(db, 'activities', activityId);
-  await updateDoc(ref, { isActive: !currentStatus });
+  await updateDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId), { isActive: !currentStatus });
 };
 
-// Create/Update/Delete Activities
+/** ใหม่: Toggle แบบ Transaction + version bump + เหตุผลปิด + ผู้แก้ไข */
+export const toggleActivityLive = async (
+  activityId: string,
+  nextIsActive: boolean,
+  admin: { uid?: string; email?: string } = {}
+) => {
+  const ref = doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('NOT_FOUND');
+
+    const cur = snap.data() as any;
+    const activityCode = cur?.activityCode as string | undefined;
+
+    tx.update(ref, {
+      isActive: nextIsActive,
+      closeReason: nextIsActive ? (cur.closeReason || '') : (cur.closeReason || 'ปิดรับลงทะเบียนแล้ว'),
+      lastToggledAt: serverTimestamp(),
+      lastToggledBy: admin?.uid || admin?.email || 'unknown_admin',
+      stateVersion: Number(cur?.stateVersion || 0) + 1,
+      updatedAt: serverTimestamp(),
+    });
+
+    // mirror legacy (best-effort)
+    if (activityCode) {
+      try {
+        await mirrorLegacyActivityByCode(activityCode, {
+          isActive: nextIsActive,
+          closeReason: nextIsActive ? (cur.closeReason || '') : (cur.closeReason || 'ปิดรับลงทะเบียนแล้ว'),
+          lastToggledAt: serverTimestamp(),
+          lastToggledBy: admin?.uid || admin?.email || 'unknown_admin',
+          updatedAt: serverTimestamp(),
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+};
+
+// Create/Update/Delete Activities (เขียนที่ PRIMARY_ACTIVITY_COLLECTION)
 export type CreateActivityInput = {
   activityName: string;
   activityCode: string;
   userCode?: string;
   description?: string;
   bannerUrl?: string;
+  bannerAspect?: 'cover' | 'contain';
   location?: string;
   startDateTime?: Date;
   endDateTime?: Date;
@@ -257,28 +378,56 @@ export type CreateActivityInput = {
   isActive?: boolean;
   qrUrl?: string;
   department?: string;
+  forceRefresh?: boolean;
+  singleUserMode?: boolean;
+  requiresUniversityLogin?: boolean;
 };
 
-export type UpdateActivityInput = Partial<CreateActivityInput>;
+export type UpdateActivityInput = Partial<CreateActivityInput> & {
+  closeReason?: string;
+};
 
 export const createActivity = async (payload: CreateActivityInput) => {
-  const data = {
+  const data = stripUndefined({
     ...payload,
     currentParticipants: 0,
     isActive: payload.isActive ?? true,
+    bannerAspect: payload.bannerAspect || 'cover',
+    stateVersion: 1,
+    closeReason: '',
     createdAt: serverTimestamp(),
-  };
-  await addDoc(collection(db, 'activities'), data);
+    updatedAt: serverTimestamp(),
+  });
+  await addDoc(collection(db, PRIMARY_ACTIVITY_COLLECTION), data);
 };
 
 export const updateActivity = async (activityId: string, patch: UpdateActivityInput) => {
-  await updateDoc(doc(db, 'activities', activityId), {
+  const cleaned = stripUndefined({
     ...patch,
+    updatedAt: serverTimestamp(),
+    stateVersion: increment(1),
   });
+
+  await updateDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId), cleaned);
+
+  // mirror legacy ตาม activityCode ถ้ามีใน patch (best-effort)
+  try {
+    const cur = await getDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId));
+    const code = cur.data()?.activityCode as string | undefined;
+    if (code) {
+      await mirrorLegacyActivityByCode(code, stripUndefined({
+        ...patch,
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  } catch {
+    /* ignore */
+  }
 };
 
 export const deleteActivity = async (activityId: string) => {
-  await deleteDoc(doc(db, 'activities', activityId));
+  await deleteDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId));
+  // ไม่บังคับลบ legacy
 };
 
 /* =========================
@@ -325,6 +474,41 @@ export const getActivityRecordsByDepartment = async (
       faculty: data.faculty,
     } as ActivityRecord;
   });
+};
+
+export const deleteActivityRecord = async (recordId: string): Promise<void> => {
+  await deleteDoc(doc(db, 'activityRecords', recordId));
+};
+
+// ปรับจำนวนผู้เข้าร่วมจาก activityCode — อัปเดตที่ PRIMARY เป็นหลัก (fallback legacy)
+export const adjustParticipantsByActivityCode = async (
+  activityCode: string,
+  delta: number
+): Promise<void> => {
+  // primary
+  let q1 = query(collection(db, PRIMARY_ACTIVITY_COLLECTION), where('activityCode', '==', activityCode));
+  let snap = await getDocs(q1);
+
+  if (!snap.empty) {
+    const aDoc = snap.docs[0];
+    await updateDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, aDoc.id), {
+      currentParticipants: increment(delta),
+      updatedAt: serverTimestamp(),
+      stateVersion: increment(1),
+    });
+    return;
+  }
+
+  // legacy fallback
+  const q2 = query(collection(db, LEGACY_ACTIVITY_COLLECTION), where('activityCode', '==', activityCode));
+  snap = await getDocs(q2);
+  if (!snap.empty) {
+    const aDoc = snap.docs[0];
+    await updateDoc(doc(db, LEGACY_ACTIVITY_COLLECTION, aDoc.id), {
+      currentParticipants: increment(delta),
+      updatedAt: serverTimestamp(),
+    });
+  }
 };
 
 /* =========================
@@ -432,36 +616,6 @@ export const getPendingUsersByDepartment = async (
 };
 
 /* =========================
- * Attendance helpers
- * ========================= */
-export const deleteActivityRecord = async (recordId: string): Promise<void> => {
-  await deleteDoc(doc(db, 'activityRecords', recordId));
-};
-
-// ปรับจำนวนผู้เข้าร่วมจาก activityCode (รองรับทั้ง field 'activityCode' และ 'code')
-export const adjustParticipantsByActivityCode = async (
-  activityCode: string,
-  delta: number
-): Promise<void> => {
-  // 1) ลองหาโดย activityCode
-  let q1 = query(collection(db, 'activities'), where('activityCode', '==', activityCode));
-  let snap = await getDocs(q1);
-
-  // 2) ถ้าไม่เจอ ลองหา field 'code'
-  if (snap.empty) {
-    const q2 = query(collection(db, 'activities'), where('code', '==', activityCode));
-    snap = await getDocs(q2);
-  }
-
-  if (!snap.empty) {
-    const aDoc = snap.docs[0];
-    await updateDoc(doc(db, 'activities', aDoc.id), {
-      currentParticipants: increment(delta),
-    });
-  }
-};
-
-/* =========================
  * User status
  * ========================= */
 export const approveUser = async (uid: string): Promise<void> => {
@@ -473,7 +627,7 @@ export const suspendUser = async (uid: string): Promise<void> => {
 };
 
 /* =========================
- * Logging
+ * Logging (admin events)
  * ========================= */
 export const logAdminEvent = async (
   action: string,
@@ -493,6 +647,53 @@ export const logAdminEvent = async (
     console.warn('logAdminEvent failed:', e);
   }
 };
+
+/* ===== Logs helper: get + subscribe realtime ===== */
+export interface AdminLogEntry {
+  id: string;
+  action: string;
+  meta?: Record<string, any>;
+  actorUid?: string | null;
+  actorEmail?: string | null;
+  ua?: string;
+  at?: Date;
+}
+
+export async function getAdminLogs(max: number = 100): Promise<AdminLogEntry[]> {
+  const qy = query(collection(db, 'logs'), orderBy('at', 'desc'), qLimit(max));
+  const snap = await getDocs(qy);
+  return snap.docs.map((d) => {
+    const v = d.data() as any;
+    return {
+      id: d.id,
+      action: v.action || '',
+      meta: v.meta || {},
+      actorUid: v.actorUid ?? null,
+      actorEmail: v.actorEmail ?? null,
+      ua: v.ua || '',
+      at: toDateSafe(v.at),
+    } as AdminLogEntry;
+  });
+}
+
+export function subscribeAdminLogs(cb: (rows: AdminLogEntry[]) => void, max: number = 100) {
+  const qy = query(collection(db, 'logs'), orderBy('at', 'desc'), qLimit(max));
+  return onSnapshot(qy, (snap) => {
+    const rows = snap.docs.map((d) => {
+      const v = d.data() as any;
+      return {
+        id: d.id,
+        action: v.action || '',
+        meta: v.meta || {},
+        actorUid: v.actorUid ?? null,
+        actorEmail: v.actorEmail ?? null,
+        ua: v.ua || '',
+        at: toDateSafe(v.at),
+      } as AdminLogEntry;
+    });
+    cb(rows);
+  });
+}
 
 /* =========================
  * Invites
@@ -692,11 +893,11 @@ export async function signInAdmin(
 
   try {
     if (ref) {
-      await updateDoc(ref, {
+      await updateDoc(ref, stripUndefined({
         lastLoginAt: serverTimestamp(),
         email: user.email ?? data.email ?? email,
         updatedAt: serverTimestamp(),
-      });
+      }));
     }
   } catch {
     /* ignore write-permission errors */
@@ -707,4 +908,73 @@ export async function signInAdmin(
 
 export async function signOutAdmin(): Promise<void> {
   await fbSignOut(auth);
+}
+
+/* =========================
+ * System Settings (Maintenance + Banner Standard)
+ * ========================= */
+export interface SystemSettings {
+  maintenanceEnabled: boolean;
+  maintenanceMessage?: string;
+  maintenanceWhitelist?: string[]; // รายการอีเมล/uid ที่ยังเข้าได้ตอนปิดปรับปรุง
+  bannerStandardWidth?: number;    // ขนาดมาตรฐานของแบนเนอร์
+  bannerStandardHeight?: number;   // ขนาดมาตรฐานของแบนเนอร์
+  bannerFit?: 'cover' | 'contain'; // วิธีแสดงผล
+  updatedAt?: Date;
+}
+
+const SYSTEM_SETTINGS_DOC = doc(db, 'systemSettings', 'global');
+
+export async function getSystemSettings(): Promise<SystemSettings> {
+  const s = await getDoc(SYSTEM_SETTINGS_DOC);
+  const d = s.exists() ? (s.data() as any) : {};
+  return {
+    maintenanceEnabled: !!d.maintenanceEnabled,
+    maintenanceMessage: d.maintenanceMessage || '',
+    maintenanceWhitelist: Array.isArray(d.maintenanceWhitelist) ? d.maintenanceWhitelist : [],
+    bannerStandardWidth: typeof d.bannerStandardWidth === 'number' ? d.bannerStandardWidth : 1600,
+    bannerStandardHeight: typeof d.bannerStandardHeight === 'number' ? d.bannerStandardHeight : 600,
+    bannerFit: d.bannerFit === 'contain' ? 'contain' : 'cover',
+    updatedAt: toDateSafe(d.updatedAt) ?? undefined,
+  };
+}
+
+export async function updateSystemSettings(patch: Partial<SystemSettings>): Promise<void> {
+  try {
+    await updateDoc(SYSTEM_SETTINGS_DOC, stripUndefined({
+      ...patch,
+      updatedAt: serverTimestamp(),
+    }));
+  } catch (e: any) {
+    // ถ้า doc ยังไม่เคยมี ให้ set ครั้งแรก
+    if (e?.code === 'not-found') {
+      await setDoc(SYSTEM_SETTINGS_DOC, stripUndefined({
+        maintenanceEnabled: false,
+        maintenanceMessage: '',
+        maintenanceWhitelist: [],
+        bannerStandardWidth: 1600,
+        bannerStandardHeight: 600,
+        bannerFit: 'cover',
+        ...patch,
+        updatedAt: serverTimestamp(),
+      }));
+    } else {
+      throw e;
+    }
+  }
+}
+
+export function subscribeSystemSettings(cb: (s: SystemSettings) => void) {
+  return onSnapshot(SYSTEM_SETTINGS_DOC, (snap) => {
+    const d = snap.exists() ? (snap.data() as any) : {};
+    cb({
+      maintenanceEnabled: !!d.maintenanceEnabled,
+      maintenanceMessage: d.maintenanceMessage || '',
+      maintenanceWhitelist: Array.isArray(d.maintenanceWhitelist) ? d.maintenanceWhitelist : [],
+      bannerStandardWidth: typeof d.bannerStandardWidth === 'number' ? d.bannerStandardWidth : 1600,
+      bannerStandardHeight: typeof d.bannerStandardHeight === 'number' ? d.bannerStandardHeight : 600,
+      bannerFit: d.bannerFit === 'contain' ? 'contain' : 'cover',
+      updatedAt: toDateSafe(d.updatedAt) ?? undefined,
+    });
+  });
 }
