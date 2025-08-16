@@ -5,6 +5,7 @@ import {
   Stepper, Step, StepLabel, FormControl, InputLabel, Select, MenuItem, SelectChangeEvent,
   Paper, Fade, Grow, Divider, Chip, Stack
 } from '@mui/material';
+
 import {
   Block as BlockIcon, CheckCircle as CheckCircleIcon, Error as ErrorIcon, Refresh as RefreshIcon,
   Person as PersonIcon, LocationOn as LocationIcon, AccessTime as AccessTimeIcon, School as SchoolIcon,
@@ -13,7 +14,7 @@ import {
   ContentCopy as ContentCopyIcon
 } from '@mui/icons-material';
 import {
-  collection, serverTimestamp, query, where, getDocs, doc, onSnapshot, runTransaction, getDoc, setDoc
+  collection, serverTimestamp, query, where, getDocs, doc, onSnapshot, runTransaction
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import LocationChecker from './LocationChecker';
@@ -146,7 +147,7 @@ const detectFacultyFromDepartment = (deptName: string): string => {
 
 function extractAndGenerateUserData(profile?: UserProfile) {
   if (!profile) {
-    return { studentId: '', firstName: '', lastName: '', department: '', faculty: '', degree: '', university: '', englishName: '', isAutoFilled: false };
+    return { studentId: '', firstName: '', lastName: '', department: '', faculty: '', degree: '', englishName: '', isAutoFilled: false };
   }
   const displayName = profile.displayName || '';
   const email = profile.email || '';
@@ -166,7 +167,6 @@ function extractAndGenerateUserData(profile?: UserProfile) {
     department: 'วิทยาการคอมพิวเตอร์',
     faculty: detected.faculty,
     degree: detected.degree,
-    university: 'มหาวิทยาลัยสงขลานครินทร์',
     englishName: extracted.englishName,
     isAutoFilled: true,
   };
@@ -219,9 +219,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     studentId: initialData.studentId,
     faculty: initialData.faculty,
     degree: initialData.degree,
-    university: initialData.university,
     isAutoFilled: initialData.isAutoFilled,
   });
+
+  // 👉 แอนิเมชันเตรียมก่อนตรวจตำแหน่ง
+  const [locStage, setLocStage] = useState<'pre' | 'verify'>('pre');
+  useEffect(() => {
+    if (activeStep === 1) {
+      setLocStage('pre');
+      const t = setTimeout(() => setLocStage('verify'), 900);
+      return () => clearTimeout(t);
+    }
+  }, [activeStep]);
 
   const steps = ['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'];
 
@@ -418,8 +427,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
 
   const isFieldReadOnly = (field: string): boolean => {
     if (!(autoFilledData as any).isAutoFilled) return false;
-    return ['studentId', 'firstName', 'lastName', 'faculty', 'degree', 'university'].includes(field);
-    // englishName แก้เองได้
+    return ['studentId', 'firstName', 'lastName', 'faculty', 'degree'].includes(field);
   };
 
   const validateForm = async (): Promise<boolean> => {
@@ -435,7 +443,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     if (!(formData as any).userCode) { setError('กรุณาใส่รหัสผู้ใช้'); return false; }
     if ((formData as any).userCode !== activityStatus.userCode) { setError('รหัสผู้ใช้ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง'); return false; }
 
-    // กันลงทะเบียนซ้ำด้วย studentId แบบเร็ว (ยังคงมี transaction กันซ้ำละเอียดอีกชั้น)
+    // กันลงทะเบียนซ้ำด้วย studentId (เร็ว)
     try {
       const qBySid = query(collection(db, 'activityRecords'), where('studentId', '==', (formData as any).studentId), where('activityCode', '==', activityCode));
       const s1 = await getDocs(qBySid);
@@ -456,7 +464,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     setActiveStep(1);
   };
 
-  // ✅ Transaction เขียน activityRecords อย่างเดียว (ไม่เพิ่มตัวนับที่นี่)
+  // ✅ Transaction เขียน activityRecords (ไม่เพิ่มตัวนับที่นี่)
   const handleLocationVerified = async (location: { latitude: number; longitude: number }) => {
     if (forceRefreshEnabled) {
       setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่');
@@ -490,18 +498,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             : true;
         if (!isActive || !inWindow) throw new Error('FORM_CLOSED');
 
-        // เต็มแล้ว → ปฏิเสธ (เพิ่มตัวนับจาก onSuccess ภายหลัง)
+        // เต็มแล้ว → ปฏิเสธ
         const max = Number(act.maxParticipants || 0);
         const cur = Number(act.currentParticipants || 0);
         if (max > 0 && cur >= max) throw new Error('FULL');
 
-        // ลงซ้ำ? → ตรวจจากเอกสารคงรูป
+        // ลงซ้ำ?
         const recordId = `${activityCode}_${uid}`;
         const recordRef = doc(db, 'activityRecords', recordId);
         const recordSnap = await tx.get(recordRef);
         if (recordSnap.exists()) throw new Error('ALREADY_REGISTERED');
 
-        // single user mode: ยึด claim ถ้ายังไม่มี (อาศัย rules บังคับไม่ให้ทับของคนอื่น)
+        // single user mode claim
         if (act.singleUserMode === true) {
           const claimRef = doc(db, 'activityClaims', activityCode);
           const claimSnap = await tx.get(claimRef);
@@ -512,8 +520,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           tx.set(claimRef, { email: requester, claimedAt: serverTimestamp(), uid }, { merge: false });
         }
 
-        // เขียน record
-        tx.set(recordRef, {
+        // payload (ตัด university ออก)
+        const payload: any = {
           userId: uid,
           email: existingUserProfile?.email || (formData as any).email || '',
           microsoftId: existingUserProfile?.id || (formData as any).MicrosoftId || '',
@@ -523,22 +531,21 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           faculty: (formData as any).faculty,
           department: (formData as any).department,
           degree: (formData as any).degree,
-          university: (formData as any).university,
           activityCode,
           activityDocId,
           location,
           userCode: (formData as any).userCode,
           transcriptSaved: true,
           timestamp: serverTimestamp()
-        }, { merge: false });
+        };
 
-        // ❌ ไม่เพิ่ม currentParticipants ตรงนี้แล้ว
+        tx.set(recordRef, payload, { merge: false });
       });
 
       setActiveStep(2);
       setSuccess(true);
       setLoading(false);
-      if (onSuccess) await onSuccess();
+      if (onSuccess) await onSuccess(); // ให้หน้า parent อัปเดตสถานะ (เช่น counter)
     } catch (e: any) {
       const map: Record<string, string> = {
         FORM_CLOSED: 'กิจกรรมปิดรับข้อมูลแล้ว',
@@ -685,22 +692,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               บันทึก Transcript เรียบร้อยแล้ว
             </Alert>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
-              <Button variant="contained" size="large" onClick={() => window.close()} sx={{ px: 4, py: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>ปิดหน้าต่าง</Button>
-              {!activityStatus.singleUserMode && (
-                <Button
-                  variant="outlined"
-                  size="large"
-                  onClick={() => {
-                    setSuccess(false);
-                    setActiveStep(0);
-                    const reset = extractAndGenerateUserData(existingUserProfile);
-                    setFormData({ ...reset, userCode: '', email: existingUserProfile?.email || '', microsoftId: existingUserProfile?.id || '' });
-                  }}
-                  sx={{ px: 4, py: 1.5, borderRadius: 3, borderColor: 'rgba(255,255,255,0.5)', color: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}
-                >
-                  ลงทะเบียนคนอื่น
-                </Button>
-              )}
+              <Button variant="contained" size="large" onClick={() => window.close()} sx={{ px: 4, py: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+                ปิดหน้าต่าง
+              </Button>
             </Stack>
           </CardContent>
         </Card>
@@ -732,20 +726,31 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             </Typography>
 
             {activityStatus.singleUserMode && (
-              <Alert severity="warning" sx={{ mt: 1, mb: 2, borderRadius: 3, background: 'linear-gradient(135deg, #ff9a56 0%, #ff6b6b 100%)', color: 'white', '& .MuiAlert-icon': { color: 'white' }, border: 'none' }}>
+              <Alert severity="warning" sx={{ mt: 1, mb: 2, borderRadius: 3 }}>
                 🔒 <strong>โหมดผู้ใช้เดียว</strong> — กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงบัญชีเดียวเท่านั้น
               </Alert>
             )}
           </Box>
 
-          <Stepper activeStep={activeStep} sx={{ mb: { xs: 2.5, sm: 4 }, '& .MuiStepLabel-root .Mui-completed': { color: 'success.main' }, '& .MuiStepLabel-root .Mui-active': { color: 'primary.main' } }}>
+          <Stepper
+            activeStep={activeStep}
+            sx={{
+              mb: { xs: 2.5, sm: 4 },
+              '& .MuiStepLabel-root .Mui-completed': { color: 'success.main' },
+              '& .MuiStepLabel-root .Mui-active': { color: 'primary.main' }
+            }}
+          >
             {['กรอกข้อมูล','ตรวจสอบตำแหน่ง','บันทึกสำเร็จ'].map((label, index) => (
-              <Step key={label}><StepLabel sx={{ '& .MuiStepLabel-label': { fontWeight: activeStep === index ? 'bold' : 'normal', color: activeStep === index ? 'primary.main' : 'text.secondary' } }}>{label}</StepLabel></Step>
+              <Step key={label}>
+                <StepLabel sx={{ '& .MuiStepLabel-label': { fontWeight: activeStep === index ? 'bold' : 'normal', color: activeStep === index ? 'primary.main' : 'text.secondary' } }}>
+                  {label}
+                </StepLabel>
+              </Step>
             ))}
           </Stepper>
 
           {error && (
-            <Alert severity="error" sx={{ mb: 3, borderRadius: 3, background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)', color: 'white', '& .MuiAlert-icon': { color: 'white' }, border: 'none' }}>
+            <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>
               {error}
             </Alert>
           )}
@@ -784,7 +789,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       disabled={isFieldReadOnly('studentId') || loading || forceRefreshEnabled}
                       InputProps={{ startAdornment: <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}><BadgeIcon sx={{ color: 'text.secondary' }} />{isFieldReadOnly('studentId') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}</Box> }}
                       helperText={isFieldReadOnly('studentId') ? 'ข้อมูลจาก Microsoft' : 'เช่น 6421021234 (10 หลัก, ขึ้นต้นด้วย 64-69)'}
-                      sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' }, '& .MuiFormHelperText-root': { color: isFieldReadOnly('studentId') ? 'primary.main' : 'text.secondary' } }}
+                      sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
                     />
                   </Grid>
 
@@ -794,7 +799,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       fullWidth required disabled={isFieldReadOnly('firstName') || loading || forceRefreshEnabled}
                       InputProps={{ startAdornment: <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}><PersonIcon sx={{ color: 'text.secondary' }} />{isFieldReadOnly('firstName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}</Box> }}
                       helperText={isFieldReadOnly('firstName') ? 'ข้อมูลจาก Microsoft' : 'ชื่อจริงเป็นภาษาไทย'}
-                      sx={{ '& .MuiFormHelperText-root': { color: isFieldReadOnly('firstName') ? 'primary.main' : 'text.secondary' } }}
                     />
                   </Grid>
 
@@ -804,7 +808,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       fullWidth required disabled={isFieldReadOnly('lastName') || loading || forceRefreshEnabled}
                       InputProps={{ startAdornment: <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}><PersonIcon sx={{ color: 'text.secondary' }} />{isFieldReadOnly('lastName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}</Box> }}
                       helperText={isFieldReadOnly('lastName') ? 'ข้อมูลจาก Microsoft' : 'นามสกุลเป็นภาษาไทย'}
-                      sx={{ '& .MuiFormHelperText-root': { color: isFieldReadOnly('lastName') ? 'primary.main' : 'text.secondary' } }}
                     />
                   </Grid>
 
@@ -841,15 +844,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     </FormControl>
                   </Grid>
 
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      label="มหาวิทยาลัย" value={(formData as any).university} onChange={handleInputChange('university')}
-                      fullWidth required disabled={isFieldReadOnly('university') || loading || forceRefreshEnabled}
-                      helperText={isFieldReadOnly('university') ? 'ข้อมูลจาก Microsoft' : 'ชื่อมหาวิทยาลัย'}
-                      sx={{ '& .MuiFormHelperText-root': { color: isFieldReadOnly('university') ? 'primary.main' : 'text.secondary' } }}
-                    />
-                  </Grid>
-
                   <Grid item xs={12}>
                     <TextField
                       label="รหัสผู้ใช้" value={(formData as any).userCode} onChange={handleInputChange('userCode')}
@@ -867,9 +861,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                   <Button
                     variant="contained" size="large" onClick={handleSubmit}
                     disabled={loading || departmentsLoading || forceRefreshEnabled || !(formData as any).faculty || filteredDepartments.length === 0}
-                    sx={{ px: 4, py: 1.5, borderRadius: 3, background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)', boxShadow: '0 3px 5px 2px rgba(102, 126, 234, .3)', '&:hover': { background: 'linear-gradient(45deg, #5a6fd8 30%, #6a4190 90%)', boxShadow: '0 4px 8px 3px rgba(102, 126, 234, .4)' } }}
+                    sx={{ px: 4, py: 1.5, borderRadius: 3, background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)' }}
                   >
-                    {loading ? (<><CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />กำลังตรวจสอบ...</>) : ('ตรวจสอบตำแหน่ง')}
+                    {loading ? (<><CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />กำลังเตรียมตรวจสอบ...</>) : ('ตรวจสอบตำแหน่ง')}
                   </Button>
                 </Box>
               </Box>
@@ -881,9 +875,23 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Fade in>
               <Box sx={{ textAlign: 'center' }}>
                 <LocationIcon sx={{ fontSize: 80, mb: 2.5, color: 'primary.main', filter: 'drop-shadow(0 4px 8px rgba(102, 126, 234, .3))' }} />
-                <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">กำลังตรวจสอบตำแหน่ง</Typography>
-                <Typography variant="body1" color="text.secondary" paragraph>กรุณาอนุญาตการเข้าถึงตำแหน่งของคุณเพื่อยืนยันการเข้าร่วมกิจกรรม</Typography>
-                <LocationChecker allowedLocation={getActivityAllowedLocation()} onLocationVerified={handleLocationVerified} onLocationError={handleLocationError} />
+                {locStage === 'pre' ? (
+                  <>
+                    <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">กำลังเตรียมตรวจสอบตำแหน่ง</Typography>
+                    <Typography variant="body1" color="text.secondary" paragraph>กรุณารอสักครู่...</Typography>
+                    <CircularProgress />
+                  </>
+                ) : (
+                  <>
+                    <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">กำลังตรวจสอบตำแหน่ง</Typography>
+                    <Typography variant="body1" color="text.secondary" paragraph>กรุณาอนุญาตการเข้าถึงตำแหน่งของคุณเพื่อยืนยันการเข้าร่วมกิจกรรม</Typography>
+                    <LocationChecker
+                      allowedLocation={getActivityAllowedLocation()}
+                      onLocationVerified={handleLocationVerified}
+                      onLocationError={handleLocationError}
+                    />
+                  </>
+                )}
               </Box>
             </Fade>
           )}

@@ -26,6 +26,8 @@ import {
   Alert,
   CircularProgress,
   Snackbar,
+  Badge,
+  Stack,
 } from '@mui/material';
 import {
   EventNote as EventIcon,
@@ -34,12 +36,36 @@ import {
   Save as SaveIcon,
   AutoFixHigh as AutoFillIcon,
   Edit as EditIcon,
+  Notifications as NotificationsIcon,
 } from '@mui/icons-material';
 import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase'; // ปรับ path ตามโปรเจ็กต์
+import { db } from '../../lib/firebase';
 import { UniversityUserProfile } from '../../lib/firebaseAuth';
 
-// ----- ข้อมูลอ้างอิงคณะและระดับ -----
+/* ===================== types: แจ้งเตือน ===================== */
+export type NavNotice = {
+  key: string; // unique
+  severity: 'success' | 'info' | 'warning' | 'error';
+  message: React.ReactNode | string;
+  autoHideMs?: number;        // ถ้าไม่ใส่ = ไม่ auto hide
+  actionLabel?: string;
+  onAction?: () => void;
+  onClose?: () => void;
+};
+
+interface NavigationBarProps {
+  user: any;
+  userData: UniversityUserProfile | null;
+  onLogout: () => void;
+  onUserDataUpdate?: (userData: UniversityUserProfile) => void;
+  onEditProfile?: () => void;
+  /** กลุ่ม notice ปกติ */
+  notices?: NavNotice[];
+  /** กลุ่ม notice ด่วน (เช่น ≤ 5 นาที) — แยกถาดให้ */
+  urgentNotices?: NavNotice[];
+}
+
+/* ===================== อ้างอิงคณะ/ระดับ ===================== */
 const PSU_FACULTIES = [
   { name: 'คณะวิศวกรรมศาสตร์', code: '01' },
   { name: 'คณะวิทยาศาสตร์', code: '02' },
@@ -62,34 +88,31 @@ const DEGREE_LEVELS = [
   { name: 'ปริญญาเอก', code: '3' },
 ];
 
-interface NavigationBarProps {
-  user: any;
-  userData: UniversityUserProfile | null;
-  onLogout: () => void;
-  onUserDataUpdate?: (userData: UniversityUserProfile) => void;
-  onEditProfile?: () => void;
-}
-
 const NavigationBar: React.FC<NavigationBarProps> = ({
   user,
   userData,
   onLogout,
   onUserDataUpdate,
   onEditProfile,
+  notices = [],
+  urgentNotices = [],
 }) => {
-  // ---------- State (ตัวเดียวเท่านั้น ป้องกัน redeclare) ----------
+  /* ---------- Profile menu ---------- */
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
+  const handleMenuClick = (e: React.MouseEvent<HTMLElement>) => setAnchorEl(e.currentTarget);
+  const handleMenuClose = () => setAnchorEl(null);
+  const handleLogoutClick = () => { handleMenuClose(); onLogout(); };
 
+  /* ---------- Bell menu (preview notices) ---------- */
+  const [notifEl, setNotifEl] = useState<null | HTMLElement>(null);
+  const notifOpen = Boolean(notifEl);
+
+  /* ---------- AutoFill/Profile form ---------- */
   const [autoFillDialogOpen, setAutoFillDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success' as 'success' | 'error',
-  });
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
-  // ฟอร์มแก้ไขได้
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -103,7 +126,6 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
     photoURL: '',
   });
 
-  // ฟิลด์ที่ระบบเติมให้อ่านอย่างเดียว
   const [autoFilledData, setAutoFilledData] = useState({
     firstName: '',
     lastName: '',
@@ -113,6 +135,23 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
     degree: '',
   });
 
+  /* ---------- เปิด/ปิด snackbar ต่อ notice ---------- */
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+  const [urgentOpenMap, setUrgentOpenMap] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    for (const n of notices) next[n.key] = true;
+    setOpenMap(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(notices.map(n => n.key))]);
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    for (const n of urgentNotices) next[n.key] = true;
+    setUrgentOpenMap(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(urgentNotices.map(n => n.key))]);
+
+  /* ---------- Sync form data ---------- */
   useEffect(() => {
     if (userData) {
       setFormData({
@@ -130,57 +169,44 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
     }
   }, [userData]);
 
-  // ---------- Helpers ----------
+  /* ---------- Helpers ---------- */
   const extractMicrosoftUserInfo = (displayName: string) => {
-    const result = {
-      englishName: '',
-      firstName: '',
-      lastName: '',
-      degree: '',
-      department: '',
-      faculty: '',
-      university: 'มหาวิทยาลัยสงขลานครินทร์',
-    };
+    const result = { englishName: '', firstName: '', lastName: '', degree: '', department: '', faculty: '', university: 'มหาวิทยาลัยสงขลานครินทร์' };
     const englishNameMatch = displayName.match(/^([^(]+)/);
     if (englishNameMatch) result.englishName = englishNameMatch[1].trim();
-
     const thaiNameMatch = displayName.match(/\(([^)]+)\)/);
     if (thaiNameMatch) {
       const thaiFullName = thaiNameMatch[1].trim();
-      const nameParts = thaiFullName.split(/\s+/);
-      result.firstName = nameParts[0] || '';
-      result.lastName = nameParts.slice(1).join(' ') || '';
+      const parts = thaiFullName.split(/\s+/);
+      result.firstName = parts[0] || '';
+      result.lastName = parts.slice(1).join(' ') || '';
     }
-
     const degreeMatch = displayName.match(/ปริญญา\w+/);
     if (degreeMatch) result.degree = degreeMatch[0];
-
     const departmentMatch = displayName.match(/สาขาวิชา([^\s]+(?:\s+[^\s]+)*?)(?:\s+คณะ|$)/);
     if (departmentMatch) result.department = departmentMatch[1].trim();
-
     const facultyMatch = displayName.match(/คณะ([^\s]+(?:\s+[^\s]+)*?)(?:\s|$)/);
     if (facultyMatch) result.faculty = `คณะ${facultyMatch[1].trim()}`;
     return result;
   };
 
+  const availableFaculties = PSU_FACULTIES;
   const generateStudentId = (faculty: string) => {
     const year = new Date().getFullYear().toString().slice(-2);
     const degreeLevel = '1';
-    const facultyCode = PSU_FACULTIES.find((f) => f.name === faculty)?.code || '02';
+    const facultyCode = PSU_FACULTIES.find(f => f.name === faculty)?.code || '02';
     const majorCode = '1';
     const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     return `${year}${degreeLevel}${facultyCode}${majorCode}${randomNum}`;
   };
-
   const detectInfoFromStudentId = (studentId: string): { faculty: string; degree: string } => {
     const result = { faculty: 'คณะวิทยาศาสตร์', degree: 'ปริญญาตรี' };
     if (studentId.length >= 5) {
       const degreeCode = studentId.substring(2, 3);
-      const d = DEGREE_LEVELS.find((x) => x.code === degreeCode);
+      const d = DEGREE_LEVELS.find(x => x.code === degreeCode);
       if (d) result.degree = d.name;
-
       const facultyCode = studentId.substring(3, 5);
-      const f = PSU_FACULTIES.find((x) => x.code === facultyCode);
+      const f = PSU_FACULTIES.find(x => x.code === facultyCode);
       if (f) result.faculty = f.name;
     }
     return result;
@@ -189,7 +215,6 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   const autoFillUserData = () => {
     const email = user?.email || '';
     const displayName = user?.displayName || '';
-
     const extracted = extractMicrosoftUserInfo(displayName);
     let studentId = '';
     let faculty = extracted.faculty || 'คณะวิทยาศาสตร์';
@@ -214,15 +239,12 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
       degree,
     });
 
-    setFormData((prev) => ({
+    setFormData(prev => ({
       ...prev,
       firstName: extracted.firstName || 'ไม่ระบุ',
       lastName: extracted.lastName || 'ไม่ระบุ',
       displayName:
-        prev.displayName ||
-        displayName ||
-        `${extracted.firstName} ${extracted.lastName}`.trim() ||
-        'ผู้ใช้งาน',
+        prev.displayName || displayName || `${extracted.firstName} ${extracted.lastName}`.trim() || 'ผู้ใช้งาน',
       studentId,
       university: 'มหาวิทยาลัยสงขลานครินทร์',
       faculty,
@@ -259,29 +281,11 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
     }
   };
 
-  // ---------- Menu handlers ----------
-  const handleMenuClick = (e: React.MouseEvent<HTMLElement>) => setAnchorEl(e.currentTarget);
-  const handleMenuClose = () => setAnchorEl(null);
+  const handleAutoFillClick = () => { handleMenuClose(); autoFillUserData(); };
+  const handleConfirmAutoFill = async () => { const ok = await saveUserData(formData); if (ok) setAutoFillDialogOpen(false); };
+  const handleFormChange = (field: string, value: string) => setFormData(prev => ({ ...prev, [field]: value }));
 
-  const handleLogoutClick = () => {
-    handleMenuClose();
-    onLogout();
-  };
-
-  const handleAutoFillClick = () => {
-    handleMenuClose();
-    autoFillUserData();
-  };
-
-  const handleConfirmAutoFill = async () => {
-    const ok = await saveUserData(formData);
-    if (ok) setAutoFillDialogOpen(false);
-  };
-
-  const handleFormChange = (field: string, value: string) =>
-    setFormData((prev) => ({ ...prev, [field]: value }));
-
-  // ---------- Display helpers ----------
+  /* ---------- display helpers ---------- */
   const getDisplayName = () => {
     if (userData?.displayName) return userData.displayName;
     if (userData?.firstName && userData?.lastName) return `${userData.firstName} ${userData.lastName}`;
@@ -292,30 +296,22 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
     if (user?.email) return user.email.split('@')[0];
     return 'ผู้ใช้';
   };
-
   const getAvatarSrc = () => userData?.photoURL || user?.photoURL || null;
-
   const getAvatarLetter = () =>
     userData?.firstName?.charAt(0).toUpperCase() ||
-    extractMicrosoftUserInfo(user?.displayName || '').firstName.charAt(0).toUpperCase() ||
-    getDisplayName().charAt(0).toUpperCase();
-
+    (user?.displayName ? extractMicrosoftUserInfo(user.displayName).firstName.charAt(0).toUpperCase() : getDisplayName().charAt(0).toUpperCase());
   const getSubtitle = () => {
-    if ((userData as any)?.faculty && (userData as any)?.department) {
-      return `${(userData as any).faculty} - ${(userData as any).department}`;
-    }
+    if ((userData as any)?.faculty && (userData as any)?.department) return `${(userData as any).faculty} - ${(userData as any).department}`;
     if ((userData as any)?.department) return (userData as any).department;
     if ((userData as any)?.faculty) return (userData as any).faculty;
     return 'กรุณากรอกข้อมูลส่วนตัว';
   };
 
-  const availableFaculties = PSU_FACULTIES;
-
-  // ---------- Render ----------
+  /* ===================== Render ===================== */
   return (
     <>
-      {/* แถบลอยแนว Liquid Glass */}
-      <Box sx={{ position: 'sticky', top: 0, zIndex: (t) => t.zIndex.appBar + 1 }}>
+      {/* AppBar glass */}
+      <Box sx={{ position: 'sticky', top: 0, zIndex: t => t.zIndex.appBar + 1 }}>
         <AppBar
           elevation={0}
           position="sticky"
@@ -328,32 +324,26 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             backdropFilter: 'blur(16px) saturate(180%)',
             backgroundColor: 'rgba(255,255,255,0.65)',
             border: '1px solid rgba(255,255,255,0.25)',
-            boxShadow:
-              '0 8px 24px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.15)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.15)',
           }}
         >
           <Toolbar sx={{ minHeight: { xs: 64, sm: 72 } }}>
-            {/* โลโก้ + ชื่อระบบ */}
+            {/* ซ้าย: โลโก้ */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <EventIcon sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }} />
-              <Typography
-                variant="h6"
-                component="div"
-                sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 'bold' }}
-              >
+              <Typography variant="h6" component="div" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 'bold' }}>
                 ระบบลงทะเบียนกิจกรรม
               </Typography>
             </Box>
 
-            {/* โปรไฟล์ */}
+            <Box sx={{ flex: 1 }} />
+
+            {/* โปรไฟล์ + กระดิ่ง (ขวาสุด) */}
             {user ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 'auto' }}>
-                {/* ซ่อนบนมือถือ */}
-                <Box sx={{ textAlign: 'right', display: { xs: 'none', sm: 'block' } }}>
-                  <Typography
-                    variant="body2"
-                    sx={{ color: 'text.primary', fontWeight: 'medium', lineHeight: 1.2 }}
-                  >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                {/* ชื่อ/หน่วยงาน (ซ่อนบนมือถือ) */}
+                <Box sx={{ textAlign: 'right', display: { xs: 'none', sm: 'block' }, mr: 0.5 }}>
+                  <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 'medium', lineHeight: 1.2 }}>
                     {getDisplayName()}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.1 }}>
@@ -376,6 +366,19 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                     >
                       {!getAvatarSrc() && getAvatarLetter()}
                     </Avatar>
+                  </IconButton>
+                </Tooltip>
+
+                {/* กระดิ่งแจ้งเตือน (ขวาสุด, คลิกได้) */}
+                <Tooltip title="แจ้งเตือน">
+                  <IconButton size="small" color="inherit" onClick={(e) => setNotifEl(e.currentTarget)}>
+                    <Badge
+                      color="error"
+                      variant={notices.length > 0 || urgentNotices.length > 0 ? 'dot' : 'standard'}
+                      invisible={notices.length === 0 && urgentNotices.length === 0}
+                    >
+                      <NotificationsIcon fontSize="small" />
+                    </Badge>
                   </IconButton>
                 </Tooltip>
 
@@ -417,39 +420,24 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                   {/* หัวเมนู */}
                   <Box sx={{ px: 2, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar
-                        src={getAvatarSrc() || undefined}
-                        sx={{ width: 48, height: 48, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
-                      >
+                      <Avatar src={getAvatarSrc() || undefined} sx={{ width: 48, height: 48, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
                         {!getAvatarSrc() && getAvatarLetter()}
                       </Avatar>
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography variant="subtitle1" fontWeight="bold" sx={{ lineHeight: 1.2 }}>
                           {getDisplayName()}
                         </Typography>
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          sx={{ fontSize: '0.75rem', wordBreak: 'break-all', lineHeight: 1.1 }}
-                        >
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem', wordBreak: 'break-all', lineHeight: 1.1 }}>
                           {user.email}
                         </Typography>
                         {(userData as any)?.faculty && (
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ display: 'block', mt: 0.5, lineHeight: 1.1 }}
-                          >
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.1 }}>
                             {(userData as any).faculty}
                             {(userData as any).department && ` - ${(userData as any).department}`}
                           </Typography>
                         )}
                         {userData?.studentId && (
-                          <Typography
-                            variant="caption"
-                            color="primary.main"
-                            sx={{ display: 'block', fontFamily: 'monospace', mt: 0.5, fontWeight: 'bold' }}
-                          >
+                          <Typography variant="caption" color="primary.main" sx={{ display: 'block', fontFamily: 'monospace', mt: 0.5, fontWeight: 'bold' }}>
                             รหัส: {userData.studentId}
                           </Typography>
                         )}
@@ -457,20 +445,14 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                     </Box>
                   </Box>
 
-                  {/* กรอกข้อมูลอัตโนมัติ (แสดงเมื่อยังไม่มีข้อมูล) */}
+                  {/* กรอกข้อมูลอัตโนมัติ */}
                   {(!userData || getSubtitle() === 'กรุณากรอกข้อมูลส่วนตัว') && (
                     <MenuItem onClick={handleAutoFillClick} sx={{ py: 1.25 }}>
-                      <ListItemIcon>
-                        <AutoFillIcon fontSize="small" color="primary" />
-                      </ListItemIcon>
+                      <ListItemIcon><AutoFillIcon fontSize="small" color="primary" /></ListItemIcon>
                       <ListItemText
                         primary="กรอกข้อมูลอัตโนมัติ"
                         secondary="ช่วยดึงข้อมูลจากบัญชี Microsoft"
-                        primaryTypographyProps={{
-                          color: 'primary.main',
-                          fontSize: '0.92rem',
-                          fontWeight: 'medium',
-                        }}
+                        primaryTypographyProps={{ color: 'primary.main', fontSize: '0.92rem', fontWeight: 'medium' }}
                         secondaryTypographyProps={{ fontSize: '0.75rem' }}
                       />
                     </MenuItem>
@@ -478,28 +460,16 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
 
                   {/* ปุ่มแก้ไขโปรไฟล์ (ถ้า parent ส่ง handler มา) */}
                   {onEditProfile && (
-                    <MenuItem
-                      onClick={() => {
-                        onEditProfile();
-                      }}
-                      sx={{ py: 1.25 }}
-                    >
-                      <ListItemIcon>
-                        <EditIcon fontSize="small" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="แก้ไขโปรไฟล์"
-                        primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 'medium' }}
-                      />
+                    <MenuItem onClick={() => { onEditProfile(); }} sx={{ py: 1.25 }}>
+                      <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText primary="แก้ไขโปรไฟล์" primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 'medium' }} />
                     </MenuItem>
                   )}
 
                   <Divider />
 
                   <MenuItem onClick={handleLogoutClick} sx={{ py: 1.25 }}>
-                    <ListItemIcon>
-                      <LogoutIcon fontSize="small" color="error" />
-                    </ListItemIcon>
+                    <ListItemIcon><LogoutIcon fontSize="small" color="error" /></ListItemIcon>
                     <ListItemText
                       primary="ออกจากระบบ"
                       secondary="ออกจากบัญชีปัจจุบัน"
@@ -508,9 +478,75 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                     />
                   </MenuItem>
                 </Menu>
+
+                {/* เมนูกระดิ่ง: พรีวิวรายการแจ้งเตือน (แสดงได้, กดปิดได้) */}
+                <Menu
+                  anchorEl={notifEl}
+                  open={notifOpen}
+                  onClose={() => setNotifEl(null)}
+                  PaperProps={{ sx: { mt: 1, minWidth: 320 } }}
+                >
+                  <Box sx={{ px: 2, py: 1.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      การแจ้งเตือนล่าสุด
+                    </Typography>
+                  </Box>
+                  {notices.length === 0 && urgentNotices.length === 0 ? (
+                    <MenuItem disabled>
+                      <ListItemText primary="ไม่มีการแจ้งเตือน" />
+                    </MenuItem>
+                  ) : (
+                    <>
+                      {[...urgentNotices, ...notices].slice(0, 6).map(n => (
+                        <MenuItem
+                          key={`menu-${n.key}`}
+                          onClick={() => {
+                            n.onAction?.();
+                            n.onClose?.();
+                            setNotifEl(null);
+                          }}
+                          sx={{ alignItems: 'flex-start', whiteSpace: 'normal' }}
+                        >
+                          <ListItemText
+                            primary={
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Badge
+                                  variant="dot"
+                                  color={
+                                    n.severity === 'error' ? 'error' :
+                                    n.severity === 'warning' ? 'warning' :
+                                    n.severity === 'success' ? 'success' : 'info'
+                                  }
+                                />
+                                <Typography variant="body2">{n.message}</Typography>
+                              </Stack>
+                            }
+                          />
+                        </MenuItem>
+                      ))}
+                      {[
+                        <Divider key="divider-clear" />,
+                        <MenuItem
+                          key="clear-all"
+                          onClick={() => {
+                            const mm: Record<string, boolean> = {};
+                            for (const n of notices) mm[n.key] = false;
+                            setOpenMap(prev => ({ ...prev, ...mm }));
+                            const uu: Record<string, boolean> = {};
+                            for (const n of urgentNotices) uu[n.key] = false;
+                            setUrgentOpenMap(prev => ({ ...prev, ...uu }));
+                            setNotifEl(null);
+                          }}
+                        >
+                          ล้างทั้งหมด
+                        </MenuItem>,
+                      ]}
+                    </>
+                  )}
+                </Menu>
               </Box>
             ) : (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <AccountIcon sx={{ color: 'text.secondary' }} />
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                   ยังไม่ได้เข้าสู่ระบบ
@@ -521,7 +557,123 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
         </AppBar>
       </Box>
 
-      {/* Dialog กรอกข้อมูลอัตโนมัติ (Apple-like Glass) */}
+      {/* ✅ ถาดแจ้งเตือน “เร่งด่วน” (มุมขวาบน) */}
+      <Box
+        sx={{
+          position: 'fixed',
+          right: 16,
+          top: 16 + 56, // เผื่อความสูง AppBar
+          zIndex: t => t.zIndex.snackbar + 10,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+        }}
+      >
+        {urgentNotices.slice(0, 3).map((n, i) => (
+          <Snackbar
+            key={n.key}
+            open={urgentOpenMap[n.key] ?? true}
+            autoHideDuration={n.autoHideMs}
+            onClose={() => {
+              n.onClose?.();
+              setUrgentOpenMap(prev => ({ ...prev, [n.key]: false }));
+            }}
+            anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+            sx={{
+              '& .MuiPaper-root': {
+                transform: `translateY(${i * 8}px)`, // ซ้อนขยับลงเล็ก ๆ
+                transition: 'transform .2s ease',
+              },
+            }}
+          >
+            <Alert
+              onClose={() => {
+                n.onClose?.();
+                setUrgentOpenMap(prev => ({ ...prev, [n.key]: false }));
+              }}
+              severity={n.severity}
+              variant="filled"
+              sx={{ width: '100%', alignItems: 'flex-start' }}
+              action={
+                n.actionLabel ? (
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() => {
+                      n.onAction?.();
+                      if (!n.autoHideMs) setUrgentOpenMap(prev => ({ ...prev, [n.key]: false }));
+                    }}
+                  >
+                    {n.actionLabel}
+                  </Button>
+                ) : undefined
+              }
+            >
+              {n.message}
+            </Alert>
+          </Snackbar>
+        ))}
+      </Box>
+
+      {/* ✅ ถาดแจ้งเตือน “ปกติ” (อยู่ใต้แถบเร่งด่วนเล็กน้อย) */}
+      <Box
+        sx={{
+          position: 'fixed',
+          right: 16,
+          top: 16 + 56 + 84, // ใต้ถาดเร่งด่วน
+          zIndex: t => t.zIndex.snackbar + 9,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+        }}
+      >
+        {notices.slice(0, 4).map((n, i) => (
+          <Snackbar
+            key={n.key}
+            open={openMap[n.key] ?? true}
+            autoHideDuration={n.autoHideMs}
+            onClose={() => {
+              n.onClose?.();
+              setOpenMap(prev => ({ ...prev, [n.key]: false }));
+            }}
+            anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+            sx={{
+              '& .MuiPaper-root': {
+                transform: `translateY(${i * 8}px)`,
+                transition: 'transform .2s ease',
+              },
+            }}
+          >
+            <Alert
+              onClose={() => {
+                n.onClose?.();
+                setOpenMap(prev => ({ ...prev, [n.key]: false }));
+              }}
+              severity={n.severity}
+              variant="filled"
+              sx={{ width: '100%', alignItems: 'flex-start' }}
+              action={
+                n.actionLabel ? (
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() => {
+                      n.onAction?.();
+                      if (!n.autoHideMs) setOpenMap(prev => ({ ...prev, [n.key]: false }));
+                    }}
+                  >
+                    {n.actionLabel}
+                  </Button>
+                ) : undefined
+              }
+            >
+              {n.message}
+            </Alert>
+          </Snackbar>
+        ))}
+      </Box>
+
+      {/* Dialog กรอกข้อมูลอัตโนมัติ */}
       <Dialog
         open={autoFillDialogOpen}
         onClose={() => setAutoFillDialogOpen(false)}
@@ -533,15 +685,13 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             backdropFilter: 'blur(20px) saturate(180%)',
             backgroundColor: 'rgba(255,255,255,0.7)',
             border: '1px solid rgba(255,255,255,0.35)',
-            boxShadow:
-              '0 20px 60px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -1px 0 rgba(255,255,255,0.25)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -1px 0 rgba(255,255,255,0.25)',
           },
         }}
       >
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AutoFillIcon color="primary" />
-            กรอกข้อมูลอัตโนมัติ
+            <AutoFillIcon color="primary" /> กรอกข้อมูลอัตโนมัติ
           </Box>
         </DialogTitle>
         <DialogContent>
@@ -606,16 +756,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
 
             <FormControl size="small" fullWidth>
               <InputLabel>คณะ</InputLabel>
-              <Select
-                value={formData.faculty}
-                onChange={(e) => handleFormChange('faculty', e.target.value)}
-                label="คณะ"
-              >
-                {availableFaculties.map((f) => (
-                  <MenuItem key={f.name} value={f.name}>
-                    {f.name}
-                  </MenuItem>
-                ))}
+              <Select value={formData.faculty} onChange={(e) => handleFormChange('faculty', e.target.value)} label="คณะ">
+                {availableFaculties.map(f => (<MenuItem key={f.name} value={f.name}>{f.name}</MenuItem>))}
               </Select>
             </FormControl>
 
@@ -630,9 +772,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAutoFillDialogOpen(false)} disabled={loading}>
-            ยกเลิก
-          </Button>
+          <Button onClick={() => setAutoFillDialogOpen(false)} disabled={loading}>ยกเลิก</Button>
           <Button
             onClick={handleConfirmAutoFill}
             variant="contained"
@@ -644,17 +784,13 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar */}
+      {/* Snackbar ภายในของ NavigationBar (ผลบันทึกโปรไฟล์) */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
-        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
       >
-        <Alert
-          onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
-          severity={snackbar.severity}
-          sx={{ width: '100%' }}
-        >
+        <Alert onClose={() => setSnackbar(prev => ({ ...prev, open: false }))} severity={snackbar.severity} sx={{ width: '100%' }}>
           {snackbar.message}
         </Alert>
       </Snackbar>
