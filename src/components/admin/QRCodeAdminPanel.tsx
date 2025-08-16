@@ -1,21 +1,23 @@
-// src/components/admin/QRCodeAdminPanel.tsx
 'use client';
+
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Box, Grid, Card, CardContent, Typography, Button, Chip, Accordion, AccordionSummary,
-  AccordionDetails, IconButton, Paper, Avatar, Tooltip, Container, Dialog, DialogTitle,
-  DialogContent, DialogActions, TextField, Switch, FormControlLabel, Stack, Divider, Alert,
-  CircularProgress, InputAdornment, MenuItem, Select, FormControl, InputLabel, Slider,
-  Menu, ListItemIcon, ListItemText, Table, TableHead, TableRow, TableCell, TableBody,
+  Box, Grid, Card, CardContent, Typography, Button, Chip, IconButton, Paper, Tooltip,
+  Container, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Switch,
+  FormControlLabel, Stack, Divider, Alert, CircularProgress, InputAdornment, MenuItem,
+  Select, FormControl, InputLabel, Slider, Menu, ListItemIcon, ListItemText,
+  Tabs, Tab, TableContainer, Table, TableHead, TableRow, TableCell, TableBody
 } from '@mui/material';
+
 import {
-  ExpandMore as ExpandMoreIcon, QrCode2 as QrCodeIcon, Add as AddIcon, Edit as EditIcon,
+  QrCode2 as QrCodeIcon, Add as AddIcon, Edit as EditIcon,
   Delete as DeleteIcon, Visibility as ViewIcon, Image as ImageIcon,
   Clear as ClearIcon, ColorLens as ColorIcon, Shuffle as ShuffleIcon,
   ContentCopy as CopyIcon, Preview as PreviewIcon, Place as PlaceIcon,
-  Download as DownloadIcon, People as PeopleIcon, TableRows as TableIcon,
-  GridView as GridIcon
+  Download as DownloadIcon, People as PeopleIcon, GridView as GridIcon,
+  TableRows as TableIcon, MyLocation as MyLocationIcon
 } from '@mui/icons-material';
+
 import dayjs, { Dayjs } from 'dayjs';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -32,44 +34,43 @@ import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../.
 
 import {
   addDoc, collection, getDocs, limit, query, serverTimestamp, where, doc,
-  updateDoc, deleteDoc, deleteField,
+  updateDoc, deleteDoc, deleteField
 } from 'firebase/firestore';
 import { db, storage } from '../../lib/firebase';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+  import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 import GeofenceMap from '../maps/GeofenceMap';
 
-/* ===================== ENV & URL helpers ===================== */
-const ENV_ORIGIN =
-  process.env.NEXT_PUBLIC_APP_ORIGIN ||
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  process.env.NEXT_PUBLIC_BASE_URL ||
-  '';
-
-const getOrigin = () => {
-  if (ENV_ORIGIN && /^https?:\/\//i.test(ENV_ORIGIN)) return ENV_ORIGIN.replace(/\/$/, '');
-  if (typeof window !== 'undefined') return window.location.origin.replace(/\/$/, '');
-  return 'https://example.com';
-};
-
-// สร้าง URL ปลายทางแบบสั้น /r/:code
-const makeTargetUrl = (code: string) => `${getOrigin()}/r/${encodeURIComponent(code.trim().toUpperCase())}`;
-
-/* ===================== Utils ===================== */
+/* ===================== Small utils ===================== */
 const clean = <T extends Record<string, any>>(obj: T): T => {
   const out: any = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v === undefined || v === null) continue;
-    if (typeof v === 'string') {
-      const s = v.trim();
-      if (s) out[k] = s;
-    } else {
-      out[k] = v;
-    }
+    if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) continue;
+    out[k] = v;
   }
   return out as T;
 };
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+// อ่าน baseUrl จาก ENV (fallback เป็น window.location.origin)
+const envBase =
+  (process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    '').toString();
+
+const getBaseUrl = () => {
+  if (envBase) return envBase.replace(/\/$/, '');
+  if (typeof window !== 'undefined') return window.location.origin;
+  return '';
+};
+
+// สร้าง URL ที่จะ encode ลง QR (สั้น เพื่อไม่ให้ข้อมูลเยอะเกิน)
+const makeShortUrl = (code: string) =>
+  `${getBaseUrl()}/r/${encodeURIComponent(code.trim().toUpperCase())}`;
+
+// URL หน้าลงทะเบียน (ไว้แสดง/เปิดดูหน้า)
+const makeRegisterUrl = (code: string) =>
+  `${getBaseUrl()}/register?activity=${encodeURIComponent(code.trim().toUpperCase())}`;
 
 const pathFromStorageUrl = (url?: string | null): string | null => {
   if (!url) return null;
@@ -88,30 +89,6 @@ const randomHex = (bytes: number) =>
 const randomActivityCode = () => randomHex(16);
 const randomUserCode = () => randomHex(8);
 
-/* ===================== QR helpers ===================== */
-// v1: dataURL PNG ตามขนาด (มี attempt ลด error ถ้ายาวเกิน)
-const generateQrDataUrl = async (text: string, width = 600, ec: 'L'|'M'|'Q'|'H' = 'M') => {
-  const QR = await import('qrcode');
-  try {
-    return await QR.toDataURL(text, { margin: 1, width, errorCorrectionLevel: ec });
-  } catch {
-    // ยาวไป → ลด errorCorrection / margin
-    return await QR.toDataURL(text, { margin: 0, width, errorCorrectionLevel: 'L' });
-  }
-};
-
-// v2: export canvas (ใช้ในโปสเตอร์)
-const generateQrCanvas = async (text: string, width = 1024) => {
-  const QR = await import('qrcode');
-  const canvas = document.createElement('canvas');
-  try {
-    await QR.toCanvas(canvas, text, { width, margin: 0, errorCorrectionLevel: 'M' });
-  } catch {
-    await QR.toCanvas(canvas, text, { width, margin: 0, errorCorrectionLevel: 'L' });
-  }
-  return canvas;
-};
-
 const downloadDataUrl = (dataUrl: string, filename: string) => {
   const a = document.createElement('a');
   a.href = dataUrl;
@@ -121,8 +98,26 @@ const downloadDataUrl = (dataUrl: string, filename: string) => {
   a.remove();
 };
 
-/* ===================== Form state ===================== */
+const downloadCanvas = (canvas: HTMLCanvasElement, filename: string) => {
+  const url = canvas.toDataURL('image/png');
+  downloadDataUrl(url, filename);
+};
+
+// ปลอดภัยเวลา index DEPARTMENT_LABELS
+const deptLabelOf = (dept: string | undefined | null) =>
+  (DEPARTMENT_LABELS as Record<string, string>)[String(dept ?? '')] ?? String(dept ?? '');
+
+/* ===================== QR helpers ===================== */
+// PNG DataURL
+const generateQrPng = async (text: string, size = 600) => {
+  const QR = await import('qrcode');
+  // ใช้ errorCorrectionLevel 'M' ให้สแกนง่ายและไม่หนักเกินไป
+  return QR.toDataURL(text, { margin: 1, width: size, errorCorrectionLevel: 'M' });
+};
+
+/* ===================== Types for local use ===================== */
 type BannerMode = 'image' | 'color' | 'none';
+
 type CreateForm = {
   activityName: string;
   activityCode: string;
@@ -140,14 +135,14 @@ type CreateForm = {
   singleUserMode: boolean;
   maxParticipants?: number;
   targetUrl: string;
-  qrDataUrl: string;
+  qrDataUrl: string;             // preview QR
   userCode: string;
   bannerMode: BannerMode;
   bannerUrl?: string;
   bannerFile?: File | null;
   bannerColor?: string;
   bannerTintColor?: string;
-  bannerTintOpacity: number; // 0..1
+  bannerTintOpacity: number;     // 0..1
 };
 
 const defaultForm: CreateForm = {
@@ -177,52 +172,175 @@ const defaultForm: CreateForm = {
   bannerTintOpacity: 0.42,
 };
 
-/* ===================== Small UI helpers ===================== */
-type ActivityRow = Activity & { bannerUrl?: string | null; bannerColor?: string | null };
-const BannerThumb: React.FC<{ a: ActivityRow; height?: number; radius?: number; sx?: any }> = ({ a, height = 100, radius = 8, sx }) => {
-  const bannerUrl = (a as any)?.bannerUrl as string | undefined;
-  const bannerColor = (a as any)?.bannerColor as string | undefined;
-  const style: any = bannerUrl
-    ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-    : bannerColor
-    ? { background: bannerColor }
-    : { background: 'linear-gradient(135deg,#b3c7ff,#cde7ff)' };
-  return <Box sx={{ borderRadius: radius, width: '100%', height, position: 'relative', ...style, ...sx }} />;
-};
-
-const QrPreviewCard: React.FC<{ title: string; code: string; qr?: string; dept: string; when: string; place?: string; scanEnabled: boolean; }> = ({ title, code, qr, dept, when, place, scanEnabled }) => (
-  <Paper elevation={1} sx={{ p: 2, borderRadius: 2, border: '1px solid', borderColor: 'divider', maxWidth: 360, mx: 'auto' }}>
-    <Stack spacing={1} alignItems="center">
-      <Typography variant="subtitle2" color="text.secondary">{dept}</Typography>
-      <Typography variant="h6" fontWeight={800} textAlign="center">{title}</Typography>
-      <Typography variant="caption" color="text.secondary">{when}</Typography>
-      {place && <Typography variant="caption" color="text.secondary"><PlaceIcon fontSize="inherit" sx={{ mr: .5 }} />{place}</Typography>}
-      <Box sx={{ mt: 1.5, p: 1, borderRadius: 2, border: '1px dashed', borderColor: 'divider', position: 'relative' }}>
-        {qr ? (<img src={qr} alt="QR" style={{ width: 200, height: 200 }} />) : (<Box sx={{ width: 200, height: 200, bgcolor: 'grey.100' }} />)}
-        {!scanEnabled && (
-          <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(255,255,255,.65)', borderRadius: 2, display: 'grid', placeItems: 'center' }}>
-            <Chip color="warning" label="ปิดการสแกนชั่วคราว" />
-          </Box>
-        )}
-      </Box>
-      <Chip size="small" label={`รหัสกิจกรรม: ${code}`} />
-    </Stack>
-  </Paper>
-);
-
-/* ===================== Main ===================== */
 interface Props {
   currentAdmin: AdminProfile;
 }
 
-type PosterVariant = 'story' | 'a4' | 'square';
+/* ===================== Poster (Canvas) ===================== */
+// ---- Safe Day.js helpers (ต้องอยู่เหนือ buildPosterCanvas) ----
+const INVALID_DJ = dayjs(new Date(NaN)); // อินสแตนซ์ invalid แบบพกพา
+const toDay = (v: any | undefined) => {
+  if (v == null) return INVALID_DJ;                    // แทน dayjs.invalid()
+  const d = typeof v?.toDate === 'function' ? v.toDate() : v; // รองรับ Firestore Timestamp
+  return dayjs(d);
+};
+// รูปแบบวันที่แบบปลอดภัย (ถ้าไม่ valid -> คืน "-")
+const fmt = (v: any, f = 'DD MMM YYYY HH:mm') => {
+  const d = toDay(v);
+  return d.isValid() ? d.format(f) : '-';
+};
 
+const wrapText = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number
+) => {
+  const words = text.split(/\s+/);
+  let line = '';
+  let yy = y;
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + (line ? ' ' : '') + words[n];
+    const metrics = ctx.measureText(testLine);
+    const testWidth = metrics.width;
+    if (testWidth > maxWidth && n > 0) {
+      ctx.fillText(line, x, yy);
+      line = words[n];
+      yy += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line, x, yy);
+  return yy;
+};
+
+type PosterVariant = 'square' | 'a4';
+
+/**
+ * สร้างโปสเตอร์ (Canvas) แบบสวยงาม
+ * - ใช้ short URL ใน QR (ป้องกันข้อมูลเยอะเกิน)
+ * - วางหัวเรื่อง / เวลา / สถานที่ / QR / โค้ด
+ */
+const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square') => {
+  const shortUrl = makeShortUrl(a.activityCode);
+  const qrData = await generateQrPng(shortUrl, 1024);
+
+  // ขนาด
+  const size = variant === 'a4'
+    ? { w: 1240, h: 1754 }   // A4 ~150dpi (ไฟล์ไม่ใหญ่)
+    : { w: 1080, h: 1350 };  // สี่เหลี่ยมแนวตั้ง
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size.w;
+  canvas.height = size.h;
+  const ctx = canvas.getContext('2d')!;
+
+  // พื้นหลังไล่เฉดนุ่ม ๆ
+  const grd = ctx.createLinearGradient(0, 0, 0, size.h);
+  grd.addColorStop(0, '#e6efff');
+  grd.addColorStop(1, '#dff4ff');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, size.w, size.h);
+
+  // หัวโปสเตอร์ (รูปหรือสี)
+  const bannerColor = (a as any).bannerColor as string | undefined;
+  const tintColor = (a as any).bannerTintColor as string | undefined;
+  const tintOpacity = typeof (a as any).bannerTintOpacity === 'number'
+    ? Number((a as any).bannerTintOpacity) : 0.42;
+
+  const headerH = Math.round(size.h * 0.20);
+  if ((a as any).bannerUrl) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = (a as any).bannerUrl;
+    await new Promise<void>((resolve) => { img.onload = () => resolve(); img.onerror = () => resolve(); });
+    ctx.drawImage(img, 0, 0, size.w, headerH);
+    if (tintColor && tintOpacity > 0) {
+      ctx.fillStyle = tintColor;
+      ctx.globalAlpha = clamp(tintOpacity, 0, 1);
+      ctx.fillRect(0, 0, size.w, headerH);
+      ctx.globalAlpha = 1;
+    }
+  } else {
+    // ถ้าเป็น gradient css canvas ใช้ตรงๆไม่ได้ → ดึงสีหลักแทน
+    const bg = (bannerColor || '').startsWith('linear-gradient') ? '#4f46e5' : (bannerColor || '#c7d2fe');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, size.w, headerH);
+  }
+
+  // ข้อความหัว
+  const pad = Math.round(size.w * 0.04);
+  ctx.fillStyle = '#0b1220';
+  ctx.font = `600 ${Math.round(size.w * 0.04)}px Inter, "Noto Sans Thai", system-ui`;
+  ctx.fillText(deptLabelOf((a as any).department), pad, pad + Math.round(size.w * 0.04));
+
+  ctx.fillStyle = '#111827';
+  ctx.font = `800 ${Math.round(size.w * 0.065)}px Inter, "Noto Sans Thai", system-ui`;
+  const titleY = pad + Math.round(size.w * 0.04) + Math.round(size.w * 0.065) + 8;
+  wrapText(ctx, a.activityName || '-', pad, titleY, size.w - pad * 2, Math.round(size.w * 0.075));
+
+  ctx.fillStyle = '#334155';
+  ctx.font = `500 ${Math.round(size.w * 0.038)}px Inter, "Noto Sans Thai", system-ui`;
+  const tStartTxt = fmt(a.startDateTime);
+  const tEndTxt   = fmt(a.endDateTime);
+  ctx.fillText(`${tStartTxt} - ${tEndTxt}`, pad, Math.round(headerH - pad * 0.8));
+
+  // โซน QR กล่องขาวมุมโค้ง
+  const panelY = headerH + Math.round(size.h * 0.02);
+  const panelH = size.h - panelY - Math.round(size.h * 0.05);
+  const panelR = Math.round(size.w * 0.02);
+  ctx.fillStyle = '#ffffff';
+  // round rect
+  const rr = new Path2D();
+  rr.moveTo(pad + panelR, panelY);
+  rr.arcTo(size.w - pad, panelY, size.w - pad, panelY + panelR, panelR);
+  rr.arcTo(size.w - pad, panelY + panelH, size.w - pad - panelR, panelY + panelH, panelR);
+  rr.arcTo(pad, panelY + panelH, pad, panelY + panelH - panelR, panelR);
+  rr.arcTo(pad, panelY, pad + panelR, panelY, panelR);
+  ctx.fill(rr);
+
+  // QR
+  const qrImg = new Image();
+  qrImg.src = qrData;
+  await new Promise<void>((resolve) => { qrImg.onload = () => resolve(); qrImg.onerror = () => resolve(); });
+  const qrSize = Math.min(Math.round(panelH * 0.7), Math.round(size.w * 0.75));
+  const qrX = Math.round((size.w - qrSize) / 2);
+  const qrY = Math.round(panelY + panelH * 0.08);
+  ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+
+  // รหัสกิจกรรม
+  ctx.fillStyle = '#111827';
+  ctx.font = `800 ${Math.round(size.w * 0.045)}px Inter, "Noto Sans Thai", system-ui`;
+  const codeText = `รหัสกิจกรรม: ${a.activityCode}`;
+  const codeY = qrY + qrSize + Math.round(size.w * 0.08);
+  ctx.fillText(codeText, pad, codeY);
+
+  // สถานที่
+  if ((a as any).location) {
+    ctx.fillStyle = '#334155';
+    ctx.font = `600 ${Math.round(size.w * 0.036)}px Inter, "Noto Sans Thai", system-ui`;
+    wrapText(ctx, (a as any).location, pad, codeY + Math.round(size.w * 0.06), size.w - pad * 2, Math.round(size.w * 0.05));
+  }
+
+  // footer เล็ก ๆ
+  ctx.fillStyle = '#64748b';
+  ctx.font = `400 ${Math.round(size.w * 0.028)}px Inter, system-ui`;
+  const u = new URL(shortUrl);
+  ctx.fillText(`สร้างด้วย ระบบลงทะเบียนกิจกรรม • ${u.host}${u.pathname}`, pad, size.h - Math.round(size.w * 0.02));
+
+  return canvas;
+};
+
+/* ===================== Main ===================== */
 const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // view mode
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  // view mode: การ์ด / ตาราง
+  const [view, setView] = useState<'cards' | 'table'>('cards');
 
   // create
   const [openCreate, setOpenCreate] = useState(false);
@@ -237,35 +355,13 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
   const [qrDocId, setQrDocId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
-  // download menu (QR & Poster)
-  const [dlMenu, setDlMenu] = useState<{ anchorEl: HTMLElement | null; activity: Activity | null }>({ anchorEl: null, activity: null });
-
+  // download menu
+  const [dlMenu, setDlMenu] = useState<{ anchorEl: HTMLElement | null; activity: Activity | null }>({
+    anchorEl: null, activity: null,
+  });
   const openDownloadMenu = (e: React.MouseEvent<HTMLElement>, a: Activity) =>
     setDlMenu({ anchorEl: e.currentTarget as HTMLElement, activity: a });
   const closeDownloadMenu = () => setDlMenu({ anchorEl: null, activity: null });
-
-  const handleDownloadQr = async (size: number) => {
-    try {
-      if (!dlMenu.activity) return;
-      const a = dlMenu.activity;
-      const url = makeTargetUrl(a.activityCode);
-      const dataUrl = await generateQrDataUrl(url, size);
-      const filename = `QR_${a.activityCode}_${size}.png`;
-      downloadDataUrl(dataUrl, filename);
-    } finally { closeDownloadMenu(); }
-  };
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const data =
-        currentAdmin.department === 'all'
-          ? await getAllActivities()
-          : await getActivitiesByDepartment(currentAdmin.department as AdminDepartment);
-      setActivities(data);
-    } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [currentAdmin.department]);
 
   const activeCount = useMemo(() => activities.filter((a) => a.isActive).length, [activities]);
 
@@ -282,6 +378,18 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     await load();
   };
 
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data =
+        currentAdmin.department === 'all'
+          ? await getAllActivities()
+          : await getActivitiesByDepartment(currentAdmin.department as AdminDepartment);
+      setActivities(data);
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [currentAdmin.department]);
+
   /* ---------- Create ---------- */
   const handleOpenCreate = () => {
     setErrMsg('');
@@ -292,7 +400,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       userCode: randomUserCode(),
       startDateTime: dayjs().startOf('minute'),
       endDateTime: dayjs().add(2, 'hour').startOf('minute'),
-      targetUrl: makeTargetUrl(ac),
+      targetUrl: makeRegisterUrl(ac),
     });
     setOpenCreate(true);
   };
@@ -303,7 +411,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       const next = { ...prev, [key]: value };
       if (key === 'activityCode') {
         const code = String(value || '').toUpperCase();
-        next.targetUrl = code ? makeTargetUrl(code) : '';
+        next.targetUrl = code ? makeRegisterUrl(code) : '';
       }
       return next;
     });
@@ -333,6 +441,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     await uploadBytes(r, file);
     return await getDownloadURL(r);
   };
+
   const deleteBannerIfOwned = async (url?: string | null) => {
     try {
       const path = pathFromStorageUrl(url);
@@ -374,8 +483,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       }
 
       const userCode = (form.userCode || '').trim();
-      const targetUrl = makeTargetUrl(code);
-      const qrDataUrl = await generateQrDataUrl(targetUrl, 600);
+      const targetUrl = makeRegisterUrl(code);
+      // QR ใช้ short URL เสมอ (กันข้อมูลเยอะเกิน)
+      const qrDataUrl = await generateQrPng(makeShortUrl(code), 600);
 
       setSaving(true);
 
@@ -466,7 +576,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         activityCode: a.activityCode || '',
         headerTitle: qr?.headerTitle || '',
         description: a.description || qr?.description || '',
-        location: a.location || qr?.location || '',
+        location: (a as any).location || qr?.location || '',
         latitude: qr?.latitude,
         longitude: qr?.longitude,
         checkInRadius: a.checkInRadius ?? qr?.checkInRadius ?? 100,
@@ -481,11 +591,11 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         requiresUniversityLogin: qr?.requiresUniversityLogin ?? true,
         singleUserMode: qr?.singleUserMode ?? false,
         maxParticipants: a.maxParticipants || qr?.maxParticipants || undefined,
-        targetUrl: makeTargetUrl(a.activityCode),
-        qrDataUrl: a.qrUrl || qr?.qrUrl || '',
+        targetUrl: makeRegisterUrl(a.activityCode),
+        qrDataUrl: (a as any).qrUrl || qr?.qrUrl || '',
         userCode: (a as any).userCode || qr?.userCode || '',
         bannerMode: qr?.bannerUrl ? 'image' : qr?.bannerColor ? 'color' : 'none',
-        bannerUrl: a.bannerUrl || qr?.bannerUrl || undefined,
+        bannerUrl: (a as any).bannerUrl || qr?.bannerUrl || undefined,
         bannerFile: null,
         bannerColor: qr?.bannerColor || '#0ea5e9',
         bannerTintColor: qr?.bannerTintColor || '#0ea5e9',
@@ -623,175 +733,85 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     }
   };
 
-  /* ---------- Poster builder ---------- */
-  const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'story') => {
-    // ขนาดฐาน
-    const sizeMap: Record<PosterVariant, { w: number; h: number; radius: number; pad: number; }> = {
-      story:  { w: 1080, h: 1350, radius: 28, pad: 44 },
-      a4:     { w: 2480, h: 3508, radius: 48, pad: 96 },
-      square: { w: 2048, h: 2048, radius: 40, pad: 88 },
-    };
-    const { w, h, radius, pad } = sizeMap[variant];
-
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    const ctx = c.getContext('2d')!;
-    ctx.imageSmoothingQuality = 'high';
-
-    // พื้นหลัง gradient อ่อน
-    const bg = ctx.createLinearGradient(0, 0, 0, h);
-    bg.addColorStop(0, '#e9f0ff');
-    bg.addColorStop(1, '#e9f7ff');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
-
-    // เฮดเดอร์แบนเนอร์ (รูป/สี)
-    const bannerUrl = (a as any)?.bannerUrl as string | undefined;
-    const bannerColor = (a as any)?.bannerColor as string | undefined;
-
-    const headerH = Math.round(h * 0.22);
-    const headerRect = { x: 0, y: 0, w, h: headerH };
-    if (bannerUrl) {
-      await new Promise<void>((resolve) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          ctx.save();
-          ctx.drawImage(img, 0, 0, w, headerH);
-          ctx.restore();
-          resolve();
-        };
-        img.onerror = () => resolve();
-        img.src = bannerUrl;
-      });
-      // overlay tint บาง ๆ
-      ctx.fillStyle = 'rgba(0,0,0,.12)';
-      ctx.fillRect(headerRect.x, headerRect.y, headerRect.w, headerRect.h);
-    } else {
-      ctx.fillStyle = bannerColor || 'linear-gradient(135deg,#b3c7ff,#cde7ff)';
-      // ถ้าเป็นค่าสีปกติ → เติมปกติ
-      try {
-        ctx.fillStyle = bannerColor || '#cfe3ff';
-      } catch {}
-      ctx.fillRect(headerRect.x, headerRect.y, headerRect.w, headerRect.h);
-    }
-
-    // ชื่อสังกัด + ชื่อกิจกรรม + เวลา
-    ctx.fillStyle = '#0f172a';
-    ctx.font = Math.round(w * 0.035) + 'px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-    ctx.fillText(DEPARTMENT_LABELS[(a as any).department || ''] || ((a as any).department || 'ทุกสังกัด'), pad, headerH - Math.round(pad * 0.9));
-
-    ctx.font = 'bold ' + Math.round(w * 0.075) + 'px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-    ctx.fillText(a.activityName || 'กิจกรรม', pad, headerH - Math.round(pad * 0.25));
-
-    ctx.font = Math.round(w * 0.032) + 'px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-    const start = a.startDateTime ? dayjs(a.startDateTime).format('DD MMM YYYY HH:mm') : '-';
-    const end   = a.endDateTime ? dayjs(a.endDateTime).format('DD MMM YYYY HH:mm') : '-';
-    ctx.fillStyle = '#1f2937';
-    ctx.fillText(`${start} - ${end}`, pad, headerH - Math.round(pad * -0.3));
-
-    // การ์ด QR
-    const cardX = Math.round(pad * 1.2);
-    const cardW = w - Math.round(pad * 2.4);
-    const cardY = headerH + Math.round(pad * 0.8);
-    const cardH = Math.round(h * 0.58);
-
-    // เงา
-    ctx.save();
-    ctx.shadowColor = 'rgba(15,23,42,.14)';
-    ctx.shadowBlur = radius;
-    ctx.shadowOffsetY = 10;
-    ctx.fillStyle = '#fff';
-    roundRect(ctx, cardX, cardY, cardW, cardH, Math.round(radius * 0.9));
-    ctx.fill();
-    ctx.restore();
-
-    // สร้าง QR
-    const scanUrl = makeTargetUrl(a.activityCode);
-    const qrSize = Math.round(cardH * 0.78);
-    const qrCanvas = await generateQrCanvas(scanUrl, qrSize);
-    const qrX = Math.round(w / 2 - qrSize / 2);
-    const qrY = Math.round(cardY + pad * 0.9);
-    ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
-
-    // ใต้ QR — โค้ดกิจกรรม + URL ย่อ
-    ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold ' + Math.round(w * 0.03) + 'px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-    const codeText = `รหัสกิจกรรม: ${a.activityCode}`;
-    drawCenteredText(ctx, codeText, w / 2, qrY + qrSize + Math.round(pad * 1.3));
-
-    ctx.fillStyle = '#6b7280';
-    ctx.font = Math.round(w * 0.022) + 'px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-    drawCenteredText(ctx, scanUrl, w / 2, qrY + qrSize + Math.round(pad * 2.2));
-
-    // ฟุตเตอร์ สถานที่
-    if ((a as any)?.location) {
-      ctx.fillStyle = '#0f172a';
-      ctx.font = Math.round(w * 0.028) + 'px Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-      const place = `สถานที่: ${(a as any).location}`;
-      drawCenteredText(ctx, place, w / 2, h - Math.round(pad * 1.1));
-    }
-
-    return c;
-  };
-
-  const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
-    const min = Math.min(w, h);
-    r = Math.min(r, min / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  };
-  const drawCenteredText = (ctx: CanvasRenderingContext2D, text: string, cx: number, y: number) => {
-    const width = ctx.measureText(text).width;
-    ctx.fillText(text, Math.round(cx - width / 2), y);
-  };
-
-  const handleDownloadPoster = async (variant: PosterVariant) => {
-    if (!dlMenu.activity) return;
+  /* ---------- QR / Poster download ---------- */
+  const handleDownloadQr = async (size: number) => {
     try {
+      if (!dlMenu.activity) return;
       const a = dlMenu.activity;
-      const canvas = await buildPosterCanvas(a, variant);
-      const dataUrl = canvas.toDataURL('image/png', 1);
-      const filename = `POSTER_${a.activityCode}_${variant}.png`;
+      const dataUrl = await generateQrPng(makeShortUrl(a.activityCode), size);
+      const filename = `QR_${a.activityCode}_${size}.png`;
       downloadDataUrl(dataUrl, filename);
-    } catch (e: any) {
-      alert(e?.message || 'ไม่สามารถสร้างโปสเตอร์ได้');
     } finally {
       closeDownloadMenu();
     }
+  };
+
+  const handleDownloadPoster = async (variant: PosterVariant) => {
+    try {
+      if (!dlMenu.activity) return;
+      const a = dlMenu.activity;
+      const canvas = await buildPosterCanvas(a, variant);
+      const filename = `POSTER_${a.activityCode}_${variant}.png`;
+      downloadCanvas(canvas, filename);
+    } finally {
+      closeDownloadMenu();
+    }
+  };
+
+  /* ---------- Small card preview ---------- */
+  const QrPreviewCard: React.FC<{
+    title: string; code: string; qr?: string; dept: string; when: string; place?: string; scanEnabled: boolean; bannerUrl?: string; bannerColor?: string;
+  }> = ({ title, code, qr, dept, when, place, scanEnabled, bannerUrl, bannerColor }) => {
+    const hasImg = Boolean(bannerUrl);
+    const style: React.CSSProperties = hasImg
+      ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+      : bannerColor
+        ? { background: bannerColor }
+        : { background: 'linear-gradient(135deg,#4f46e5,#06b6d4)' };
+
+    return (
+      <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider', maxWidth: 380, mx: 'auto' }}>
+        <Box sx={{ height: 90, ...style }} />
+        <Box sx={{ p: 2 }}>
+          <Stack spacing={1} alignItems="center">
+            <Typography variant="subtitle2" color="text.secondary">{dept}</Typography>
+            <Typography variant="h6" fontWeight={800} textAlign="center">{title}</Typography>
+            <Typography variant="caption" color="text.secondary">{when}</Typography>
+            {place && <Typography variant="caption" color="text.secondary"><PlaceIcon fontSize="inherit" sx={{ mr: .5 }} />{place}</Typography>}
+            <Box sx={{ mt: 1.5, p: 1, borderRadius: 2, border: '1px dashed', borderColor: 'divider', position: 'relative' }}>
+              {qr ? <img src={qr} alt="QR" style={{ width: 200, height: 200 }} /> : <Box sx={{ width: 200, height: 200, bgcolor: 'grey.100' }} />}
+              {!scanEnabled && (
+                <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(255,255,255,.65)', borderRadius: 2, display: 'grid', placeItems: 'center' }}>
+                  <Chip color="warning" label="ปิดการสแกนชั่วคราว" />
+                </Box>
+              )}
+            </Box>
+            <Chip size="small" label={`รหัสกิจกรรม: ${code}`} />
+          </Stack>
+        </Box>
+      </Paper>
+    );
   };
 
   /* ===================== Render ===================== */
   return (
     <Container maxWidth="lg" sx={{ py: 3 }}>
       {/* Header */}
-      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-        <Stack>
+      <Box sx={{ mb: 2.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
+        <Stack direction="row" alignItems="center" spacing={1.5}>
           <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <QrCodeIcon /> จัดการ QR Code & กิจกรรม
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-            <Typography color="text.secondary">สังกัด:</Typography>
-            <Chip
-              size="small"
-              label={(DEPARTMENT_LABELS as Record<string, string>)[currentAdmin.department] || currentAdmin.department}
-              color="primary"
-              variant="outlined"
-            />
-          </Stack>
+          <Chip size="small" label={`สังกัด: ${deptLabelOf(currentAdmin.department)}`} color="primary" variant="outlined" />
+          <Chip size="small" label={`ฐาน: ${getBaseUrl()}`} variant="outlined" />
         </Stack>
 
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Tooltip title={viewMode === 'cards' ? 'ดูแบบตาราง' : 'ดูแบบการ์ด'}>
-            <IconButton onClick={() => setViewMode(v => v === 'cards' ? 'table' : 'cards')}>
-              {viewMode === 'cards' ? <TableIcon /> : <GridIcon />}
-            </IconButton>
-          </Tooltip>
+        <Stack direction="row" spacing={1}>
+          <Tabs value={view === 'cards' ? 0 : 1} onChange={(_, v) => setView(v === 0 ? 'cards' : 'table')} sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36 } }}>
+            <Tab icon={<GridIcon />} label="การ์ด" />
+            <Tab icon={<TableIcon />} label="ตาราง" />
+          </Tabs>
+
           <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>
             สร้างกิจกรรมใหม่
           </Button>
@@ -799,7 +819,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       </Box>
 
       {/* Stats */}
-      <Grid container spacing={3} sx={{ mb: 2 }}>
+      <Grid container spacing={2} sx={{ mb: 2 }}>
         <Grid item xs={12} sm={6} md={4}>
           <Card><CardContent sx={{ textAlign: 'center' }}>
             <Typography variant="h3" color="primary">{activeCount}</Typography>
@@ -827,13 +847,56 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 สร้างกิจกรรมใหม่
               </Button>
             </Box>
-          ) : viewMode === 'table' ? (
-            <Box sx={{ width: '100%', overflowX: 'auto' }}>
+          ) : view === 'cards' ? (
+            <Grid container spacing={2}>
+              {activities.map((a) => {
+                const st = statusOf(a);
+                const when = `${a.startDateTime?.toLocaleString('th-TH') || '-'} - ${a.endDateTime?.toLocaleString('th-TH') || '-'}`;
+                const bannerColor = (a as any).bannerColor as string | undefined;
+                return (
+                  <Grid item xs={12} sm={6} md={4} key={a.id}>
+                    <QrPreviewCard
+                      title={a.activityName || 'กิจกรรม'}
+                      code={a.activityCode}
+                      qr={(a as any).qrUrl}
+                      dept={deptLabelOf((a as any).department ?? currentAdmin.department)}
+                      when={when}
+                      place={(a as any).location || ''}
+                      scanEnabled={true}
+                      bannerUrl={(a as any).bannerUrl}
+                      bannerColor={bannerColor}
+                    />
+                    <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 1 }}>
+                      <Button size="small" variant="outlined" onClick={() => handleToggle(a)}>
+                        {a.isActive ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}
+                      </Button>
+                      <Tooltip title="แก้ไข">
+                        <IconButton color="primary" size="small" onClick={() => openEditDialog(a)}><EditIcon /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="ดาวน์โหลด">
+                        <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)}><DownloadIcon /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="รายชื่อผู้ลงทะเบียน">
+                        <IconButton color="info" size="small" onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}><PeopleIcon /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="ดูหน้าลงทะเบียน">
+                        <IconButton color="info" size="small" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}><ViewIcon /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="ลบ">
+                        <IconButton color="error" size="small" onClick={() => handleDeleteActivity(a)}><DeleteIcon /></IconButton>
+                      </Tooltip>
+                    </Stack>
+                    <Box sx={{ mt: 1, textAlign: 'center' }}><Chip size="small" label={st.label} color={st.color} /></Box>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          ) : (
+            <TableContainer>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>แบนเนอร์</TableCell>
-                    <TableCell>ชื่อกิจกรรม</TableCell>
+                    <TableCell>กิจกรรม</TableCell>
                     <TableCell>รหัส</TableCell>
                     <TableCell>ช่วงเวลา</TableCell>
                     <TableCell>สถานที่</TableCell>
@@ -844,40 +907,37 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <TableBody>
                   {activities.map((a) => {
                     const st = statusOf(a);
+                    const when = `${a.startDateTime?.toLocaleString('th-TH') || '-'} - ${a.endDateTime?.toLocaleString('th-TH') || '-'}`;
+                    const bannerColor = (a as any).bannerColor as string | undefined;
                     return (
                       <TableRow key={a.id} hover>
-                        <TableCell sx={{ width: 120 }}><BannerThumb a={a as ActivityRow} height={56} radius={8} /></TableCell>
-                        <TableCell sx={{ minWidth: 220 }}>
-                          <Typography fontWeight={700}>{a.activityName || '-'}</Typography>
-                          <Typography variant="caption" color="text.secondary">{(DEPARTMENT_LABELS as any)[(a as any).department] || (a as any).department || '-'}</Typography>
+                        <TableCell>
+                          <Stack direction="row" spacing={1.5} alignItems="center">
+                            <Box sx={{
+                              width: 40, height: 28, borderRadius: 1,
+                              background: (a as any).bannerUrl
+                                ? `url(${(a as any).bannerUrl}) center/cover no-repeat`
+                                : (bannerColor || 'linear-gradient(135deg,#4f46e5,#06b6d4)')
+                            }} />
+                            <Box>
+                              <Typography fontWeight={700}>{a.activityName || '-'}</Typography>
+                              <Typography variant="caption" color="text.secondary">{deptLabelOf((a as any).department ?? currentAdmin.department)}</Typography>
+                            </Box>
+                          </Stack>
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace' }}>{a.activityCode}</TableCell>
-                        <TableCell sx={{ minWidth: 240 }}>
-                          <Typography variant="body2">{a.startDateTime?.toLocaleString('th-TH') || '-'}</Typography>
-                          <Typography variant="caption" color="text.secondary">ถึง {a.endDateTime?.toLocaleString('th-TH') || '-'}</Typography>
-                        </TableCell>
-                        <TableCell sx={{ minWidth: 160 }}>{(a as any).location || '-'}</TableCell>
-                        <TableCell align="center"><Chip label={st.label} color={st.color} size="small" /></TableCell>
+                        <TableCell>{when}</TableCell>
+                        <TableCell>{(a as any).location || '-'}</TableCell>
+                        <TableCell align="center"><Chip size="small" label={st.label} color={st.color} /></TableCell>
                         <TableCell align="right">
                           <Stack direction="row" spacing={1} justifyContent="flex-end">
                             <Button size="small" variant="outlined" onClick={() => handleToggle(a)}>
                               {a.isActive ? 'ปิด' : 'เปิด'}
                             </Button>
-                            <Tooltip title="แก้ไข">
-                              <IconButton color="primary" size="small" onClick={() => openEditDialog(a)}><EditIcon /></IconButton>
-                            </Tooltip>
-                            <Tooltip title="ดาวน์โหลด / โปสเตอร์">
-                              <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)}><DownloadIcon /></IconButton>
-                            </Tooltip>
-                            <Tooltip title="รายชื่อผู้ลงทะเบียน">
-                              <IconButton color="info" size="small" onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}><PeopleIcon /></IconButton>
-                            </Tooltip>
-                            <Tooltip title="ดูหน้าลงทะเบียน">
-                              <IconButton color="info" size="small" onClick={() => window.open(makeTargetUrl(a.activityCode), '_blank')}><ViewIcon /></IconButton>
-                            </Tooltip>
-                            <Tooltip title="ลบ">
-                              <IconButton color="error" size="small" onClick={() => handleDeleteActivity(a)}><DeleteIcon /></IconButton>
-                            </Tooltip>
+                            <IconButton size="small" color="primary" onClick={() => openEditDialog(a)}><EditIcon fontSize="small" /></IconButton>
+                            <IconButton size="small" color="secondary" onClick={(e) => openDownloadMenu(e, a)}><DownloadIcon fontSize="small" /></IconButton>
+                            <IconButton size="small" color="info" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}><ViewIcon fontSize="small" /></IconButton>
+                            <IconButton size="small" color="error" onClick={() => handleDeleteActivity(a)}><DeleteIcon fontSize="small" /></IconButton>
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -885,126 +945,41 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   })}
                 </TableBody>
               </Table>
-            </Box>
-          ) : (
-            activities.map((a) => {
-              const st = statusOf(a);
-              return (
-                <Accordion key={a.id} sx={{ mb: 1, '&:before': { display: 'none' } }}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-                      <Avatar sx={{ bgcolor: 'primary.main' }}>{(a.activityName || 'A').charAt(0)}</Avatar>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="subtitle1">{a.activityName || '-'}</Typography>
-                        <Typography variant="caption" color="text.secondary">รหัส: {a.activityCode}</Typography>
-                      </Box>
-                      <Chip label={st.label} color={st.color} />
-                    </Box>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} md={8}>
-                        <Typography variant="body2" sx={{ mb: 1 }}>{a.description || 'ไม่มีรายละเอียด'}</Typography>
-                        <Grid container spacing={2}>
-                          <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">เริ่ม</Typography>
-                            <Typography>{a.startDateTime?.toLocaleString('th-TH') || '-'}</Typography>
-                          </Grid>
-                          <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">สิ้นสุด</Typography>
-                            <Typography>{a.endDateTime?.toLocaleString('th-TH') || '-'}</Typography>
-                          </Grid>
-                          <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">ผู้เข้าร่วม</Typography>
-                            <Typography>{a.currentParticipants || 0}{a.maxParticipants ? `/${a.maxParticipants}` : ''}</Typography>
-                          </Grid>
-                          <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">รัศมีเช็คอิน</Typography>
-                            <Typography>{a.checkInRadius ?? 50} ม.</Typography>
-                          </Grid>
-                        </Grid>
-                      </Grid>
-
-                      <Grid item xs={12} md={4}>
-                        <BannerThumb a={a as ActivityRow} height={92} radius={12} sx={{ mb: 1 }} />
-                        <QrPreviewCard
-                          title={a.activityName || 'กิจกรรม'}
-                          code={a.activityCode}
-                          qr={a.qrUrl}
-                          dept={(DEPARTMENT_LABELS as any)[(a as any).department || ''] || (a as any).department || ''}
-                          when={`${a.startDateTime?.toLocaleString('th-TH') || '-'} - ${a.endDateTime?.toLocaleString('th-TH') || '-'}`}
-                          place={(a as any).location || ''}
-                          scanEnabled={true}
-                        />
-
-                        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap', mt: 2 }}>
-                          <Button size="small" variant="outlined" onClick={() => handleToggle(a)}>
-                            {a.isActive ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}
-                          </Button>
-
-                          <Tooltip title="แก้ไข">
-                            <IconButton color="primary" size="small" onClick={() => openEditDialog(a)}><EditIcon /></IconButton>
-                          </Tooltip>
-                          <Tooltip title="ดาวน์โหลด / โปสเตอร์">
-                            <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)}><DownloadIcon /></IconButton>
-                          </Tooltip>
-                          <Tooltip title="รายชื่อผู้ลงทะเบียน">
-                            <IconButton color="info" size="small" onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}><PeopleIcon /></IconButton>
-                          </Tooltip>
-                          <Tooltip title="ดูหน้าลงทะเบียน">
-                            <IconButton color="info" size="small" onClick={() => window.open(makeTargetUrl(a.activityCode), '_blank')}><ViewIcon /></IconButton>
-                          </Tooltip>
-                          <Tooltip title="ลบ">
-                            <IconButton color="error" size="small" onClick={() => handleDeleteActivity(a)}><DeleteIcon /></IconButton>
-                          </Tooltip>
-                        </Box>
-                      </Grid>
-                    </Grid>
-                  </AccordionDetails>
-                </Accordion>
-              );
-            })
+            </TableContainer>
           )}
         </CardContent>
       </Card>
 
-      {/* ====== เมนูดาวน์โหลด QR / Poster ====== */}
+      {/* ====== เมนูดาวน์โหลด ====== */}
       <Menu anchorEl={dlMenu.anchorEl} open={Boolean(dlMenu.anchorEl)} onClose={closeDownloadMenu}>
-        <MenuItem disabled><ListItemText primary="QR (PNG)" /></MenuItem>
         <MenuItem onClick={() => handleDownloadQr(512)}>
           <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="512px" />
+          <ListItemText primary="QR PNG (512px)" />
         </MenuItem>
         <MenuItem onClick={() => handleDownloadQr(1024)}>
           <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="1024px" />
+          <ListItemText primary="QR PNG (1024px)" />
         </MenuItem>
         <MenuItem onClick={() => handleDownloadQr(2048)}>
           <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="2048px" />
+          <ListItemText primary="QR PNG (2048px)" />
         </MenuItem>
-
-        <Divider sx={{ my: .5 }} />
-        <MenuItem disabled><ListItemText primary="โปสเตอร์ (PNG)" /></MenuItem>
-        <MenuItem onClick={() => handleDownloadPoster('story')}>
-          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="Story 1080×1350" />
-        </MenuItem>
+        <Divider />
         <MenuItem onClick={() => handleDownloadPoster('square')}>
-          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="Square 2048×2048" />
+          <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="โปสเตอร์ (สี่เหลี่ยมแนวตั้ง)" />
         </MenuItem>
         <MenuItem onClick={() => handleDownloadPoster('a4')}>
-          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="A4 2480×3508" />
+          <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="โปสเตอร์ (A4)" />
         </MenuItem>
       </Menu>
 
       {/* ===================== Create Dialog ===================== */}
       <Dialog open={openCreate} onClose={handleCloseCreate} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ pb: 1.5 }}>
-          <Stack direction="row" alignItems="center" spacing={1.2}>
-            <QrCodeIcon /> <Typography variant="h6">สร้างกิจกรรม & QR Code</Typography>
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <QrCodeIcon /><Typography variant="h6">สร้างกิจกรรม & QR Code</Typography>
           </Stack>
         </DialogTitle>
         <DialogContent dividers>
@@ -1017,11 +992,11 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Typography variant="body2" color="text.secondary">สังกัดที่จะบันทึก:</Typography>
                   <Chip size="small" color="primary" variant="outlined"
-                    label={(DEPARTMENT_LABELS as Record<string, string>)[currentAdmin.department] || currentAdmin.department} />
+                    label={deptLabelOf(currentAdmin.department)} />
                 </Stack>
               </Grid>
 
-              {/* ชื่อ/รหัสกิจกรรม */}
+              {/* ชื่อ/รหัสกิจกรรม + สุ่ม/คัดลอก */}
               <Grid item xs={12} md={8}>
                 <TextField label="ชื่อกิจกรรม *" fullWidth value={form.activityName}
                   onChange={(e) => updateForm('activityName', e.target.value)} />
@@ -1058,7 +1033,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   <InputLabel>โหมดแบนเนอร์</InputLabel>
                   <Select label="โหมดแบนเนอร์" value={form.bannerMode}
                     onChange={(e) => updateForm('bannerMode', e.target.value as BannerMode)}>
-                    <MenuItem value="none">ไม่ใช้ (แสดงเป็นสีมาตรฐาน)</MenuItem>
+                    <MenuItem value="none">ไม่ใช้ (แสดงเป็นสี)</MenuItem>
                     <MenuItem value="image">รูปภาพ</MenuItem>
                     <MenuItem value="color">สี/Gradient</MenuItem>
                   </Select>
@@ -1103,7 +1078,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 </Grid>
               )}
 
-              {/* สีทับ + ความทึบ (ใช้ได้ทุกโหมด) */}
+              {/* สีทับ + ความทึบ */}
               <Grid item xs={12} md={7}>
                 <TextField
                   label="สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก"
@@ -1156,6 +1131,12 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   onCenterChange={(pos) => { updateForm('latitude', pos.lat); updateForm('longitude', pos.lng); }}
                   onUseCurrentLocation={useCurrentLocation}
                 />
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                  <MyLocationIcon fontSize="small" />
+                  <Typography variant="caption" color="text.secondary">
+                    กดปุ่ม “แสดงเส้นทาง” เพื่อบันทึกจุดอย่างรวดเร็ว หรือใช้ “ตำแหน่งปัจจุบัน” ได้
+                  </Typography>
+                </Stack>
               </Grid>
 
               {/* เลือกระยะ */}
@@ -1173,7 +1154,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 />
               </Grid>
 
-              {/* วันเวลา */}
+              {/* เวลา */}
               <Grid item xs={12} md={6}>
                 <DateTimePicker
                   label="เริ่มต้น"
@@ -1195,9 +1176,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               <Grid item xs={12} md={6}>
                 <TextField
                   label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)" fullWidth value={form.maxParticipants ?? ''}
-                  onChange={(e) =>
-                    updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))
-                  }
+                  onChange={(e) => updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))}
+                  placeholder="เช่น 300"
                 />
               </Grid>
               <Grid item xs={12} md={6}>
@@ -1217,10 +1197,12 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   title={form.activityName || 'กิจกรรม'}
                   code={form.activityCode}
                   qr={form.qrDataUrl}
-                  dept={(DEPARTMENT_LABELS as any)[currentAdmin.department] || currentAdmin.department}
+                  dept={deptLabelOf(currentAdmin.department)}
                   when={`${dayjs(form.startDateTime ?? undefined).format('DD MMM YYYY HH:mm')} - ${dayjs(form.endDateTime ?? undefined).format('DD MMM YYYY HH:mm')}`}
                   place={form.location || ''}
                   scanEnabled={form.scanEnabled}
+                  bannerUrl={form.bannerUrl}
+                  bannerColor={form.bannerColor}
                 />
               </Grid>
             </Grid>
@@ -1231,8 +1213,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
             startIcon={<PreviewIcon />}
             variant="outlined"
             onClick={async () => {
-              const url = form.activityCode ? makeTargetUrl(form.activityCode) : '';
-              const data = url ? await generateQrDataUrl(url, 600) : '';
+              const code = form.activityCode.trim();
+              const url = code ? makeShortUrl(code) : '';
+              const data = url ? await generateQrPng(url, 600) : '';
               updateForm('qrDataUrl', data as any);
               setOpenPreview(true);
             }}
@@ -1256,15 +1239,15 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         </DialogActions>
       </Dialog>
 
-      {/* ===================== พรีวิวหน้าลงทะเบียน ===================== */}
+      {/* พรีวิวหน้าลงทะเบียน (mock) */}
       <Dialog open={openPreview} onClose={() => setOpenPreview(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ pb: 1.5 }}>
-          <Stack direction="row" alignItems="center" spacing={1.2}>
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" spacing={1}>
             <PreviewIcon /> <Typography variant="h6">พรีวิวหน้าลงทะเบียน</Typography>
           </Stack>
         </DialogTitle>
         <DialogContent dividers>
-          {/* แบนเนอร์พรีวิว (รูป/สี) */}
+          {/* แบนเนอร์พรีวิว */}
           {(() => {
             const tint = form.bannerTintColor || '#0ea5e9';
             const op = Math.max(0, Math.min(1, form.bannerTintOpacity));
@@ -1286,11 +1269,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 {hasImage && (
                   <Box sx={{
                     position: 'absolute', inset: 0,
-                    background: `linear-gradient(180deg,
-                      rgba(0,0,0,0) 0%,
-                      ${op ? 'rgba(0,0,0,' + (op*0.15).toFixed(2) + ')' : 'transparent'} 35%,
-                      ${tint}
-                    )`,
+                    background: `linear-gradient(180deg, rgba(0,0,0,0) 0%, ${op ? 'rgba(0,0,0,' + (op*0.15).toFixed(2) + ')' : 'transparent'} 35%, ${tint})`,
                     mixBlendMode: 'multiply',
                     opacity: op,
                   }} />
@@ -1302,13 +1281,12 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           <Typography variant="h5" fontWeight={800} gutterBottom>{form.activityName || 'กิจกรรม'}</Typography>
           {form.headerTitle && <Typography color="text.secondary" gutterBottom>{form.headerTitle}</Typography>}
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
-            <Chip size="small" label={`สังกัด: ${(DEPARTMENT_LABELS as any)[currentAdmin.department] || currentAdmin.department}`} />
+            <Chip size="small" label={`สังกัด: ${deptLabelOf(currentAdmin.department)}`} />
             <Chip size="small" label={`${dayjs(form.startDateTime ?? undefined).format('DD MMM YYYY HH:mm')} - ${dayjs(form.endDateTime ?? undefined).format('DD MMM YYYY HH:mm')}`} />
             {form.location && <Chip size="small" icon={<PlaceIcon />} label={form.location} />}
             <Chip size="small" color={form.isActive ? 'success' : 'default'} label={form.isActive ? 'เปิดใช้งาน' : 'ปิดใช้งาน'} />
             <Chip size="small" color={form.scanEnabled ? 'success' : 'warning'} label={form.scanEnabled ? 'สแกนได้' : 'ปิดการสแกน'} />
           </Stack>
-          {form.description && <Typography variant="body2" sx={{ mb: 2 }}>{form.description}</Typography>}
 
           <GeofenceMap
             center={{
@@ -1324,10 +1302,12 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               title={form.activityName || 'กิจกรรม'}
               code={form.activityCode}
               qr={form.qrDataUrl}
-              dept={(DEPARTMENT_LABELS as any)[currentAdmin.department] || currentAdmin.department}
+              dept={deptLabelOf(currentAdmin.department)}
               when={`${dayjs(form.startDateTime ?? undefined).format('DD MMM YYYY HH:mm')} - ${dayjs(form.endDateTime ?? undefined).format('DD MMM YYYY HH:mm')}`}
               place={form.location || ''}
               scanEnabled={form.scanEnabled}
+              bannerUrl={form.bannerUrl}
+              bannerColor={form.bannerColor}
             />
           </Box>
         </DialogContent>
@@ -1338,8 +1318,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
 
       {/* ===================== Edit Dialog ===================== */}
       <Dialog open={openEdit} onClose={handleCloseEdit} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ pb: 1.5 }}>
-          <Stack direction="row" alignItems="center" spacing={1.2}>
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" spacing={1}>
             <EditIcon /><Typography variant="h6">แก้ไขกิจกรรม</Typography>
           </Stack>
         </DialogTitle>
@@ -1400,7 +1380,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                       <Stack direction="row" spacing={1} alignItems="center">
                         <img src={form.bannerUrl} alt="banner-preview" style={{ height: 60, borderRadius: 8 }} />
                         <Button color="error" startIcon={<ClearIcon />}
-                          onClick={async () => { updateForm('bannerUrl', undefined); updateForm('bannerFile', null); }}>
+                          onClick={async () => { await deleteBannerIfOwned(form.bannerUrl); updateForm('bannerUrl', undefined); updateForm('bannerFile', null); }}>
                           ลบรูป
                         </Button>
                       </Stack>
@@ -1494,7 +1474,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 />
               </Grid>
 
-              {/* วันเวลา */}
+              {/* เวลา */}
               <Grid item xs={12} md={6}>
                 <DateTimePicker
                   label="เริ่มต้น"
@@ -1516,7 +1496,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               <Grid item xs={12} md={6}>
                 <TextField
                   label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)" fullWidth value={form.maxParticipants ?? ''}
-                  onChange={(e) => updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))}
+                  onChange={(e) =>
+                    updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))
+                  }
                 />
               </Grid>
               <Grid item xs={12} md={6}>

@@ -62,7 +62,7 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_activities">
             <ResponsiveContainer>
-              <QRCodeAdminPanel currentAdmin={currentAdmin} baseUrl={baseUrl} />
+              <QRCodeAdminPanel currentAdmin={currentAdmin}  />
             </ResponsiveContainer>
           </AdminRoleGuard>
         );
