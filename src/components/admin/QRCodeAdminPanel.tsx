@@ -52,8 +52,17 @@ const clean = <T extends Record<string, any>>(obj: T): T => {
   return out as T;
 };
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-const makeTargetUrl = (baseUrl: string, code: string) =>
-  `${baseUrl.replace(/\/$/, '')}/register?activity=${encodeURIComponent(code.trim().toUpperCase())}`;
+
+/** ✅ โดเมนที่ deploy แล้ว (ตั้งค่าใน .env) */
+const DEPLOY_BASE_URL =
+  (typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_DEPLOY_BASE_URL : undefined) ||
+  (typeof window !== 'undefined' ? window.location.origin : '');
+
+/** ✅ สร้าง URL หน้าลงทะเบียน จากโดเมนที่ deploy แล้ว (fallback = baseUrl prop) */
+const makeTargetUrl = (baseUrl: string | undefined, code: string) => {
+  const base = (DEPLOY_BASE_URL || baseUrl || '').replace(/\/$/, '');
+  return `${base}/register?activity=${encodeURIComponent(code.trim().toUpperCase())}`;
+};
 
 const pathFromStorageUrl = (url?: string | null): string | null => {
   if (!url) return null;
@@ -72,11 +81,21 @@ const randomHex = (bytes: number) =>
 const randomActivityCode = () => randomHex(16);
 const randomUserCode = () => randomHex(8);
 
-// สร้าง QR dataURL (ระบุความกว้างได้)
+/* ---------- QR helpers ---------- */
+// dataURL สำหรับแสดง/อัปโหลด
 const generateQr = async (text: string, width = 600) => {
   const QR = await import('qrcode');
   return await QR.toDataURL(text, { margin: 1, width });
 };
+
+// canvas สำหรับประกอบเป็นโปสเตอร์
+const generateQrCanvas = async (text: string, size = 800): Promise<HTMLCanvasElement> => {
+  const QR = await import('qrcode');
+  const canvas = document.createElement('canvas');
+  await QR.toCanvas(canvas, text, { margin: 1, width: size });
+  return canvas;
+};
+
 const downloadDataUrl = (dataUrl: string, filename: string) => {
   const a = document.createElement('a');
   a.href = dataUrl;
@@ -84,6 +103,151 @@ const downloadDataUrl = (dataUrl: string, filename: string) => {
   document.body.appendChild(a);
   a.click();
   a.remove();
+};
+const downloadCanvas = (canvas: HTMLCanvasElement, filename: string) => {
+  downloadDataUrl(canvas.toDataURL('image/png'), filename);
+};
+
+/* ---------- Canvas Poster (QR + รายละเอียด) ---------- */
+type PosterMeta = {
+  title: string;
+  dept: string;
+  whenText: string;
+  place?: string;
+  code: string;
+  url: string;
+  tint?: string; // สีหลักของโปสเตอร์
+};
+const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+};
+const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    const t = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(t).width <= maxWidth) cur = t;
+    else {
+      if (cur) lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+};
+
+const buildPosterCanvas = async (qrUrl: string, meta: PosterMeta, w = 1080, h = 1350) => {
+  const pad = 48;
+  const headerH = 220;
+  const cardR = 28;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  // พื้นหลัง
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(0, 0, w, h);
+
+  // เงา
+  ctx.shadowColor = 'rgba(0,0,0,0.12)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 16;
+
+  // การ์ดพื้น
+  drawRoundedRect(ctx, pad, pad, w - pad * 2, h - pad * 2, cardR);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  // header gradient/tint
+  ctx.shadowColor = 'transparent';
+  const g = ctx.createLinearGradient(0, pad, w, pad + headerH);
+  const tint = meta.tint || '#4f46e5';
+  g.addColorStop(0, tint);
+  g.addColorStop(1, '#06b6d4');
+  drawRoundedRect(ctx, pad, pad, w - pad * 2, headerH, cardR);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // ชื่อกิจกรรม
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 52px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto';
+  const titleMax = w - pad * 4;
+  const titleLines = wrapText(ctx, meta.title || 'กิจกรรม', titleMax);
+  let ty = pad + 72;
+  titleLines.slice(0, 2).forEach((line) => {
+    ctx.fillText(line, pad * 1.5, ty);
+    ty += 62;
+  });
+
+  // สังกัด
+  ctx.globalAlpha = 0.95;
+  ctx.font = '600 28px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto';
+  ctx.fillText(meta.dept || '', pad * 1.5, ty + 4);
+  ctx.globalAlpha = 1;
+
+  // QR
+  const qrCanvas = await generateQrCanvas(qrUrl, 720);
+  const qrSize = Math.min(w - pad * 2 - 120, 720);
+  const qrX = (w - qrSize) / 2;
+  const qrY = pad + headerH + 36;
+  ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
+
+  // รายละเอียดใต้ QR
+  const infoTop = qrY + qrSize + 24;
+
+  // รหัส/URL
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '600 30px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto';
+  const codeText = `รหัสกิจกรรม: ${meta.code}`;
+  const codeWidth = ctx.measureText(codeText).width;
+  ctx.fillText(codeText, (w - codeWidth) / 2, infoTop + 32);
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = '400 26px ui-monospace, SFMono-Regular, Menlo, monospace';
+  const urlShort = meta.url.replace(/^https?:\/\//, '');
+  const urlWidth = ctx.measureText(urlShort).width;
+  ctx.fillText(urlShort, (w - urlWidth) / 2, infoTop + 68);
+
+  // แผงข้อมูลช่วงเวลา/สถานที่ (ล่าง)
+  const panelY = infoTop + 110;
+  const panelH = 180;
+  ctx.shadowColor = 'rgba(0,0,0,0.08)';
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 10;
+  drawRoundedRect(ctx, pad * 1.5, panelY, w - pad * 3, panelH, 20);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '700 30px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto';
+  ctx.fillText('รายละเอียด', pad * 1.8, panelY + 42);
+
+  ctx.fillStyle = '#334155';
+  ctx.font = '500 26px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto';
+  const when = `เวลา: ${meta.whenText}`;
+  const place = meta.place ? `สถานที่: ${meta.place}` : '';
+  ctx.fillText(when, pad * 1.8, panelY + 84);
+  if (place) ctx.fillText(place, pad * 1.8, panelY + 120);
+
+  // footer
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '400 22px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto';
+  const foot = 'สแกน QR นี้เพื่อลงทะเบียนเข้าร่วมกิจกรรม';
+  const fw = ctx.measureText(foot).width;
+  ctx.fillText(foot, (w - fw) / 2, h - pad * 1.2);
+
+  return canvas;
 };
 
 /* ===================== Form state ===================== */
@@ -145,7 +309,7 @@ const defaultForm: CreateForm = {
 /* ===================== Main ===================== */
 interface Props {
   currentAdmin: AdminProfile;
-  baseUrl: string;
+  baseUrl: string; // ยังรับไว้เป็น fallback
 }
 
 const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
@@ -187,6 +351,34 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
     }
   };
 
+  /** ✅ ดาวน์โหลดโปสเตอร์ (canvas) มีชื่อกิจกรรม/เวลา/สถานที่ */
+  const handleDownloadPoster = async (preset: 'story' | 'square') => {
+    try {
+      if (!dlMenu.activity) return;
+      const a = dlMenu.activity;
+      const url = makeTargetUrl(baseUrl, a.activityCode);
+
+      const when = `${a.startDateTime ? dayjs(a.startDateTime).format('DD MMM YYYY HH:mm') : '-'} - ${a.endDateTime ? dayjs(a.endDateTime).format('DD MMM YYYY HH:mm') : '-'}`;
+      const dept = (DEPARTMENT_LABELS as any)[a.department || ''] || a.department || '';
+
+      const meta: PosterMeta = {
+        title: a.activityName || 'กิจกรรม',
+        dept,
+        whenText: when,
+        place: a.location || '',
+        code: a.activityCode,
+        url,
+        tint: '#4f46e5',
+      };
+
+      const qrDataUrl = await generateQr(url, 1024);
+      const canvas = await buildPosterCanvas(qrDataUrl, meta, preset === 'story' ? 1080 : 1080, preset === 'story' ? 1350 : 1080);
+      downloadCanvas(canvas, `POSTER_${a.activityCode}_${preset}.png`);
+    } finally {
+      closeDownloadMenu();
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     try {
@@ -218,13 +410,14 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
   const handleOpenCreate = () => {
     setErrMsg('');
     const ac = randomActivityCode();
+    const targetUrl = makeTargetUrl(baseUrl, ac);
     setForm({
       ...defaultForm,
       activityCode: ac,
       userCode: randomUserCode(),
       startDateTime: dayjs().startOf('minute'),
       endDateTime: dayjs().add(2, 'hour').startOf('minute'),
-      targetUrl: makeTargetUrl(baseUrl, ac),
+      targetUrl,
     });
     setOpenCreate(true);
   };
@@ -730,8 +923,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
                             </IconButton>
                           </Tooltip>
 
-                          {/* ดาวน์โหลด QR (เมนูขนาด) */}
-                          <Tooltip title="ดาวน์โหลด QR">
+                          {/* ดาวน์โหลด QR / โปสเตอร์ */}
+                          <Tooltip title="ดาวน์โหลด">
                             <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)}>
                               <DownloadIcon />
                             </IconButton>
@@ -744,7 +937,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
                               size="small"
                               onClick={() =>
                                 window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')
-                              } // TODO: เปลี่ยน path ถ้าจำเป็น
+                              }
                             >
                               <PeopleIcon />
                             </IconButton>
@@ -774,7 +967,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
         </CardContent>
       </Card>
 
-      {/* ====== เมนูดาวน์โหลด QR ====== */}
+      {/* ====== เมนูดาวน์โหลด ====== */}
       <Menu
         anchorEl={dlMenu.anchorEl}
         open={Boolean(dlMenu.anchorEl)}
@@ -782,15 +975,24 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
       >
         <MenuItem onClick={() => handleDownloadQr(512)}>
           <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="ดาวน์โหลด PNG (512px)" />
+          <ListItemText primary="เฉพาะ QR — PNG (512px)" />
         </MenuItem>
         <MenuItem onClick={() => handleDownloadQr(1024)}>
           <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="ดาวน์โหลด PNG (1024px)" />
+          <ListItemText primary="เฉพาะ QR — PNG (1024px)" />
         </MenuItem>
         <MenuItem onClick={() => handleDownloadQr(2048)}>
           <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
-          <ListItemText primary="ดาวน์โหลด PNG (2048px)" />
+          <ListItemText primary="เฉพาะ QR — PNG (2048px)" />
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={() => handleDownloadPoster('story')}>
+          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="โปสเตอร์สวย ๆ — PNG (1080×1350)" />
+        </MenuItem>
+        <MenuItem onClick={() => handleDownloadPoster('square')}>
+          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+          <ListItemText primary="โปสเตอร์สี่เหลี่ยม — PNG (1080×1080)" />
         </MenuItem>
       </Menu>
 
@@ -967,12 +1169,12 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
                 />
               </Grid>
 
-              {/* วันเวลา — แก้ type ให้ตรงกับ MUI v6 */}
+              {/* วันเวลา */}
               <Grid item xs={12} md={6}>
                 <DateTimePicker
                   label="เริ่มต้น"
                   value={form.startDateTime}
-                  onChange={(value: any /* Dayjs|null */, _ctx) => updateForm('startDateTime', value as Dayjs | null)}
+                  onChange={(value: any, _ctx) => updateForm('startDateTime', value as Dayjs | null)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
@@ -980,7 +1182,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
                 <DateTimePicker
                   label="สิ้นสุด"
                   value={form.endDateTime}
-                  onChange={(value: any /* Dayjs|null */, _ctx) => updateForm('endDateTime', value as Dayjs | null)}
+                  onChange={(value: any, _ctx) => updateForm('endDateTime', value as Dayjs | null)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
@@ -1057,7 +1259,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
           </Stack>
         </DialogTitle>
         <DialogContent dividers>
-          {/* แบนเนอร์พรีวิว (ไม่มีรูป → ใช้สี) */}
+          {/* แบนเนอร์พรีวิว */}
           {(() => {
             const tint = form.bannerTintColor || '#0ea5e9';
             const op = Math.max(0, Math.min(1, form.bannerTintOpacity));
@@ -1287,12 +1489,12 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
                 />
               </Grid>
 
-              {/* วันเวลา — แก้ type ให้ตรงกับ MUI v6 */}
+              {/* วันเวลา */}
               <Grid item xs={12} md={6}>
                 <DateTimePicker
                   label="เริ่มต้น"
                   value={form.startDateTime}
-                  onChange={(value: any /* Dayjs|null */, _ctx) => updateForm('startDateTime', value as Dayjs | null)}
+                  onChange={(value: any, _ctx) => updateForm('startDateTime', value as Dayjs | null)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
@@ -1300,7 +1502,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin, baseUrl }) => {
                 <DateTimePicker
                   label="สิ้นสุด"
                   value={form.endDateTime}
-                  onChange={(value: any /* Dayjs|null */, _ctx) => updateForm('endDateTime', value as Dayjs | null)}
+                  onChange={(value: any, _ctx) => updateForm('endDateTime', value as Dayjs | null)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
