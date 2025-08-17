@@ -1,10 +1,12 @@
+// src/components/admin/AdminManagement.tsx
 'use client';
+
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box, Grid, Card, CardContent, Container, Typography, Button, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Chip, Stack,
   MenuItem, Switch, FormControlLabel, Alert, Tooltip, Divider, Avatar, ButtonGroup,
-  Autocomplete
+  Autocomplete, CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -15,9 +17,10 @@ import {
   Shield as ShieldIcon,
   PersonSearch as PersonSearchIcon,
   Mail as MailIcon,
-  Link as LinkIcon,
-  Cancel as CancelIcon
+  Cancel as CancelIcon,
+  ContentCopy as CopyIcon
 } from '@mui/icons-material';
+import { useSnackbar } from 'notistack';
 
 import {
   AdminProfile,
@@ -30,26 +33,21 @@ import {
 } from '../../types/admin';
 
 import {
-  getAllAdmins,
   getAdminsByDepartment,
-  createAdminUser,
   updateAdminUser,
   deleteAdminUser,
   getAllUsers,
   getUsersByDepartment,
   type UnivUser,
-  // --- Invite APIs (เพิ่มใหม่) ---
   getAdminInvitesByDepartment,
-  createAdminInvite,
-  cancelAdminInvite,
   type AdminInvite,
-  // --- Log API (มีอยู่ก่อนหน้า) ---
   logAdminEvent,
 } from '../../lib/adminFirebase';
 
+/** props */
 type Props = { currentAdmin: AdminProfile };
 
-// ——— bilingual permission meta ———
+/** bilingual permission meta (สำหรับ tooltip) */
 const PERMISSION_META: Record<AdminPermission, {
   th: string; en: string; descTh: string; descEn: string; group: string;
 }> = {
@@ -98,14 +96,37 @@ const PERMISSION_META: Record<AdminPermission, {
 };
 const ALL_PERMS: AdminPermission[] = Object.keys(PERMISSION_META) as AdminPermission[];
 
+/** base URL สำหรับคัดลอกลิงก์คำเชิญ */
+const SITE_ORIGIN =
+  (process.env.NEXT_PUBLIC_SITE_URL || '').toString().replace(/\/$/, '') ||
+  (typeof window !== 'undefined' ? window.location.origin : '');
+
+/** Confirm dialog hook */
+type ConfirmState = {
+  open: boolean;
+  title?: string;
+  message?: string;
+  confirmText?: string;
+  onConfirm?: () => Promise<void> | void;
+  busy?: boolean;
+};
+const useConfirm = () => {
+  const [state, setState] = useState<ConfirmState>({ open: false });
+  const open = (s: Omit<ConfirmState, 'busy' | 'open'>) =>
+    setState({ open: true, busy: false, ...s });
+  const close = () => setState({ open: false });
+  const setBusy = (busy: boolean) => setState((p) => ({ ...p, busy }));
+  return { state, open, close, setBusy };
+};
+
 const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
+  const { enqueueSnackbar } = useSnackbar();
+  const confirm = useConfirm();
+
   const [admins, setAdmins] = useState<AdminProfile[]>([]);
   const [invites, setInvites] = useState<AdminInvite[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
-
-  // filter: super_admin เท่านั้นที่เลือกสังกัดได้
-  const [deptFilter, setDeptFilter] = useState<AdminDepartment>(currentAdmin.department);
 
   // dialogs
   const [open, setOpen] = useState(false);
@@ -135,7 +156,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
   );
   const [invitePerms, setInvitePerms] = useState<AdminPermission[]>([]);
 
-  // เลือกผู้ใช้ตอนสร้าง (ไม่ต้องกรอก UID/ชื่อ/อีเมลเอง)
+  // เลือกผู้ใช้ตอนสร้าง
   const [userOptions, setUserOptions] = useState<UnivUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<UnivUser | null>(null);
   const [userSearch, setUserSearch] = useState('');
@@ -143,25 +164,35 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
   const isSuper = currentAdmin.role === 'super_admin';
   const canManageAdmins = (currentAdmin.permissions ?? []).includes('manage_admins') || isSuper;
 
+  const safeLog = async (event: string, payload: any) => {
+    try {
+      await logAdminEvent(event, payload, { uid: currentAdmin.uid, email: currentAdmin.email });
+    } catch {}
+  };
+
   const load = async () => {
     setLoading(true);
     setErr('');
     try {
-      const dept = isSuper ? deptFilter : currentAdmin.department;
+      // ไม่มีตัวกรองสังกัด: 
+      // - ถ้า super_admin -> เห็นทุกสังกัด (ส่ง 'all')
+      // - อื่น ๆ -> เห็นเฉพาะสังกัดของตัวเอง
+      const dept: AdminDepartment = isSuper ? ('all' as any) : currentAdmin.department;
       const [adminList, inviteList] = await Promise.all([
-        dept === 'all' ? getAdminsByDepartment('all') : getAdminsByDepartment(dept),
+        getAdminsByDepartment(dept),
         getAdminInvitesByDepartment(dept),
       ]);
       setAdmins(adminList);
       setInvites(inviteList);
     } catch (e: any) {
       setErr(e?.message || 'โหลดข้อมูลไม่สำเร็จ');
+      enqueueSnackbar(e?.message || 'โหลดข้อมูลไม่สำเร็จ', { variant: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [deptFilter]);
+  useEffect(() => { load(); /* eslint-disable-line */ }, []);
 
   // ===== Handlers =====
   const openCreate = async () => {
@@ -179,11 +210,16 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
       permissions: [],
       isActive: true,
     });
-    // โหลดตัวเลือกผู้ใช้เฉพาะสังกัดของตน (ยกเว้น super เห็นได้ทุกสังกัด)
-    const options = isSuper
-      ? await getAllUsers()
-      : await getUsersByDepartment(currentAdmin.department as AdminDepartment);
-    setUserOptions(options);
+
+    try {
+      const options = isSuper
+        ? await getAllUsers()
+        : await getUsersByDepartment(currentAdmin.department as AdminDepartment);
+      setUserOptions(options);
+    } catch (e: any) {
+      enqueueSnackbar(e?.message || 'โหลดผู้ใช้ไม่สำเร็จ', { variant: 'error' });
+    }
+
     setOpen(true);
     setErr('');
   };
@@ -199,6 +235,9 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   const openEdit = (a: AdminProfile) => {
+    // กันเห็น/แก้ไขข้ามสังกัด (เผื่อกรณีโหลดหลุด)
+    if (!isSuper && a.department !== currentAdmin.department) return;
+
     setMode('edit');
     setEditingUid(a.uid);
     setSelectedUser(null);
@@ -253,7 +292,6 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
     if (currentAdmin.uid === target.uid) return false;
     if (isSuper) return true;
     return (
-      currentAdmin.department !== 'all' &&
       target.department === currentAdmin.department &&
       target.role !== 'super_admin'
     );
@@ -263,9 +301,10 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
     setErr('');
     try {
       if (mode === 'create') {
-        if (!selectedUser) { setErr('โปรดเลือกผู้ใช้ที่จะตั้งเป็นแอดมิน'); return; }
-        if (!isSuper && form.role === 'super_admin') { setErr('คุณไม่มีสิทธิ์ตั้งบทบาทเป็นผู้ดูแลสูงสุด'); return; }
+        if (!selectedUser) { setErr('โปรดเลือกผู้ใช้ที่จะตั้งเป็นแอดมิน'); enqueueSnackbar('โปรดเลือกผู้ใช้ที่จะตั้งเป็นแอดมิน', { variant: 'warning' }); return; }
+        if (!isSuper && form.role === 'super_admin') { setErr('คุณไม่มีสิทธิ์ตั้งบทบาทเป็นผู้ดูแลสูงสุด'); enqueueSnackbar('คุณไม่มีสิทธิ์ตั้งผู้ดูแลสูงสุด', { variant: 'error' }); return; }
 
+        // บังคับสังกัด = สังกัดตนเอง (ยกเว้น super)
         const dept: AdminDepartment =
           (isSuper ? (form.department as AdminDepartment) : currentAdmin.department) as AdminDepartment;
 
@@ -289,16 +328,17 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
           profileImage: selectedUser.photoURL || '',
         };
 
-        await createAdminUser(payload);
-        await logAdminEvent('ADMIN_CREATE', {
-          targetUid: payload.uid, role: payload.role, department: payload.department
-        }, { uid: currentAdmin.uid, email: currentAdmin.email });
+        await updateAdminUser(payload.uid, payload);
+        await safeLog('ADMIN_CREATE', { targetUid: payload.uid, role: payload.role, department: payload.department });
+        enqueueSnackbar('เพิ่มแอดมินเรียบร้อย', { variant: 'success' });
 
       } else if (mode === 'edit') {
         if (!editingUid) return;
+
+        // กันข้ามสังกัด
         if (!isSuper) {
-          if (form.role === 'super_admin') { setErr('คุณไม่มีสิทธิ์ตั้งบทบาทเป็นผู้ดูแลสูงสุด'); return; }
-          if (form.department !== currentAdmin.department) { setErr('ไม่สามารถเปลี่ยนสังกัดข้ามหน่วยได้'); return; }
+          if (form.role === 'super_admin') { setErr('คุณไม่มีสิทธิ์ตั้งบทบาทเป็นผู้ดูแลสูงสุด'); enqueueSnackbar('คุณไม่มีสิทธิ์ตั้งผู้ดูแลสูงสุด', { variant: 'error' }); return; }
+          if (form.department !== currentAdmin.department) { setErr('ไม่สามารถเปลี่ยนสังกัดข้ามหน่วยได้'); enqueueSnackbar('ไม่สามารถเปลี่ยนสังกัดข้ามหน่วยได้', { variant: 'error' }); return; }
         }
 
         await updateAdminUser(editingUid, {
@@ -309,59 +349,145 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
           profileImage: (form as any).profileImage || '',
         });
 
-        await logAdminEvent('ADMIN_UPDATE', {
-          targetUid: editingUid, role: form.role, department: form.department
-        }, { uid: currentAdmin.uid, email: currentAdmin.email });
+        await safeLog('ADMIN_UPDATE', { targetUid: editingUid, role: form.role, department: form.department });
+        enqueueSnackbar('อัปเดตข้อมูลแอดมินเรียบร้อย', { variant: 'success' });
 
       } else if (mode === 'invite') {
-        if (!inviteEmail.trim()) { setErr('โปรดกรอกอีเมลผู้รับเชิญ'); return; }
-        if (!isSuper && inviteRole === 'super_admin') { setErr('คุณไม่มีสิทธิ์เชิญบทบาทผู้ดูแลสูงสุด'); return; }
+        if (!inviteEmail.trim()) { setErr('โปรดกรอกอีเมลผู้รับเชิญ'); enqueueSnackbar('โปรดกรอกอีเมลผู้รับเชิญ', { variant: 'warning' }); return; }
+        if (!isSuper && inviteRole === 'super_admin') { setErr('คุณไม่มีสิทธิ์เชิญบทบาทผู้ดูแลสูงสุด'); enqueueSnackbar('คุณไม่มีสิทธิ์เชิญผู้ดูแลสูงสุด', { variant: 'error' }); return; }
+
+        // บังคับสังกัดของตนเอง (ยกเว้น super)
         const dept: AdminDepartment = isSuper ? inviteDept : currentAdmin.department;
 
-        const token = await createAdminInvite({
-          email: inviteEmail.trim(),
-          role: inviteRole,
-          department: dept,
-          permissions: invitePerms.length ? invitePerms : (ROLE_PERMISSIONS[inviteRole] || []),
-          invitedByUid: currentAdmin.uid,
-          invitedByEmail: currentAdmin.email,
+        const res = await fetch('/api/invites/send', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            email: inviteEmail.trim(),
+            role: inviteRole,
+            department: dept,
+            permissions: invitePerms.length ? invitePerms : (ROLE_PERMISSIONS[inviteRole] || []),
+            invitedByUid: currentAdmin.uid,
+            invitedByEmail: currentAdmin.email,
+          }),
         });
+        const data = await res.json();
+        if (!res.ok || !data?.ok) {
+          const msg = data?.error || 'ส่งคำเชิญไม่สำเร็จ';
+          setErr(msg);
+          enqueueSnackbar(msg, { variant: 'error' });
+          return;
+        }
 
-        await logAdminEvent('ADMIN_INVITE_CREATE', {
-          email: inviteEmail.trim(), role: inviteRole, department: dept
-        }, { uid: currentAdmin.uid, email: currentAdmin.email });
-
-        // โชว์ลิงก์สำหรับคัดลอก (ในกรณียังไม่มี Cloud Function ส่งอีเมล)
-        const link = `${window.location.origin}/admin/invite?token=${token}`;
-        await navigator.clipboard.writeText(link).catch(() => {});
-        alert('สร้างคำเชิญแล้ว! ลิงก์ถูกคัดลอกไปยังคลิปบอร์ด (หรือส่งอีเมลผ่านระบบ Functions ได้)');
-
+        await safeLog('ADMIN_INVITE_CREATE', { email: inviteEmail.trim(), role: inviteRole, department: dept });
+        enqueueSnackbar('ส่งคำเชิญทางอีเมลเรียบร้อย', { variant: 'success' });
       }
 
       setOpen(false);
       await load();
     } catch (e: any) {
-      setErr(e?.message || 'บันทึกไม่สำเร็จ');
+      const msg = e?.message || 'บันทึกไม่สำเร็จ';
+      setErr(msg);
+      enqueueSnackbar(msg, { variant: 'error' });
     }
   };
 
-  const remove = async (a: AdminProfile) => {
+  const removeAdmin = (a: AdminProfile) => {
     if (!canDelete(a)) return;
-    const ok = window.confirm(`ต้องการลบสิทธิ์แอดมินของ ${a.firstName} ${a.lastName} ใช่หรือไม่?`);
-    if (!ok) return;
-    try {
-      await deleteAdminUser(a.uid);
-      await logAdminEvent('ADMIN_DELETE', { targetUid: a.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
-      await load();
-    } catch (e) { alert('ลบไม่สำเร็จ'); }
+    confirm.open({
+      title: 'ยืนยันการลบแอดมิน',
+      message: `ต้องการลบสิทธิ์แอดมินของ ${a.firstName} ${a.lastName} ใช่หรือไม่?`,
+      confirmText: 'ลบ',
+      onConfirm: async () => {
+        confirm.setBusy(true);
+        try {
+          await deleteAdminUser(a.uid);
+          await safeLog('ADMIN_DELETE', { targetUid: a.uid });
+          enqueueSnackbar('ลบแอดมินเรียบร้อย', { variant: 'success' });
+          await load();
+        } catch (e: any) {
+          enqueueSnackbar(e?.message || 'ลบไม่สำเร็จ', { variant: 'error' });
+        } finally {
+          confirm.setBusy(false);
+          confirm.close();
+        }
+      }
+    });
   };
 
-  const cancelInvite = async (inv: AdminInvite) => {
-    const ok = window.confirm(`ยกเลิกคำเชิญสำหรับ ${inv.email}?`);
-    if (!ok) return;
-    await cancelAdminInvite(inv.id);
-    await logAdminEvent('ADMIN_INVITE_CANCEL', { inviteId: inv.id, email: inv.email }, { uid: currentAdmin.uid, email: currentAdmin.email });
-    await load();
+  const cancelInvite = (inv: AdminInvite) => {
+    // ป้องกันยกเลิกคำเชิญข้ามสังกัด
+    if (!isSuper && inv.department !== currentAdmin.department) return;
+
+    confirm.open({
+      title: 'ยืนยันยกเลิกคำเชิญ',
+      message: `ยกเลิกคำเชิญสำหรับ ${inv.email}?`,
+      confirmText: 'ยกเลิกคำเชิญ',
+      onConfirm: async () => {
+        confirm.setBusy(true);
+        try {
+          const res = await fetch('/api/invites/cancel', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: inv.id }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data?.ok) throw new Error(data?.error || 'ยกเลิกคำเชิญไม่สำเร็จ');
+          await safeLog('ADMIN_INVITE_CANCEL', { inviteId: inv.id, email: inv.email });
+          enqueueSnackbar('ยกเลิกคำเชิญแล้ว', { variant: 'info' });
+          await load();
+        } catch (e: any) {
+          enqueueSnackbar(e?.message || 'ยกเลิกคำเชิญไม่สำเร็จ', { variant: 'error' });
+        } finally {
+          confirm.setBusy(false);
+          confirm.close();
+        }
+      }
+    });
+  };
+
+  const deleteInvite = (inv: AdminInvite) => {
+    if (!isSuper && inv.department !== currentAdmin.department) return;
+
+    confirm.open({
+      title: 'ลบประวัติคำเชิญ',
+      message: `ลบประวัติคำเชิญของ ${inv.email}? (การลบนี้ถาวร)`,
+      confirmText: 'ลบประวัติ',
+      onConfirm: async () => {
+        confirm.setBusy(true);
+        try {
+          const res = await fetch('/api/invites/delete', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: inv.id }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data?.ok) throw new Error(data?.error || 'ลบประวัติคำเชิญไม่สำเร็จ');
+          await safeLog('ADMIN_INVITE_DELETE', { inviteId: inv.id, email: inv.email });
+          enqueueSnackbar('ลบประวัติคำเชิญแล้ว', { variant: 'success' });
+          await load();
+        } catch (e: any) {
+          enqueueSnackbar(e?.message || 'ลบประวัติคำเชิญไม่สำเร็จ', { variant: 'error' });
+        } finally {
+          confirm.setBusy(false);
+          confirm.close();
+        }
+      }
+    });
+  };
+
+  const copyInviteLink = async (inv: AdminInvite) => {
+    if (!inv?.token) return;
+    // ป้องกันคัดลอกลิงก์ข้ามสังกัด (เผื่อหลุด)
+    if (!isSuper && inv.department !== currentAdmin.department) return;
+
+    try {
+      const link = `${SITE_ORIGIN}/admin/invite?token=${inv.token}`;
+      await navigator.clipboard.writeText(link);
+      enqueueSnackbar('คัดลอกลิงก์แล้ว', { variant: 'success' });
+    } catch {
+      enqueueSnackbar('คัดลอกลิงก์ไม่สำเร็จ', { variant: 'error' });
+    }
   };
 
   const visibleAdmins = useMemo(
@@ -372,7 +498,15 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
   // ===== UI =====
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+      <Box
+        sx={{
+          mb: 3,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          flexWrap: 'wrap'
+        }}
+      >
         <Avatar sx={{ bgcolor: 'primary.main' }}><AdminIcon /></Avatar>
         <Box>
           <Typography variant="h4">จัดการแอดมิน</Typography>
@@ -381,22 +515,8 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
           </Typography>
         </Box>
         <Box sx={{ flex: 1 }} />
-        <Stack direction="row" spacing={1}>
-          {isSuper && (
-            <TextField
-              select
-              size="small"
-              label="ตัวกรองสังกัด"
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value as AdminDepartment)}
-              sx={{ minWidth: 220 }}
-            >
-              <MenuItem value="all">ทุกสังกัด</MenuItem>
-              {Object.entries(DEPARTMENT_LABELS).map(([k, v]) => (
-                k !== 'all' && <MenuItem key={k} value={k}>{v}</MenuItem>
-              ))}
-            </TextField>
-          )}
+        {/* เอาตัวกรองสังกัดออกตามข้อกำหนด */}
+        <Stack direction="row" spacing={1} flexWrap="wrap">
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} disabled={loading}>
             รีเฟรช
           </Button>
@@ -424,7 +544,6 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                   inv.status === 'pending' ? 'warning' :
                   inv.status === 'accepted' ? 'success' :
                   inv.status === 'cancelled' ? 'default' : 'default';
-                const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/admin/invite?token=${inv.token}`;
                 return (
                   <Grid item xs={12} key={inv.id}>
                     <Card variant="outlined">
@@ -436,32 +555,42 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                             {ROLE_LABELS[inv.role]} • {DEPARTMENT_LABELS[inv.department] || inv.department}
                           </Typography>
                         </Box>
-                        <Chip size="small" color={statusColor as any} label={
-                          inv.status === 'pending' ? 'รอรับสิทธิ์' :
-                          inv.status === 'accepted' ? 'รับแล้ว' :
-                          inv.status === 'cancelled' ? 'ยกเลิก' : inv.status
-                        } />
+                        <Chip
+                          size="small"
+                          color={statusColor as any}
+                          label={
+                            inv.status === 'pending' ? 'รอรับสิทธิ์' :
+                            inv.status === 'accepted' ? 'รับแล้ว' :
+                            inv.status === 'cancelled' ? 'ยกเลิก' : inv.status
+                          }
+                        />
                         <Box sx={{ flex: 1 }} />
-                        <Tooltip title="คัดลอกลิงก์">
+
+                        <Tooltip title="คัดลอกลิงก์ยืนยัน">
                           <span>
-                            <IconButton
-                              onClick={async () => { await navigator.clipboard.writeText(link).catch(()=>{}); }}
-                              disabled={!inv.token}
-                              color="primary"
-                            >
-                              <LinkIcon />
+                            <IconButton onClick={() => copyInviteLink(inv)} disabled={!inv.token} color="primary">
+                              <CopyIcon />
                             </IconButton>
                           </span>
                         </Tooltip>
+
                         {inv.status === 'pending' && (
                           <Tooltip title="ยกเลิกคำเชิญ">
                             <span>
-                              <IconButton onClick={() => cancelInvite(inv)} color="error">
+                              <IconButton onClick={() => cancelInvite(inv)} color="warning">
                                 <CancelIcon />
                               </IconButton>
                             </span>
                           </Tooltip>
                         )}
+
+                        <Tooltip title="ลบประวัติคำเชิญ">
+                          <span>
+                            <IconButton onClick={() => deleteInvite(inv)} color="error">
+                              <DeleteIcon />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       </CardContent>
                     </Card>
                   </Grid>
@@ -483,12 +612,12 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
             <Grid item xs={12} md={6} lg={4} key={a.uid}>
               <Card variant="outlined">
                 <CardContent>
-                  <Stack direction="row" spacing={2} alignItems="center">
+                  <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
                     <Avatar src={a.profileImage || ''}>{(a.firstName || 'A').charAt(0)}</Avatar>
-                    <Box sx={{ flex: 1 }}>
+                    <Box sx={{ flex: 1, minWidth: 220 }}>
                       <Typography fontWeight={700}>{a.firstName} {a.lastName}</Typography>
                       <Typography variant="body2" color="text.secondary">{a.email}</Typography>
-                      <Stack direction="row" spacing={1} sx={{ mt: .5, flexWrap: 'wrap' }}>
+                      <Stack direction="row" spacing={1} sx={{ mt: .5 }} useFlexGap flexWrap="wrap">
                         <Chip
                           size="small"
                           label={ROLE_LABELS[a.role]}
@@ -498,16 +627,20 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                         <Chip size="small" label={a.isActive ? 'ใช้งาน' : 'ปิดใช้งาน'} color={a.isActive ? 'success' : 'default'} />
                       </Stack>
                     </Box>
-                    <Tooltip title="แก้ไข">
+                    <Tooltip title={!isSuper && a.department !== currentAdmin.department ? 'ข้ามสังกัด - แก้ไขไม่ได้' : 'แก้ไข'}>
                       <span>
-                        <IconButton onClick={() => openEdit(a)} color="primary" disabled={!canManageAdmins || (!isSuper && a.department !== currentAdmin.department)}>
+                        <IconButton
+                          onClick={() => openEdit(a)}
+                          color="primary"
+                          disabled={!canManageAdmins || (!isSuper && a.department !== currentAdmin.department)}
+                        >
                           <EditIcon />
                         </IconButton>
                       </span>
                     </Tooltip>
                     <Tooltip title={canDelete(a) ? 'ลบ' : 'ไม่สามารถลบได้'}>
                       <span>
-                        <IconButton onClick={() => remove(a)} color="error" disabled={!canDelete(a)}>
+                        <IconButton onClick={() => removeAdmin(a)} color="error" disabled={!canDelete(a)}>
                           <DeleteIcon />
                         </IconButton>
                       </span>
@@ -634,7 +767,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                     fullWidth
                     value={form.department || (isSuper ? inviteDept : currentAdmin.department)}
                     onChange={(e) => onChange('department', e.target.value as AdminDepartment)}
-                    disabled={!isSuper}
+                    disabled={!isSuper} // ผู้ดูแลสังกัดแก้ไม่ได้
                   >
                     {Object.entries(DEPARTMENT_LABELS).map(([k, v]) => (
                       k !== 'all' && <MenuItem key={k} value={k}>{v}</MenuItem>
@@ -642,7 +775,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                   </TextField>
                   {!isSuper && (
                     <Typography variant="caption" color="text.secondary">
-                      * คุณไม่ได้เป็นผู้ดูแลสูงสุด จึงไม่สามารถเปลี่ยนสังกัดได้
+                      * คุณสามารถเพิ่มได้เฉพาะสังกัดของตนเอง
                     </Typography>
                   )}
                 </Grid>
@@ -681,7 +814,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                     fullWidth
                     value={form.department || (isSuper ? 'student_union' : currentAdmin.department)}
                     onChange={(e) => onChange('department', e.target.value as AdminDepartment)}
-                    disabled={!isSuper}
+                    disabled={!isSuper} // ผู้ดูแลสังกัดแก้ไม่ได้
                   >
                     {Object.entries(DEPARTMENT_LABELS).map(([k, v]) => (
                       k !== 'all' && <MenuItem key={k} value={k}>{v}</MenuItem>
@@ -722,7 +855,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                     fullWidth
                     value={inviteDept}
                     onChange={(e) => setInviteDept(e.target.value as AdminDepartment)}
-                    disabled={!isSuper}
+                    disabled={!isSuper} // ผู้ดูแลสังกัดแก้ไม่ได้
                   >
                     {Object.entries(DEPARTMENT_LABELS).map(([k, v]) => (
                       k !== 'all' && <MenuItem key={k} value={k}>{v}</MenuItem>
@@ -730,7 +863,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                   </TextField>
                   {!isSuper && (
                     <Typography variant="caption" color="text.secondary">
-                      * คุณไม่ได้เป็นผู้ดูแลสูงสุด จึงไม่สามารถเปลี่ยนสังกัดได้
+                      * คุณสามารถเชิญได้เฉพาะสังกัดของตนเอง
                     </Typography>
                   )}
                 </Grid>
@@ -768,7 +901,6 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
               </>
             )}
 
-            {/* Permissions (form mode) */}
             {(mode === 'create' || mode === 'edit') && (
               <Grid item xs={12}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
@@ -815,10 +947,30 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
 
           {err && <Alert severity="error" sx={{ mt: 2 }}>{err}</Alert>}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
           <Button onClick={closeDialog}>ยกเลิก</Button>
-          <Button variant="contained" startIcon={<ShieldIcon />} onClick={submit}>
+          <Button variant="contained" startIcon={<ShieldIcon />} onClick={submit} disabled={loading}>
             {mode === 'invite' ? 'ส่งคำเชิญ' : 'บันทึก'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Dialog */}
+      <Dialog open={confirm.state.open} onClose={confirm.state.busy ? undefined : confirm.close} maxWidth="xs" fullWidth>
+        <DialogTitle>{confirm.state.title || 'ยืนยันการทำรายการ'}</DialogTitle>
+        <DialogContent>
+          <Typography>{confirm.state.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={confirm.close} disabled={!!confirm.state.busy}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => confirm.state.onConfirm?.()}
+            disabled={!!confirm.state.busy}
+            startIcon={confirm.state.busy ? <CircularProgress size={16} /> : undefined}
+          >
+            {confirm.state.confirmText || 'ยืนยัน'}
           </Button>
         </DialogActions>
       </Dialog>
