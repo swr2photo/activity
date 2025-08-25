@@ -16,7 +16,7 @@ import {
   runTransaction,
   onSnapshot,
   limit as qLimit,
-  deleteField, // ✅ ใช้ลบฟิลด์ใน update
+  deleteField,
 } from 'firebase/firestore';
 
 import { db, auth } from './firebase';
@@ -38,8 +38,8 @@ import { ROLE_PERMISSIONS } from '../types/admin';
 /* =========================
  * Constants & Utils
  * ========================= */
-const PRIMARY_ACTIVITY_COLLECTION = 'activityQRCodes'; // แหล่งจริงที่ฝั่งผู้ใช้ฟัง onSnapshot
-const LEGACY_ACTIVITY_COLLECTION  = 'activities';      // สำหรับเข้ากันได้ย้อนหลัง
+const PRIMARY_ACTIVITY_COLLECTION = 'activityQRCodes';
+const LEGACY_ACTIVITY_COLLECTION  = 'activities';
 
 const toDateSafe = (v: any): Date | undefined => {
   if (v?.toDate) return v.toDate();
@@ -51,7 +51,7 @@ const toDateSafe = (v: any): Date | undefined => {
   return undefined;
 };
 
-// ✅ helper: ตัด key ที่เป็น undefined ออก (กัน error Firestore)
+// ตัด key undefined ออกก่อนส่งเข้า Firestore
 const stripUndefined = (obj: Record<string, any>) => {
   const out: Record<string, any> = {};
   Object.keys(obj).forEach((k) => {
@@ -59,6 +59,13 @@ const stripUndefined = (obj: Record<string, any>) => {
   });
   return out;
 };
+
+// clamp ค่าเปอร์เซ็นต์สำหรับตำแหน่งรูป (0–100)
+const clampPercent = (v?: number) =>
+  typeof v === 'number' ? Math.max(0, Math.min(100, v)) : undefined;
+
+// สิทธิ์: เฉพาะ super_admin เท่านั้น
+export const requireSuperAdmin = (admin?: { role?: AdminRole }) => admin?.role === 'super_admin';
 
 async function mirrorLegacyActivityByCode(
   activityCode: string,
@@ -78,7 +85,7 @@ async function mirrorLegacyActivityByCode(
 /* =========================
  * Admins (adminUsers)
  * ========================= */
-// ดึงแอดมินทั้งหมด (สำหรับ super_admin)
+// ดึงแอดมินทั้งหมด (แผน super_admin ใช้)
 export const getAllAdmins = async (): Promise<AdminProfile[]> => {
   const snap = await getDocs(collection(db, 'adminUsers'));
   return snap.docs.map((d) => {
@@ -100,6 +107,9 @@ export const getAllAdmins = async (): Promise<AdminProfile[]> => {
       createdBy: data.createdBy,
       lastLoginAt: toDateSafe(data.lastLoginAt),
       profileImage: data.profileImage,
+      // ✅ รองรับฟิลด์ตำแหน่งรูป
+      profileImagePosX: typeof data.profileImagePosX === 'number' ? clampPercent(data.profileImagePosX) : undefined,
+      profileImagePosY: typeof data.profileImagePosY === 'number' ? clampPercent(data.profileImagePosY) : undefined,
     } as AdminProfile;
   });
 };
@@ -130,6 +140,9 @@ export const getAdminsByDepartment = async (
       createdBy: data.createdBy,
       lastLoginAt: toDateSafe(data.lastLoginAt),
       profileImage: data.profileImage,
+      // ✅ รองรับฟิลด์ตำแหน่งรูป
+      profileImagePosX: typeof data.profileImagePosX === 'number' ? clampPercent(data.profileImagePosX) : undefined,
+      profileImagePosY: typeof data.profileImagePosY === 'number' ? clampPercent(data.profileImagePosY) : undefined,
     } as AdminProfile;
   });
 };
@@ -139,21 +152,27 @@ export const createAdminUser = async (
   profile: Omit<AdminProfile, 'createdAt' | 'updatedAt'> & { uid: string }
 ) => {
   const ref = doc(db, 'adminUsers', profile.uid);
-  // ✅ กัน undefined
   const payload = stripUndefined({
     ...profile,
+    // ป้องกัน permissions เป็น null/undefined
     permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
+    // clamp พิกัด ถ้ามี
+    profileImagePosX: clampPercent((profile as any).profileImagePosX),
+    profileImagePosY: clampPercent((profile as any).profileImagePosY),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
   await setDoc(ref, payload, { merge: false });
 };
 
-// แก้ไขแอดมิน — ✅ กัน undefined และลบ profileImage ถ้าค่าว่าง/undefined
+// แก้ไขแอดมิน — กัน undefined / ลบฟิลด์รูปว่าง / clamp พิกัด
 export const updateAdminUser = async (uid: string, data: Partial<AdminProfile>) => {
   const ref = doc(db, 'adminUsers', uid);
   const payload: Record<string, any> = {
     ...data,
+    // ✅ clamp พิกัดตำแหน่งรูป (ถ้าส่งมา)
+    profileImagePosX: clampPercent((data as any).profileImagePosX),
+    profileImagePosY: clampPercent((data as any).profileImagePosY),
     updatedAt: serverTimestamp(),
   };
 
@@ -161,11 +180,9 @@ export const updateAdminUser = async (uid: string, data: Partial<AdminProfile>) 
     payload.permissions = Array.isArray(data.permissions) ? data.permissions : [];
   }
 
-  // ✅ profileImage: ถ้าค่าว่างหรือ undefined -> ลบฟิลด์
-  if ('profileImage' in data) {
-    if (data.profileImage === '' || data.profileImage === undefined) {
-      payload.profileImage = deleteField();
-    }
+  // ถ้าจะลบรูป: ให้ลบฟิลด์ใน Firestore
+  if ('profileImage' in data && (data.profileImage === '' || data.profileImage === undefined)) {
+    payload.profileImage = deleteField();
   }
 
   await updateDoc(ref, stripUndefined(payload));
@@ -636,7 +653,7 @@ export const logAdminEvent = async (
 ) => {
   try {
     await addDoc(collection(db, 'logs'), {
-      action,               // e.g. 'LOGIN', 'LOGOUT', 'ADMIN_PROMOTE', 'APPROVE_USER', 'EXPORT_USERS'
+      action,               // e.g. 'LOGIN', 'LOGOUT', 'ADMIN_PROMOTE', 'APPROVE_USER', 'EXPORT_USERS', ...
       meta,                 // payload เพิ่มเติม
       actorUid: actor?.uid ?? null,
       actorEmail: actor?.email ?? null,
@@ -676,6 +693,11 @@ export async function getAdminLogs(max: number = 100): Promise<AdminLogEntry[]> 
   });
 }
 
+/**
+ * subscribeAdminLogs – สำหรับหน้า Admin Logs
+ * @param cb callback ได้รายการเรียงเวลาล่าสุด
+ * @param max จำนวนสูงสุด
+ */
 export function subscribeAdminLogs(cb: (rows: AdminLogEntry[]) => void, max: number = 100) {
   const qy = query(collection(db, 'logs'), orderBy('at', 'desc'), qLimit(max));
   return onSnapshot(qy, (snap) => {
@@ -844,6 +866,13 @@ const toAdminProfileFrom = (user: User, raw: RawAdminDoc): AdminProfile => ({
   createdBy: raw.createdBy,
   lastLoginAt: raw.lastLoginAt ?? null,
   profileImage: raw.profileImage,
+  // ✅ map ค่าพิกัดจากเอกสาร (ถ้าไม่มี = undefined)
+  profileImagePosX: typeof (raw as any).profileImagePosX === 'number'
+    ? clampPercent((raw as any).profileImagePosX)
+    : undefined,
+  profileImagePosY: typeof (raw as any).profileImagePosY === 'number'
+    ? clampPercent((raw as any).profileImagePosY)
+    : undefined,
 });
 
 async function readAdminDoc(uid: string) {
@@ -895,7 +924,7 @@ export async function signInAdmin(
     if (ref) {
       await updateDoc(ref, stripUndefined({
         lastLoginAt: serverTimestamp(),
-        email: user.email ?? data.email ?? email,
+        email: user.email ?? (data as any).email ?? email,
         updatedAt: serverTimestamp(),
       }));
     }

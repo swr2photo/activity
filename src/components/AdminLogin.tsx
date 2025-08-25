@@ -1,4 +1,3 @@
-// src/components/AdminLogin.tsx
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -22,7 +21,9 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import LogoutIcon from '@mui/icons-material/Logout';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 
-import { auth, db } from '../lib/firebase'; // ปรับ path ตามโครงของคุณถ้าจำเป็น
+import { useSnackbar } from 'notistack';
+
+import { auth, db } from '../lib/firebase';
 import {
   GoogleAuthProvider,
   signInWithPopup,
@@ -30,6 +31,9 @@ import {
   UserCredential,
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, updateDoc, Timestamp } from 'firebase/firestore';
+
+// ✅ session helpers
+import { startSession } from '../lib/useAdminSession';
 
 // ---- Types ----
 export type AdminUser = {
@@ -46,7 +50,7 @@ type Props = {
   onLoginSuccess: (adminUser: AdminUser) => void;
 };
 
-// โลโก้ Google แบบ SVG (ชัดและไม่ต้องโหลดรูปเพิ่ม)
+// โลโก้ Google แบบ SVG
 const GoogleIcon = () => (
   <Box
     component="svg"
@@ -63,6 +67,8 @@ const GoogleIcon = () => (
 
 const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   const theme = useTheme();
+  const { enqueueSnackbar } = useSnackbar();
+
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -109,6 +115,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
         await signOut(auth);
         setErr('บัญชีนี้ยังไม่ได้รับอนุญาตให้เป็นผู้ดูแลระบบ');
         setLoading(false);
+        enqueueSnackbar('บัญชีนี้ยังไม่ได้รับสิทธิ์ผู้ดูแล', { variant: 'error' });
         return;
       }
 
@@ -125,6 +132,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
         await signOut(auth);
         setErr('บัญชีผู้ดูแลระบบนี้ถูกปิดการใช้งาน');
         setLoading(false);
+        enqueueSnackbar('บัญชีผู้ดูแลถูกปิดใช้งาน', { variant: 'error' });
         return;
       }
 
@@ -134,6 +142,10 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
       } catch {
         // non-blocking
       }
+
+      // ✅ เริ่ม session 30 นาที
+      startSession(user.uid, 30);
+      enqueueSnackbar('เข้าสู่ระบบสำเร็จ • เซสชันมีอายุ 30 นาที', { variant: 'success' });
 
       const adminUser: AdminUser = {
         id: user.uid,
@@ -157,6 +169,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
     } catch (e: any) {
       console.error(e);
       setErr(parseFirebaseError(e?.code, e?.message));
+      enqueueSnackbar(parseFirebaseError(e?.code, e?.message), { variant: 'error' });
       try { await signOut(auth); } catch {}
     } finally {
       setLoading(false);
@@ -168,9 +181,11 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true);
     try {
       await signOut(auth);
+      enqueueSnackbar('ออกจากระบบแล้ว', { variant: 'info' });
     } catch (e: any) {
       console.error(e);
       setErr('ออกจากระบบไม่สำเร็จ');
+      enqueueSnackbar('ออกจากระบบไม่สำเร็จ', { variant: 'error' });
     } finally {
       setLoading(false);
     }

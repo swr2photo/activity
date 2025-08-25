@@ -174,3 +174,24 @@ export const deptEquals = (a: string | null | undefined, b: string | null | unde
 /** คืน label ไทยตามคีย์/อินพุตที่ให้มา */
 export const getDepartmentLabel = (dep: string | AdminDepartment): string =>
   DEPARTMENT_LABELS[normalizeDepartment(dep as string)];
+
+export interface AdminProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  role: AdminRole;
+  department: AdminDepartment;
+  permissions: AdminPermission[];
+  isActive: boolean;
+  createdAt: any;
+  updatedAt: any;
+  createdBy?: string;
+  lastLoginAt?: any;
+  profileImage?: string;
+
+  /** พิกัดโฟกัสรูปโปรไฟล์ (เปอร์เซ็นต์ 0–100), ใช้จัดตำแหน่งรูป 1:1 */
+  profileImagePosX?: number;
+  profileImagePosY?: number;
+}

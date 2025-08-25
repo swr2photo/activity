@@ -1,19 +1,18 @@
+// src/components/admin/AdminMain.tsx
 'use client';
 
-import React, { useState } from 'react';
-import { Box, CircularProgress, Alert, Typography } from '@mui/material';
+import React, { useEffect, useState } from 'react';
+import { Box, CircularProgress, Alert } from '@mui/material';
 import { AdminLayout } from './AdminLayout';
 import { DepartmentDashboard } from './DepartmentDashboard';
 import { AdminManagement } from './AdminManagement';
 import { AdminRoleGuard } from './AdminRoleGuard';
 import type { AdminProfile } from '../../types/admin';
 
-// Panels (รีแฟกเตอร์ให้ใช้งานกับเลเยอร์ใหม่)
+// Panels
 import AdminAttendancePanel from './AdminAttendancePanel';
 import AdminUserManagement from './AdminUserManagement';
 import QRCodeAdminPanel from './QRCodeAdminPanel';
-
-// ✅ ใหม่
 import SystemSettingsPanel from './SystemSettingsPanel';
 import AdminProfileEditor from './AdminProfileEditor';
 import AdminLogsPanel from './AdminLogsPanel';
@@ -33,18 +32,35 @@ type ActiveSection =
   | 'admin-management'
   | 'reports'
   | 'settings'
-  | 'profile'; // ✅ เพิ่มหน้าแก้โปรไฟล์
+  | 'profile';
 
-interface AdminMainProps {
+export interface AdminMainProps {
   currentAdmin: AdminProfile;
   onLogout: () => void;
+  /** หน้าเริ่มต้นหลังรีเฟรช เช่น 'dashboard', 'users', ... */
+  initialSection?: ActiveSection;
 }
 
-export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) => {
-  const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
+export const AdminMain: React.FC<AdminMainProps> = ({
+  currentAdmin,
+  onLogout,
+  initialSection = 'dashboard',
+}) => {
+  const [activeSection, setActiveSection] = useState<ActiveSection>(initialSection);
   const [loading, setLoading] = useState(false);
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  // sync ถ้า initialSection เปลี่ยน (เช่นตอนโหลดจาก localStorage)
+  useEffect(() => {
+    if (initialSection) setActiveSection(initialSection);
+  }, [initialSection]);
+
+  // เมื่อเปลี่ยนหน้า ให้บันทึกลง localStorage
+  const handleSectionChange = (section: string) => {
+    setActiveSection(section as ActiveSection);
+    try {
+      localStorage.setItem('admin:lastSection', section);
+    } catch {}
+  };
 
   const renderContent = () => {
     switch (activeSection) {
@@ -62,7 +78,7 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_activities">
             <ResponsiveContainer>
-              <QRCodeAdminPanel currentAdmin={currentAdmin}  />
+              <QRCodeAdminPanel currentAdmin={currentAdmin} />
             </ResponsiveContainer>
           </AdminRoleGuard>
         );
@@ -80,7 +96,6 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
         return <AdminManagement currentAdmin={currentAdmin} />;
 
       case 'reports':
-        // ✅ เปลี่ยนเป็นหน้าแสดง Admin Logs แบบเรียลไทม์
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="view_reports">
             <ResponsiveContainer>
@@ -90,7 +105,6 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
         );
 
       case 'settings':
-        // ✅ หน้า “ตั้งค่าระบบ” (ปิดปรับปรุง / มาตรฐานแบนเนอร์)
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="system_settings">
             <ResponsiveContainer>
@@ -100,7 +114,6 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
         );
 
       case 'profile':
-        // ✅ หน้า “แก้ไขโปรไฟล์แอดมิน”
         return (
           <ResponsiveContainer>
             <AdminProfileEditor currentAdmin={currentAdmin} />
@@ -128,7 +141,7 @@ export const AdminMain: React.FC<AdminMainProps> = ({ currentAdmin, onLogout }) 
     <AdminLayout
       currentAdmin={currentAdmin}
       activeSection={activeSection}
-      onSectionChange={(section: string) => setActiveSection(section as ActiveSection)}
+      onSectionChange={handleSectionChange}
       onLogout={onLogout}
     >
       {renderContent()}
