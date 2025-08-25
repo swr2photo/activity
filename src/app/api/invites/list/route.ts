@@ -1,6 +1,6 @@
 // src/app/api/invites/list/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '../../../../lib/firebaseAdmin';
+import { getAdminDb } from '../../../../lib/firebaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,14 +11,16 @@ function toMs(ts: any) {
 
 export async function GET(req: NextRequest) {
   try {
+    const adminDb = getAdminDb(); // ✅ lazy init ที่ runtime
     const limit = Number(req.nextUrl.searchParams.get('limit') ?? 100);
+
     const qs = await adminDb
       .collection('adminInvites')
       .orderBy('createdAt', 'desc')
       .limit(limit)
       .get();
 
-    const items = qs.docs.map(d => {
+    const items = qs.docs.map((d: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>) => {
       const x = d.data() as any;
       return {
         id: d.id,

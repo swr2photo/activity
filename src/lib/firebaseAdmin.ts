@@ -8,59 +8,72 @@ function parseServiceAccount(raw?: string): SA {
   const s = raw.trim();
   const json = s.startsWith('{') ? s : Buffer.from(s, 'base64').toString('utf8');
   const parsed = JSON.parse(json);
-  if (!parsed.client_email || !parsed.private_key) throw new Error('Invalid service account JSON');
 
-  const pk =
+  if (!parsed.client_email || !parsed.private_key) {
+    throw new Error('Invalid service account JSON');
+  }
+
+  const private_key =
     parsed.private_key.includes('\\n') && !parsed.private_key.includes('\n')
       ? parsed.private_key.replace(/\\n/g, '\n')
       : parsed.private_key;
 
-  return { project_id: parsed.project_id, client_email: parsed.client_email, private_key: pk };
+  return { project_id: parsed.project_id, client_email: parsed.client_email, private_key };
 }
 
-const sa = parseServiceAccount(
-  process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON || process.env.GOOGLE_WORKSPACE_SA_JSON
-);
+let _initialized = false;
 
-const projectId =
-  process.env.FIREBASE_PROJECT_ID ||
-  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
-  sa.project_id;
+function ensureApp() {
+  if (_initialized && admin.apps.length) return admin.app();
 
-if (!projectId) {
-  throw new Error(
-    'Project Id is missing. Set FIREBASE_PROJECT_ID or NEXT_PUBLIC_FIREBASE_PROJECT_ID or include project_id in SA JSON.'
-  );
-}
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON || process.env.GOOGLE_WORKSPACE_SA_JSON;
+  const sa = parseServiceAccount(raw);
 
-// --- Self-heal: ถ้ามีแอปที่ init ไว้แล้วแต่ไม่มี projectId ให้ลบทิ้ง ---
-if (admin.apps.length) {
-  try {
-    const current = admin.app();
-    const options: any = current.options || {};
-    if (!options.projectId) {
-      console.warn('[firebaseAdmin] Found admin app WITHOUT projectId. Deleting and reinitializing...');
-      try { (current as any).delete?.(); } catch {}
-    }
-  } catch {}
-}
+  const projectId =
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    sa.project_id;
 
-// --- init ใหม่ถ้ายังไม่มีแอป ---
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
+  if (!projectId) {
+    throw new Error(
+      'Project Id is missing. Set FIREBASE_PROJECT_ID or NEXT_PUBLIC_FIREBASE_PROJECT_ID or include project_id in SA JSON.'
+    );
+  }
+
+  // ถ้ามีแอปค้างไว้แต่ option ไม่ครบ ให้ลบทิ้งก่อน
+  if (admin.apps.length) {
+    try {
+      const cur = admin.app();
+      const opts: any = cur.options || {};
+      if (!opts.projectId) {
+        try { (cur as any).delete?.(); } catch {}
+      }
+    } catch {}
+  }
+
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail: sa.client_email,
+        privateKey: sa.private_key,
+      }),
       projectId,
-      clientEmail: sa.client_email,
-      privateKey: sa.private_key,
-    }),
-    projectId,
-  });
-  // จำไฟล์ไว้เพื่อ debug
-  ;(global as any).__FIREBASE_ADMIN_INIT_FILE__ = __filename;
-  console.log('[firebaseAdmin] initialized for project:', projectId, 'from:', __filename);
+    });
+  }
+
+  _initialized = true;
+  return admin.app();
 }
 
-export const adminDb = admin.firestore();
-export const adminAuth = admin.auth();
+// ✅ export เป็นฟังก์ชัน — จะ init ก็ต่อเมื่อถูกเรียก “ตอนรันจริง” (ไม่ใช่ตอน build)
+export function getAdminDb() {
+  return ensureApp().firestore();
+}
+export function getAdminAuth() {
+  return ensureApp().auth();
+}
+
+// helper exports
 export const FieldValue = admin.firestore.FieldValue;
 export const Timestamp = admin.firestore.Timestamp;

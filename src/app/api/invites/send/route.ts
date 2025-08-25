@@ -1,7 +1,7 @@
 // src/app/api/invites/send/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { adminDb, FieldValue, Timestamp } from '../../../../lib/firebaseAdmin';
+import { getAdminDb, FieldValue, Timestamp } from '../../../../lib/firebaseAdmin';
 import { sendMail } from '../../../../lib/email';
 
 export const runtime = 'nodejs';
@@ -23,12 +23,13 @@ const SKIP_EMAIL = process.env.SKIP_EMAIL === '1';
 function buildAcceptUrl(req: NextRequest, token: string) {
   // ใช้ค่า origin จาก ENV ถ้ามี (รองรับ deploy) ตกมาใช้ของ request ตอน dev
   const origin = process.env.NEXT_PUBLIC_SITE_URL || req.nextUrl.origin;
-  // เส้นทางจริงของ API จะเป็น /api/... เสมอ แม้ไฟล์จะอยู่ใน /app/api
   return `${origin}/api/invites/accept?token=${encodeURIComponent(token)}`;
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const adminDb = getAdminDb(); // ✅ lazy init ใช้ตอน runtime
+
     // ---- อ่านและตรวจ body ----
     const body = (await req.json()) as Body;
 
@@ -89,7 +90,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, id: docRef.id });
   } catch (e: any) {
-    // ดึงรายละเอียด error ให้เยอะที่สุด (เช่นจาก Google API)
     const detail = e?.response?.data || e?.errors || e?.stack || null;
     console.error('[invites/send] ERROR:', e?.message || e, detail);
     return NextResponse.json(
@@ -98,4 +98,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
