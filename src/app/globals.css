@@ -24,13 +24,31 @@
   }
 }
 
-/* Base styles (ไม่มีบล็อกว่าง) */
+/* Base styles */
 @layer base {
-  html, body { height: 100%; }
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    width: 100%;
+  }
+
   body {
+    margin: 0;
     background: var(--background);
     color: var(--foreground);
     font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+
+    /* สำคัญ: ให้เต็มจอบนมือถือแบบถูกต้อง (Safari/Chrome) */
+    min-height: 100svh; /* small viewport height */
+    /* fallback กรณี browser ไม่รองรับ svh */
+    min-height: 100vh;
+
+    overflow-x: hidden;
+  }
+
+  /* กันกรณีบางคอมโพเนนต์/Container ทำให้เกิด scroll แนวนอน */
+  #__next {
+    min-height: 100%;
   }
 }
-

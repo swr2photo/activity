@@ -1,17 +1,45 @@
 // components/admin/EnhancedUserManagement.tsx
 import React, { useEffect, useState } from 'react';
+import Grid from '@mui/material/Grid';
 import {
-  Box, Typography, Tabs, Tab, Badge, useTheme, useMediaQuery, TextField, InputAdornment,
-  Button, ButtonGroup, Dialog, DialogTitle, DialogContent, DialogActions, Avatar, Chip, IconButton, Tooltip, Grid
+  Box,
+  Typography,
+  Tabs,
+  Tab,
+  Badge,
+  useTheme,
+  useMediaQuery,
+  TextField,
+  InputAdornment,
+  Button,
+  ButtonGroup,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Avatar,
+  Chip,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import {
-  Search as SearchIcon, Refresh as RefreshIcon, Download as ExportIcon,
-  Person as PersonIcon, CheckCircle as ApproveIcon, Block as SuspendIcon, Visibility as ViewIcon
+  Search as SearchIcon,
+  Refresh as RefreshIcon,
+  Download as ExportIcon,
+  Person as PersonIcon,
+  CheckCircle as ApproveIcon,
+  Block as SuspendIcon,
+  Visibility as ViewIcon,
 } from '@mui/icons-material';
 import { AdminProfile, DEPARTMENT_LABELS } from '../../types/admin';
 import {
-  getAllUsers, getPendingUsers, getUsersByDepartment, getPendingUsersByDepartment,
-  approveUser, suspendUser, UnivUser
+  getAllUsers,
+  getPendingUsers,
+  getUsersByDepartment,
+  getPendingUsersByDepartment,
+  approveUser,
+  suspendUser,
+  UnivUser,
 } from '../../lib/adminFirebase';
 
 const ResponsiveContainer: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -21,7 +49,11 @@ const ResponsiveCard: React.FC<{ children: React.ReactNode; sx?: any }> = ({ chi
   <Box sx={{ bgcolor: 'background.paper', borderRadius: 2, p: 3, boxShadow: 1, ...sx }}>{children}</Box>
 );
 const ResponsiveTable: React.FC<{
-  columns: any[]; data: any[]; keyField: string; actions?: (row: any) => React.ReactNode; emptyMessage?: string;
+  columns: any[];
+  data: any[];
+  keyField: string;
+  actions?: (row: any) => React.ReactNode;
+  emptyMessage?: string;
 }> = ({ columns, data, keyField, actions, emptyMessage }) => (
   <Box sx={{ overflowX: 'auto' }}>
     {data.length === 0 ? (
@@ -33,15 +65,27 @@ const ResponsiveTable: React.FC<{
         <Box component="thead">
           <Box component="tr">
             {columns.map((col) => (
-              <Box component="th" key={col.id}
-                sx={{ p: 2, textAlign: 'left', borderBottom: '1px solid', borderColor: 'divider',
-                  display: { xs: col.hideOnMobile ? 'none' : 'table-cell', md: 'table-cell' }}}>
-                <Typography variant="subtitle2" fontWeight="bold">{col.label}</Typography>
+              <Box
+                component="th"
+                key={col.id}
+                sx={{
+                  p: 2,
+                  textAlign: 'left',
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                  display: { xs: col.hideOnMobile ? 'none' : 'table-cell', md: 'table-cell' },
+                }}
+              >
+                <Typography variant="subtitle2" fontWeight="bold">
+                  {col.label}
+                </Typography>
               </Box>
             ))}
             {actions && (
               <Box component="th" sx={{ p: 2, textAlign: 'center', borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="subtitle2" fontWeight="bold">การดำเนินการ</Typography>
+                <Typography variant="subtitle2" fontWeight="bold">
+                  การดำเนินการ
+                </Typography>
               </Box>
             )}
           </Box>
@@ -50,13 +94,24 @@ const ResponsiveTable: React.FC<{
           {data.map((row) => (
             <Box component="tr" key={row[keyField]}>
               {columns.map((col) => (
-                <Box component="td" key={col.id}
-                  sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider',
-                    display: { xs: col.hideOnMobile ? 'none' : 'table-cell', md: 'table-cell' }}}>
+                <Box
+                  component="td"
+                  key={col.id}
+                  sx={{
+                    p: 2,
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    display: { xs: col.hideOnMobile ? 'none' : 'table-cell', md: 'table-cell' },
+                  }}
+                >
                   {col.format ? col.format(row[col.id], row) : row[col.id]}
                 </Box>
               ))}
-              {actions && <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>{actions(row)}</Box>}
+              {actions && (
+                <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  {actions(row)}
+                </Box>
+              )}
             </Box>
           ))}
         </Box>
@@ -65,7 +120,9 @@ const ResponsiveTable: React.FC<{
   </Box>
 );
 
-interface Props { currentAdmin: AdminProfile; }
+interface Props {
+  currentAdmin: AdminProfile;
+}
 
 export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   const theme = useTheme();
@@ -80,8 +137,15 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   const [selectedUser, setSelectedUser] = useState<UnivUser | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  useEffect(() => { load(); }, [currentAdmin.department]);
-  useEffect(() => { applyFilter(); }, [allUsers, pendingUsers, search, tabValue]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentAdmin.department]);
+
+  useEffect(() => {
+    applyFilter();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allUsers, pendingUsers, search, tabValue]);
 
   const load = async () => {
     setLoading(true);
@@ -97,34 +161,52 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       }
       setAllUsers(usersData);
       setPendingUsers(pendingData);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const applyFilter = () => {
     const source = tabValue === 0 ? pendingUsers : allUsers;
-    if (!search) { setFiltered(source); return; }
+    if (!search) {
+      setFiltered(source);
+      return;
+    }
     const q = search.toLowerCase();
-    setFiltered(source.filter(u =>
-      u.displayName?.toLowerCase().includes(q) ||
-      u.firstName?.toLowerCase().includes(q) ||
-      u.lastName?.toLowerCase().includes(q) ||
-      u.email?.toLowerCase().includes(q) ||
-      u.studentId?.includes(search) ||
-      u.faculty?.toLowerCase().includes(q) ||
-      u.department?.toLowerCase().includes(q)
-    ));
+    setFiltered(
+      source.filter(
+        (u) =>
+          u.displayName?.toLowerCase().includes(q) ||
+          u.firstName?.toLowerCase().includes(q) ||
+          u.lastName?.toLowerCase().includes(q) ||
+          u.email?.toLowerCase().includes(q) ||
+          u.studentId?.includes(search) ||
+          u.faculty?.toLowerCase().includes(q) ||
+          u.department?.toLowerCase().includes(q)
+      )
+    );
   };
 
   const exportUsers = () => {
     const rows = [
-      ['รหัสนักศึกษา','ชื่อ','นามสกุล','อีเมล','คณะ','สาขา','ระดับปริญญา','สถานะ','วันที่สร้าง'],
-      ...filtered.map(u => [
-        u.studentId || '', u.firstName || '', u.lastName || '', u.email || '',
-        u.faculty || '', u.department || '', u.degreeLevel || '',
-        u.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ',
-        u.createdAt?.toLocaleDateString('th-TH') || ''
-      ])
-    ].map(r => r.join(',')).join('\n');
+      ['รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'อีเมล', 'คณะ', 'สาขา', 'ระดับปริญญา', 'สถานะ', 'วันที่สร้าง'],
+      ...filtered.map((u) =>
+        [
+          u.studentId || '',
+          u.firstName || '',
+          u.lastName || '',
+          u.email || '',
+          u.faculty || '',
+          u.department || '',
+          u.degreeLevel || '',
+          u.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ',
+          u.createdAt?.toLocaleDateString('th-TH') || '',
+        ].join(',')
+      ),
+    ]
+      .map((r) => (Array.isArray(r) ? r.join(',') : r))
+      .join('\n');
+
     const blob = new Blob(['\uFEFF' + rows], { type: 'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -133,43 +215,105 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   const columns = [
-    { id: 'user', label: 'ผู้ใช้', format: (_: any, row: UnivUser) => (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Avatar src={row.photoURL} sx={{ width: 32, height: 32 }}>{row.firstName?.charAt(0)}</Avatar>
-        <Box>
-          <Typography variant="body2" fontWeight="medium">{row.firstName} {row.lastName}</Typography>
-          <Typography variant="caption" color="text.secondary">{row.email}</Typography>
+    {
+      id: 'user',
+      label: 'ผู้ใช้',
+      format: (_: any, row: UnivUser) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Avatar src={row.photoURL} sx={{ width: 32, height: 32 }}>
+            {row.firstName?.charAt(0)}
+          </Avatar>
+          <Box>
+            <Typography variant="body2" fontWeight="medium">
+              {row.firstName} {row.lastName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {row.email}
+            </Typography>
+          </Box>
         </Box>
-      </Box>
-    )},
-    { id: 'studentId', label: 'รหัสนักศึกษา', format: (v: string) => (<Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{v}</Typography>) },
-    { id: 'faculty', label: 'คณะ/สาขา', format: (_: any, row: UnivUser) => (<Box><Typography variant="body2">{row.faculty}</Typography><Typography variant="caption" color="text.secondary">{row.department}</Typography></Box>), hideOnMobile: true },
-    { id: 'status', label: 'สถานะ', format: (_: any, row: UnivUser) => (
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        <Chip label={row.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'} color={row.isVerified ? 'success' : 'warning'} size="small" />
-        <Chip label={row.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} color={row.isActive ? 'success' : 'error'} size="small" />
-      </Box>
-    )},
-    { id: 'createdAt', label: 'วันที่สร้าง', format: (v: Date | undefined) => (<Typography variant="body2">{v?.toLocaleDateString('th-TH') || 'ไม่ระบุ'}</Typography>), hideOnMobile: true },
+      ),
+    },
+    {
+      id: 'studentId',
+      label: 'รหัสนักศึกษา',
+      format: (v: string) => (
+        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+          {v}
+        </Typography>
+      ),
+    },
+    {
+      id: 'faculty',
+      label: 'คณะ/สาขา',
+      format: (_: any, row: UnivUser) => (
+        <Box>
+          <Typography variant="body2">{row.faculty}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {row.department}
+          </Typography>
+        </Box>
+      ),
+      hideOnMobile: true,
+    },
+    {
+      id: 'status',
+      label: 'สถานะ',
+      format: (_: any, row: UnivUser) => (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <Chip label={row.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'} color={row.isVerified ? 'success' : 'warning'} size="small" />
+          <Chip label={row.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} color={row.isActive ? 'success' : 'error'} size="small" />
+        </Box>
+      ),
+    },
+    {
+      id: 'createdAt',
+      label: 'วันที่สร้าง',
+      format: (v: Date | undefined) => <Typography variant="body2">{v?.toLocaleDateString('th-TH') || 'ไม่ระบุ'}</Typography>,
+      hideOnMobile: true,
+    },
   ];
 
   const actions = (u: UnivUser) => (
     <Box sx={{ display: 'flex', gap: 1, justifyContent: isMobile ? 'flex-start' : 'center' }}>
       <Tooltip title="ดูรายละเอียด">
-        <IconButton size="small" color="info" onClick={() => { setSelectedUser(u); setDialogOpen(true); }}>
+        <IconButton
+          size="small"
+          color="info"
+          onClick={() => {
+            setSelectedUser(u);
+            setDialogOpen(true);
+          }}
+        >
           <ViewIcon />
         </IconButton>
       </Tooltip>
+
       {!u.isVerified && (
         <Tooltip title="อนุมัติ">
-          <IconButton size="small" color="success" onClick={async () => { await approveUser(u.uid); load(); }}>
+          <IconButton
+            size="small"
+            color="success"
+            onClick={async () => {
+              await approveUser(u.uid);
+              load();
+            }}
+          >
             <ApproveIcon />
           </IconButton>
         </Tooltip>
       )}
+
       {u.isActive && (
         <Tooltip title="ระงับการใช้งาน">
-          <IconButton size="small" color="error" onClick={async () => { await suspendUser(u.uid); load(); }}>
+          <IconButton
+            size="small"
+            color="error"
+            onClick={async () => {
+              await suspendUser(u.uid);
+              load();
+            }}
+          >
             <SuspendIcon />
           </IconButton>
         </Tooltip>
@@ -180,42 +324,106 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   return (
     <ResponsiveContainer>
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom>จัดการผู้ใช้มหาวิทยาลัย</Typography>
+        <Typography variant="h4" gutterBottom>
+          จัดการผู้ใช้มหาวิทยาลัย
+        </Typography>
         <Typography variant="body1" color="text.secondary">
           จัดการบัญชีผู้ใช้ในสังกัด {DEPARTMENT_LABELS[currentAdmin.department] || currentAdmin.department}
         </Typography>
       </Box>
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}><ResponsiveCard><Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <Box sx={{ bgcolor: '#1976d2', color: 'white', p: 1.5, borderRadius: 2 }}><PersonIcon /></Box>
-          <Box><Typography variant="h4" color="#1976d2">{allUsers.length}</Typography><Typography variant="subtitle2">ผู้ใช้ทั้งหมด</Typography></Box>
-        </Box></ResponsiveCard></Grid>
-        <Grid item xs={12} sm={6} md={3}><ResponsiveCard><Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <Box sx={{ bgcolor: '#ed6c02', color: 'white', p: 1.5, borderRadius: 2 }}><PersonIcon /></Box>
-          <Box><Typography variant="h4" color="#ed6c02">{pendingUsers.length}</Typography><Typography variant="subtitle2">รออนุมัติ</Typography></Box>
-        </Box></ResponsiveCard></Grid>
-        <Grid item xs={12} sm={6} md={3}><ResponsiveCard><Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <Box sx={{ bgcolor: '#2e7d32', color: 'white', p: 1.5, borderRadius: 2 }}><PersonIcon /></Box>
-          <Box><Typography variant="h4" color="#2e7d32">{allUsers.filter(u => u.isVerified).length}</Typography><Typography variant="subtitle2">อนุมัติแล้ว</Typography></Box>
-        </Box></ResponsiveCard></Grid>
-        <Grid item xs={12} sm={6} md={3}><ResponsiveCard><Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <Box sx={{ bgcolor: '#d32f2f', color: 'white', p: 1.5, borderRadius: 2 }}><PersonIcon /></Box>
-          <Box><Typography variant="h4" color="#d32f2f">{allUsers.filter(u => !u.isActive).length}</Typography><Typography variant="subtitle2">ถูกระงับ</Typography></Box>
-        </Box></ResponsiveCard></Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <ResponsiveCard>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Box sx={{ bgcolor: '#1976d2', color: 'white', p: 1.5, borderRadius: 2 }}>
+                <PersonIcon />
+              </Box>
+              <Box>
+                <Typography variant="h4" color="#1976d2">
+                  {allUsers.length}
+                </Typography>
+                <Typography variant="subtitle2">ผู้ใช้ทั้งหมด</Typography>
+              </Box>
+            </Box>
+          </ResponsiveCard>
+        </Grid>
+
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <ResponsiveCard>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Box sx={{ bgcolor: '#ed6c02', color: 'white', p: 1.5, borderRadius: 2 }}>
+                <PersonIcon />
+              </Box>
+              <Box>
+                <Typography variant="h4" color="#ed6c02">
+                  {pendingUsers.length}
+                </Typography>
+                <Typography variant="subtitle2">รออนุมัติ</Typography>
+              </Box>
+            </Box>
+          </ResponsiveCard>
+        </Grid>
+
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <ResponsiveCard>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Box sx={{ bgcolor: '#2e7d32', color: 'white', p: 1.5, borderRadius: 2 }}>
+                <PersonIcon />
+              </Box>
+              <Box>
+                <Typography variant="h4" color="#2e7d32">
+                  {allUsers.filter((u) => u.isVerified).length}
+                </Typography>
+                <Typography variant="subtitle2">อนุมัติแล้ว</Typography>
+              </Box>
+            </Box>
+          </ResponsiveCard>
+        </Grid>
+
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <ResponsiveCard>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Box sx={{ bgcolor: '#d32f2f', color: 'white', p: 1.5, borderRadius: 2 }}>
+                <PersonIcon />
+              </Box>
+              <Box>
+                <Typography variant="h4" color="#d32f2f">
+                  {allUsers.filter((u) => !u.isActive).length}
+                </Typography>
+                <Typography variant="subtitle2">ถูกระงับ</Typography>
+              </Box>
+            </Box>
+          </ResponsiveCard>
+        </Grid>
       </Grid>
 
       <ResponsiveCard sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: { xs: 'stretch', md: 'center' },
-          flexDirection: { xs: 'column', md: 'row' }, gap: 2 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: { xs: 'stretch', md: 'center' },
+            flexDirection: { xs: 'column', md: 'row' },
+            gap: 2,
+          }}
+        >
           <TextField
-            size="small" label="ค้นหาผู้ใช้" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="ชื่อ, อีเมล, รหัสนักศึกษา, คณะ, สาขา" sx={{ minWidth: { xs: '100%', md: 350 } }}
+            size="small"
+            label="ค้นหาผู้ใช้"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ชื่อ, อีเมล, รหัสนักศึกษา, คณะ, สาขา"
+            sx={{ minWidth: { xs: '100%', md: 350 } }}
             InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon /></InputAdornment>) }}
           />
           <ButtonGroup size={isMobile ? 'medium' : 'small'}>
-            <Button onClick={load} disabled={loading} startIcon={<RefreshIcon />}>รีเฟรช</Button>
-            <Button onClick={exportUsers} startIcon={<ExportIcon />} color="success" disabled={filtered.length === 0}>ส่งออก</Button>
+            <Button onClick={load} disabled={loading} startIcon={<RefreshIcon />}>
+              รีเฟรช
+            </Button>
+            <Button onClick={exportUsers} startIcon={<ExportIcon />} color="success" disabled={filtered.length === 0}>
+              ส่งออก
+            </Button>
           </ButtonGroup>
         </Box>
       </ResponsiveCard>
@@ -223,10 +431,24 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       <ResponsiveCard>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} variant={isMobile ? 'fullWidth' : 'standard'}>
-            <Tab label={<Badge badgeContent={pendingUsers.length} color="warning">
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><PersonIcon /><span>รออนุมัติ</span></Box>
-            </Badge>} />
-            <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><PersonIcon /><span>ผู้ใช้ทั้งหมด ({allUsers.length})</span></Box>} />
+            <Tab
+              label={
+                <Badge badgeContent={pendingUsers.length} color="warning">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <PersonIcon />
+                    <span>รออนุมัติ</span>
+                  </Box>
+                </Badge>
+              }
+            />
+            <Tab
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <PersonIcon />
+                  <span>ผู้ใช้ทั้งหมด ({allUsers.length})</span>
+                </Box>
+              }
+            />
           </Tabs>
         </Box>
 
@@ -248,37 +470,90 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
               <Avatar src={selectedUser.photoURL}>{selectedUser.firstName?.charAt(0)}</Avatar>
               รายละเอียดผู้ใช้: {selectedUser.displayName || `${selectedUser.firstName ?? ''} ${selectedUser.lastName ?? ''}`}
             </DialogTitle>
+
             <DialogContent>
               <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Box sx={{ mb: 2 }}><Typography variant="subtitle2" color="text.secondary">ข้อมูลส่วนตัว</Typography>
-                    <Typography variant="body1">{selectedUser.firstName} {selectedUser.lastName}</Typography></Box>
-                  <Box sx={{ mb: 2 }}><Typography variant="subtitle2" color="text.secondary">อีเมล</Typography>
-                    <Typography variant="body1">{selectedUser.email}</Typography></Box>
-                  <Box sx={{ mb: 2 }}><Typography variant="subtitle2" color="text.secondary">รหัสนักศึกษา</Typography>
-                    <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>{selectedUser.studentId}</Typography></Box>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      ข้อมูลส่วนตัว
+                    </Typography>
+                    <Typography variant="body1">
+                      {selectedUser.firstName} {selectedUser.lastName}
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      อีเมล
+                    </Typography>
+                    <Typography variant="body1">{selectedUser.email}</Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      รหัสนักศึกษา
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
+                      {selectedUser.studentId}
+                    </Typography>
+                  </Box>
                 </Grid>
-                <Grid item xs={12} md={6}>
-                  <Box sx={{ mb: 2 }}><Typography variant="subtitle2" color="text.secondary">คณะ</Typography>
-                    <Typography variant="body1">{selectedUser.faculty}</Typography></Box>
-                  <Box sx={{ mb: 2 }}><Typography variant="subtitle2" color="text.secondary">สาขาวิชา</Typography>
-                    <Typography variant="body1">{selectedUser.department}</Typography></Box>
-                  <Box sx={{ mb: 2 }}><Typography variant="subtitle2" color="text.secondary">ระดับปริญญา</Typography>
-                    <Typography variant="body1">{selectedUser.degreeLevel}</Typography></Box>
+
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      คณะ
+                    </Typography>
+                    <Typography variant="body1">{selectedUser.faculty}</Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      สาขาวิชา
+                    </Typography>
+                    <Typography variant="body1">{selectedUser.department}</Typography>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      ระดับปริญญา
+                    </Typography>
+                    <Typography variant="body1">{selectedUser.degreeLevel}</Typography>
+                  </Box>
                 </Grid>
               </Grid>
             </DialogContent>
+
             <DialogActions>
               <Button onClick={() => setDialogOpen(false)}>ปิด</Button>
+
               {!selectedUser.isVerified && (
-                <Button variant="contained" color="success" startIcon={<ApproveIcon />}
-                        onClick={async () => { await approveUser(selectedUser.uid); setDialogOpen(false); load(); }}>
+                <Button
+                  variant="contained"
+                  color="success"
+                  startIcon={<ApproveIcon />}
+                  onClick={async () => {
+                    await approveUser(selectedUser.uid);
+                    setDialogOpen(false);
+                    load();
+                  }}
+                >
                   อนุมัติ
                 </Button>
               )}
+
               {selectedUser.isActive && (
-                <Button variant="contained" color="error" startIcon={<SuspendIcon />}
-                        onClick={async () => { await suspendUser(selectedUser.uid); setDialogOpen(false); load(); }}>
+                <Button
+                  variant="contained"
+                  color="error"
+                  startIcon={<SuspendIcon />}
+                  onClick={async () => {
+                    await suspendUser(selectedUser.uid);
+                    setDialogOpen(false);
+                    load();
+                  }}
+                >
                   ระงับ
                 </Button>
               )}

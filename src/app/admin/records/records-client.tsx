@@ -2,12 +2,26 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Box, Typography, TextField, InputAdornment, IconButton, Button, Chip,
-  Stack, Paper, CircularProgress, Grid, ButtonGroup
+  Box,
+  Typography,
+  TextField,
+  InputAdornment,
+  IconButton,
+  Button,
+  Chip,
+  Stack,
+  Paper,
+  CircularProgress,
+  Grid,
+  ButtonGroup,
 } from "@mui/material";
 import {
-  Search as SearchIcon, Clear as ClearIcon, Download as DownloadIcon,
-  Refresh as RefreshIcon, ArrowBack as ArrowBackIcon, People as PeopleIcon
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  Download as DownloadIcon,
+  Refresh as RefreshIcon,
+  ArrowBack as ArrowBackIcon,
+  People as PeopleIcon,
 } from "@mui/icons-material";
 import { useRouter, useSearchParams } from "next/navigation";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
@@ -37,32 +51,97 @@ const Table: React.FC<{ rows: ActivityRecord[] }> = ({ rows }) => {
       <Box component="table" sx={{ width: "100%", borderCollapse: "collapse" }}>
         <Box component="thead">
           <Box component="tr">
-            {["วันที่/เวลา","รหัสนักศึกษา","ชื่อ","นามสกุล","สาขา","รหัสกิจกรรม"].map((h) => (
-              <Box key={h} component="th" sx={{ p: 2, textAlign: "left", borderBottom: "1px solid", borderColor: "divider" }}>
-                <Typography variant="subtitle2" fontWeight="bold">{h}</Typography>
-              </Box>
-            ))}
+            {["วันที่/เวลา", "รหัสนักศึกษา", "ชื่อ", "นามสกุล", "สาขา", "รหัสกิจกรรม"].map(
+              (h) => (
+                <Box
+                  key={h}
+                  component="th"
+                  sx={{
+                    p: 2,
+                    textAlign: "left",
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Typography variant="subtitle2" fontWeight="bold">
+                    {h}
+                  </Typography>
+                </Box>
+              )
+            )}
           </Box>
         </Box>
         <Box component="tbody">
           {rows.map((r) => (
             <Box key={r.id} component="tr">
-              <Box component="td" sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider", whiteSpace: "nowrap" }}>
+              <Box
+                component="td"
+                sx={{
+                  p: 2,
+                  borderBottom: "1px solid",
+                  borderColor: "divider",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 <Stack spacing={0}>
-                  <Typography variant="body2" fontWeight={600}>{r.timestamp.toLocaleDateString("th-TH")}</Typography>
-                  <Typography variant="caption" color="text.secondary">{r.timestamp.toLocaleTimeString("th-TH")}</Typography>
+                  <Typography variant="body2" fontWeight={600}>
+                    {r.timestamp.toLocaleDateString("th-TH")}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {r.timestamp.toLocaleTimeString("th-TH")}
+                  </Typography>
                 </Stack>
               </Box>
-              <Box component="td" sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider", fontFamily: "monospace", fontWeight: 700 }}>
+
+              <Box
+                component="td"
+                sx={{
+                  p: 2,
+                  borderBottom: "1px solid",
+                  borderColor: "divider",
+                  fontFamily: "monospace",
+                  fontWeight: 700,
+                }}
+              >
                 {r.studentId}
               </Box>
-              <Box component="td" sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>{r.firstName}</Box>
-              <Box component="td" sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>{r.lastName}</Box>
-              <Box component="td" sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>
-                <Chip size="small" variant="outlined" color="secondary" label={r.department || "-"} />
+
+              <Box
+                component="td"
+                sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}
+              >
+                {r.firstName}
               </Box>
-              <Box component="td" sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>
-                <Chip size="small" color="primary" label={r.activityCode} sx={{ fontWeight: 700 }} />
+
+              <Box
+                component="td"
+                sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}
+              >
+                {r.lastName}
+              </Box>
+
+              <Box
+                component="td"
+                sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}
+              >
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  label={r.department || "-"}
+                />
+              </Box>
+
+              <Box
+                component="td"
+                sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}
+              >
+                <Chip
+                  size="small"
+                  color="primary"
+                  label={r.activityCode}
+                  sx={{ fontWeight: 700 }}
+                />
               </Box>
             </Box>
           ))}
@@ -107,7 +186,9 @@ export default function RecordsClient() {
       // ถ้ามี where ให้ตัด orderBy ออก แล้ว sort ฝั่ง client
       let snap;
       if (activityFromQuery) {
-        snap = await getDocs(query(col, where("activityCode", "==", activityFromQuery)));
+        snap = await getDocs(
+          query(col, where("activityCode", "==", activityFromQuery))
+        );
       } else {
         snap = await getDocs(query(col, orderBy("timestamp", "desc")));
       }
@@ -116,7 +197,10 @@ export default function RecordsClient() {
         const data: any = d.data();
         const ts: Date =
           data.timestamp?.toDate?.() ??
-          (data.timestamp instanceof Date ? data.timestamp : new Date(data.timestamp || Date.now()));
+          (data.timestamp instanceof Date
+            ? data.timestamp
+            : new Date(data.timestamp || Date.now()));
+
         return {
           id: d.id,
           activityCode: data.activityCode || "",
@@ -138,10 +222,21 @@ export default function RecordsClient() {
     }
   };
 
-  useEffect(() => { fetchRecords(); /* eslint-disable-next-line */ }, [activityFromQuery]);
+  useEffect(() => {
+    fetchRecords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityFromQuery]);
 
   const exportCSV = () => {
-    const headers = ["วันที่/เวลา", "รหัสนักศึกษา", "ชื่อ", "นามสกุล", "สาขา", "รหัสกิจกรรม"];
+    const headers = [
+      "วันที่/เวลา",
+      "รหัสนักศึกษา",
+      "ชื่อ",
+      "นามสกุล",
+      "สาขา",
+      "รหัสกิจกรรม",
+    ];
+
     const body = filtered.map((r) => [
       r.timestamp.toLocaleString("th-TH"),
       r.studentId,
@@ -150,15 +245,23 @@ export default function RecordsClient() {
       r.department,
       r.activityCode,
     ]);
-    const csv = [headers, ...body].map((row) =>
-      row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")
-    ).join("\n");
 
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const csv = [headers, ...body]
+      .map((row) =>
+        row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob(["\uFEFF" + csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     const codePart = activityFromQuery ? `_${activityFromQuery}` : "";
-    a.download = `activity_records${codePart}_${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `activity_records${codePart}_${
+      new Date().toISOString().split("T")[0]
+    }.csv`;
     a.click();
   };
 
@@ -166,8 +269,14 @@ export default function RecordsClient() {
     <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: "auto" }}>
       {/* Header */}
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-        <IconButton onClick={() => router.back()}><ArrowBackIcon /></IconButton>
-        <Typography variant="h5" fontWeight={800} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <IconButton onClick={() => router.back()}>
+          <ArrowBackIcon />
+        </IconButton>
+        <Typography
+          variant="h5"
+          fontWeight={800}
+          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+        >
           <PeopleIcon /> รายชื่อผู้ลงทะเบียน
         </Typography>
       </Stack>
@@ -175,18 +284,23 @@ export default function RecordsClient() {
       {/* Filters & Actions */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md="auto">
+          <Grid size={{ xs: 12, md: "auto" }}>
             <Stack direction="row" spacing={1} alignItems="center">
-              {activityFromQuery
-                ? <Chip color="primary" label={`กิจกรรม: ${activityFromQuery}`} />
-                : <Chip color="default" label="ทุกกิจกรรม" />}
+              {activityFromQuery ? (
+                <Chip color="primary" label={`กิจกรรม: ${activityFromQuery}`} />
+              ) : (
+                <Chip color="default" label="ทุกกิจกรรม" />
+              )}
               <Chip label={`ทั้งหมด: ${all.length}`} />
               <Chip label={`นักศึกษา: ${stats.uniqueStudents}`} />
               <Chip label={`กิจกรรม: ${stats.uniqueActivities}`} />
             </Stack>
           </Grid>
-          <Grid item xs />
-          <Grid item xs={12} md={4}>
+
+          {/* ตัวดันให้กินพื้นที่ที่เหลือ */}
+          <Grid size="grow" />
+
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField
               fullWidth
               size="small"
@@ -195,21 +309,37 @@ export default function RecordsClient() {
               onChange={(e) => setQ(e.target.value)}
               placeholder="รหัสกิจกรรม, รหัสนักศึกษา, ชื่อ..."
               InputProps={{
-                startAdornment: (<InputAdornment position="start"><SearchIcon /></InputAdornment>),
-                endAdornment: q && (
-                  <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => setQ("")}><ClearIcon /></IconButton>
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
                   </InputAdornment>
-                )
+                ),
+                endAdornment: q ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setQ("")}>
+                      <ClearIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ) : undefined,
               }}
             />
           </Grid>
-          <Grid item xs={12} md="auto">
+
+          <Grid size={{ xs: 12, md: "auto" }}>
             <ButtonGroup variant="contained" size="small">
-              <Button startIcon={<RefreshIcon />} onClick={fetchRecords} disabled={loading}>
+              <Button
+                startIcon={<RefreshIcon />}
+                onClick={fetchRecords}
+                disabled={loading}
+              >
                 รีเฟรช
               </Button>
-              <Button startIcon={<DownloadIcon />} color="success" onClick={exportCSV} disabled={filtered.length === 0}>
+              <Button
+                startIcon={<DownloadIcon />}
+                color="success"
+                onClick={exportCSV}
+                disabled={filtered.length === 0}
+              >
                 ส่งออก CSV
               </Button>
             </ButtonGroup>

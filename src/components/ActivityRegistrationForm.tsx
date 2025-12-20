@@ -1,20 +1,57 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import {
-  Box, Card, CardContent, TextField, Button, Typography, Grid, Alert, CircularProgress,
-  Stepper, Step, StepLabel, FormControl, InputLabel, Select, MenuItem, SelectChangeEvent,
-  Paper, Fade, Grow, Divider, Chip, Stack
+  Box,
+  Card,
+  CardContent,
+  TextField,
+  Button,
+  Typography,
+  Grid,
+  Alert,
+  CircularProgress,
+  Stepper,
+  Step,
+  StepLabel,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  SelectChangeEvent,
+  Paper,
+  Fade,
+  Grow,
+  Divider,
+  Chip,
+  Stack,
 } from '@mui/material';
 
 import {
-  Block as BlockIcon, CheckCircle as CheckCircleIcon, Error as ErrorIcon, Refresh as RefreshIcon,
-  Person as PersonIcon, LocationOn as LocationIcon, AccessTime as AccessTimeIcon, School as SchoolIcon,
-  Badge as BadgeIcon, Security as SecurityIcon, Warning as WarningIcon,
-  Lock as LockIcon, ExitToApp as LogoutIcon, Verified as VerifiedIcon,
-  ContentCopy as ContentCopyIcon
+  Block as BlockIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+  Refresh as RefreshIcon,
+  Person as PersonIcon,
+  LocationOn as LocationIcon,
+  AccessTime as AccessTimeIcon,
+  School as SchoolIcon,
+  Badge as BadgeIcon,
+  Security as SecurityIcon,
+  Warning as WarningIcon,
+  Lock as LockIcon,
+  ExitToApp as LogoutIcon,
+  Verified as VerifiedIcon,
+  ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material';
 import {
-  collection, serverTimestamp, query, where, getDocs, doc, onSnapshot, runTransaction
+  collection,
+  serverTimestamp,
+  query,
+  where,
+  getDocs,
+  doc,
+  onSnapshot,
+  runTransaction,
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import LocationChecker from './LocationChecker';
@@ -49,7 +86,7 @@ interface UserProfile {
 
 interface ActivityRegistrationFormProps {
   activityCode: string;
-  activityDocId: string;               // id ของ doc ใน activityQRCodes (ใช้กับ rules)
+  activityDocId: string; // id ของ doc ใน activityQRCodes (ใช้กับ rules)
   adminSettings: AdminSettings;
   onSuccess?: () => Promise<void>;
   existingUserProfile?: UserProfile;
@@ -73,29 +110,29 @@ const PSU_FACULTIES = [
   { name: 'คณะพยาบาลศาสตร์', code: '10' },
   { name: 'คณะเภสัชศาสตร์', code: '11' },
   { name: 'คณะทันตแพทยศาสตร์', code: '12' },
-  { name: 'คณะสัตวแพทยศาสตร์', code: '13' }
+  { name: 'คณะสัตวแพทยศาสตร์', code: '13' },
 ];
 
 const DEGREE_LEVELS = [
   { name: 'ปริญญาตรี', code: '1' },
   { name: 'ปริญญาโท', code: '2' },
-  { name: 'ปริญญาเอก', code: '3' }
+  { name: 'ปริญญาเอก', code: '3' },
 ];
 
 const DEPARTMENTS_BY_FACULTY: Record<string, string[]> = {
-  'คณะวิศวกรรมศาสตร์': ['วิศวกรรมคอมพิวเตอร์','วิศวกรรมไฟฟ้า','วิศวกรรมเครื่องกล','วิศวกรรมโยธา'],
-  'คณะวิทยาศาสตร์': ['วิทยาการคอมพิวเตอร์','เทคโนโลยีสารสนเทศและการสื่อสาร','คณิตศาสตร์','ฟิสิกส์'],
-  'คณะแพทยศาสตร์': ['การแพทย์','กายภาพบำบัด'],
-  'คณะทรัพยากรธรรมชาติ': ['ทรัพยากรธรรมชาติ','ประมง'],
-  'คณะศึกษาศาสตร์': ['การศึกษาปฐมวัย','วิทยาศาสตรศึกษา'],
-  'คณะมนุษยศาสตร์และสังคมศาสตร์': ['ภาษาไทย','ภาษาอังกฤษ'],
-  'คณะเศรษฐศาสตร์': ['เศรษฐศาสตร์'],
-  'คณะบริหารธุรกิจ': ['การจัดการ','การตลาด','การบัญชี'],
-  'คณะศิลปกรรมศาสตร์': ['ศิลปกรรม','การออกแบบ'],
-  'คณะพยาบาลศาสตร์': ['พยาบาลศาสตร์'],
-  'คณะเภสัชศาสตร์': ['เภสัชศาสตร์'],
-  'คณะทันตแพทยศาสตร์': ['ทันตแพทยศาสตร์'],
-  'คณะสัตวแพทยศาสตร์': ['สัตวแพทยศาสตร์'],
+  คณะวิศวกรรมศาสตร์: ['วิศวกรรมคอมพิวเตอร์', 'วิศวกรรมไฟฟ้า', 'วิศวกรรมเครื่องกล', 'วิศวกรรมโยธา'],
+  คณะวิทยาศาสตร์: ['วิทยาการคอมพิวเตอร์', 'เทคโนโลยีสารสนเทศและการสื่อสาร', 'คณิตศาสตร์', 'ฟิสิกส์'],
+  คณะแพทยศาสตร์: ['การแพทย์', 'กายภาพบำบัด'],
+  คณะทรัพยากรธรรมชาติ: ['ทรัพยากรธรรมชาติ', 'ประมง'],
+  คณะศึกษาศาสตร์: ['การศึกษาปฐมวัย', 'วิทยาศาสตรศึกษา'],
+  คณะมนุษยศาสตร์และสังคมศาสตร์: ['ภาษาไทย', 'ภาษาอังกฤษ'],
+  คณะเศรษฐศาสตร์: ['เศรษฐศาสตร์'],
+  คณะบริหารธุรกิจ: ['การจัดการ', 'การตลาด', 'การบัญชี'],
+  คณะศิลปกรรมศาสตร์: ['ศิลปกรรม', 'การออกแบบ'],
+  คณะพยาบาลศาสตร์: ['พยาบาลศาสตร์'],
+  คณะเภสัชศาสตร์: ['เภสัชศาสตร์'],
+  คณะทันตแพทยศาสตร์: ['ทันตแพทยศาสตร์'],
+  คณะสัตวแพทยศาสตร์: ['สัตวแพทยศาสตร์'],
 };
 const ALL_DEPARTMENTS = Object.values(DEPARTMENTS_BY_FACULTY).flat();
 
@@ -120,7 +157,9 @@ const generateStudentId = (faculty: string) => {
   const degreeLevel = '1';
   const facultyCode = PSU_FACULTIES.find((x) => x.name === faculty)?.code || '02';
   const majorCode = '1';
-  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  const randomNum = Math.floor(Math.random() * 10000)
+    .toString()
+    .padStart(4, '0');
   return `${year}${degreeLevel}${facultyCode}${majorCode}${randomNum}`;
 };
 
@@ -147,7 +186,16 @@ const detectFacultyFromDepartment = (deptName: string): string => {
 
 function extractAndGenerateUserData(profile?: UserProfile) {
   if (!profile) {
-    return { studentId: '', firstName: '', lastName: '', department: '', faculty: '', degree: '', englishName: '', isAutoFilled: false };
+    return {
+      studentId: '',
+      firstName: '',
+      lastName: '',
+      department: '',
+      faculty: '',
+      degree: '',
+      englishName: '',
+      isAutoFilled: false,
+    };
   }
   const displayName = profile.displayName || '';
   const email = profile.email || '';
@@ -190,11 +238,23 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   const [activityStatusLoading, setActivityStatusLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
-  const [departments, setDepartments] = useState<{ id: string; name: string; faculty: string; isActive: boolean }[]>([]);
-  const [filteredDepartments, setFilteredDepartments] = useState<{ id: string; name: string; faculty: string; isActive: boolean }[]>([]);
+  const [departments, setDepartments] = useState<{ id: string; name: string; faculty: string; isActive: boolean }[]>(
+    []
+  );
+  const [filteredDepartments, setFilteredDepartments] = useState<
+    { id: string; name: string; faculty: string; isActive: boolean }[]
+  >([]);
   const [activityStatus, setActivityStatus] = useState<ActivityStatus>({
-    exists: false, isActive: false, activityCode: '', userCode: '',
-    requiresUniversityLogin: false, latitude: 0, longitude: 0, checkInRadius: 100, singleUserMode: false, forceRefresh: false,
+    exists: false,
+    isActive: false,
+    activityCode: '',
+    userCode: '',
+    requiresUniversityLogin: false,
+    latitude: 0,
+    longitude: 0,
+    checkInRadius: 100,
+    singleUserMode: false,
+    forceRefresh: false,
   });
 
   const [forceRefreshEnabled, setForceRefreshEnabled] = useState(false);
@@ -250,7 +310,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
 
   const handleLogout = async () => {
     if (onLogout) {
-      try { await onLogout(); } catch {}
+      try {
+        await onLogout();
+      } catch {}
     }
   };
 
@@ -285,7 +347,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       const snap = await getDocs(qRef);
 
       if (snap.empty) {
-        setActivityStatus({ exists: false, isActive: false, activityCode, userCode: '', requiresUniversityLogin: false, latitude: 0, longitude: 0, checkInRadius: 100, singleUserMode: false, forceRefresh: false });
+        setActivityStatus({
+          exists: false,
+          isActive: false,
+          activityCode,
+          userCode: '',
+          requiresUniversityLogin: false,
+          latitude: 0,
+          longitude: 0,
+          checkInRadius: 100,
+          singleUserMode: false,
+          forceRefresh: false,
+        });
       } else {
         const activityDoc = snap.docs[0];
         const data = activityDoc.data() as any;
@@ -301,7 +374,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           checkInRadius: data.checkInRadius || 100,
           singleUserMode: data.singleUserMode || false,
           forceRefresh: data.forceRefresh === true,
-          closeReason: data.closeReason || ''
+          closeReason: data.closeReason || '',
         });
 
         setForceRefreshEnabled(data.forceRefresh === true);
@@ -326,7 +399,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               checkInRadius: updated.checkInRadius || prev.checkInRadius,
               singleUserMode: updated.singleUserMode || false,
               forceRefresh: updated.forceRefresh === true,
-              closeReason: updated.closeReason || prev.closeReason
+              closeReason: updated.closeReason || prev.closeReason,
             }));
 
             const newForce = updated.forceRefresh === true;
@@ -343,7 +416,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       }
     } catch {
       setError('ไม่สามารถตรวจสอบสถานะกิจกรรมได้');
-      setActivityStatus({ exists: false, isActive: false, activityCode, userCode: '', requiresUniversityLogin: false, latitude: 0, longitude: 0, checkInRadius: 100, singleUserMode: false, forceRefresh: false });
+      setActivityStatus({
+        exists: false,
+        isActive: false,
+        activityCode,
+        userCode: '',
+        requiresUniversityLogin: false,
+        latitude: 0,
+        longitude: 0,
+        checkInRadius: 100,
+        singleUserMode: false,
+        forceRefresh: false,
+      });
     } finally {
       setActivityStatusLoading(false);
     }
@@ -362,7 +446,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       });
 
       if (list.length === 0) {
-        const fallback = ALL_DEPARTMENTS.map((name, idx) => ({ id: `fallback-${idx}`, name, faculty: detectFacultyFromDepartment(name), isActive: true }));
+        const fallback = ALL_DEPARTMENTS.map((name, idx) => ({
+          id: `fallback-${idx}`,
+          name,
+          faculty: detectFacultyFromDepartment(name),
+          isActive: true,
+        }));
         list = fallback;
       }
 
@@ -375,7 +464,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       setDepartments(list);
     } catch {
       setError('ไม่สามารถโหลดข้อมูลสาขาได้ กรุณาลองใหม่อีกครั้ง');
-      const fallback = ALL_DEPARTMENTS.map((name, idx) => ({ id: `fallback-${idx}`, name, faculty: detectFacultyFromDepartment(name), isActive: true }));
+      const fallback = ALL_DEPARTMENTS.map((name, idx) => ({
+        id: `fallback-${idx}`,
+        name,
+        faculty: detectFacultyFromDepartment(name),
+        isActive: true,
+      }));
       setDepartments(fallback);
     } finally {
       setDepartmentsLoading(false);
@@ -383,7 +477,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   };
 
   const updateFilteredDepartments = (selectedFaculty: string) => {
-    if (!selectedFaculty) { setFilteredDepartments([]); return; }
+    if (!selectedFaculty) {
+      setFilteredDepartments([]);
+      return;
+    }
     const filtered = departments.filter((d) => d.faculty === selectedFaculty);
     setFilteredDepartments(filtered);
     if ((formData as any).department && !filtered.some((d) => d.name === (formData as any).department)) {
@@ -396,12 +493,20 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       await Promise.all([checkActivityStatus(), fetchDepartments()]);
     };
     init();
-    return () => { if (realtimeListener) realtimeListener(); };
+    return () => {
+      if (realtimeListener) realtimeListener();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activityCode]);
 
-  useEffect(() => { updateFilteredDepartments((formData as any).faculty); /* eslint-disable-next-line */ }, [(formData as any).faculty, departments]);
-  useEffect(() => () => { if (realtimeListener) realtimeListener(); }, [realtimeListener]);
+  useEffect(() => {
+    updateFilteredDepartments((formData as any).faculty);
+    // eslint-disable-next-line
+  }, [(formData as any).faculty, departments]);
+
+  useEffect(() => () => {
+    if (realtimeListener) realtimeListener();
+  }, [realtimeListener]);
 
   /** =========================
    * Form handlers
@@ -420,10 +525,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     setError('');
   };
 
-  const validateNewStudentId = (studentId: string) => /^\d{10}$/.test(studentId) && (() => {
-    const prefix = parseInt(studentId.substring(0, 2), 10);
-    return prefix >= 64 && prefix <= 69;
-  })();
+  const validateNewStudentId = (studentId: string) =>
+    /^\d{10}$/.test(studentId) &&
+    (() => {
+      const prefix = parseInt(studentId.substring(0, 2), 10);
+      return prefix >= 64 && prefix <= 69;
+    })();
 
   const isFieldReadOnly = (field: string): boolean => {
     if (!(autoFilledData as any).isAutoFilled) return false;
@@ -431,23 +538,57 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   };
 
   const validateForm = async (): Promise<boolean> => {
-    if (forceRefreshEnabled) { setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่'); return false; }
+    if (forceRefreshEnabled) {
+      setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่');
+      return false;
+    }
     const uid = auth?.currentUser?.uid;
-    if (!uid) { setError('กรุณาเข้าสู่ระบบก่อนทำรายการ'); return false; }
+    if (!uid) {
+      setError('กรุณาเข้าสู่ระบบก่อนทำรายการ');
+      return false;
+    }
 
-    if (!validateNewStudentId((formData as any).studentId)) { setError('รหัสนักศึกษาไม่ถูกต้อง (ต้องเป็นตัวเลข 10 หลัก และขึ้นต้นด้วย 64-69)'); return false; }
-    if (!validateThaiName((formData as any).firstName)) { setError('ชื่อไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)'); return false; }
-    if (!validateThaiName((formData as any).lastName)) { setError('นามสกุลไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)'); return false; }
-    if (!(formData as any).faculty) { setError('กรุณาเลือกคณะ'); return false; }
-    if (!(formData as any).department) { setError('กรุณาเลือกสาขา'); return false; }
-    if (!(formData as any).userCode) { setError('กรุณาใส่รหัสผู้ใช้'); return false; }
-    if ((formData as any).userCode !== activityStatus.userCode) { setError('รหัสผู้ใช้ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง'); return false; }
+    if (!validateNewStudentId((formData as any).studentId)) {
+      setError('รหัสนักศึกษาไม่ถูกต้อง (ต้องเป็นตัวเลข 10 หลัก และขึ้นต้นด้วย 64-69)');
+      return false;
+    }
+    if (!validateThaiName((formData as any).firstName)) {
+      setError('ชื่อไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)');
+      return false;
+    }
+    if (!validateThaiName((formData as any).lastName)) {
+      setError('นามสกุลไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)');
+      return false;
+    }
+    if (!(formData as any).faculty) {
+      setError('กรุณาเลือกคณะ');
+      return false;
+    }
+    if (!(formData as any).department) {
+      setError('กรุณาเลือกสาขา');
+      return false;
+    }
+    if (!(formData as any).userCode) {
+      setError('กรุณาใส่รหัสผู้ใช้');
+      return false;
+    }
+    if ((formData as any).userCode !== activityStatus.userCode) {
+      setError('รหัสผู้ใช้ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
+      return false;
+    }
 
     // กันลงทะเบียนซ้ำด้วย studentId (เร็ว)
     try {
-      const qBySid = query(collection(db, 'activityRecords'), where('studentId', '==', (formData as any).studentId), where('activityCode', '==', activityCode));
+      const qBySid = query(
+        collection(db, 'activityRecords'),
+        where('studentId', '==', (formData as any).studentId),
+        where('activityCode', '==', activityCode)
+      );
       const s1 = await getDocs(qBySid);
-      if (!s1.empty) { setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว'); return false; }
+      if (!s1.empty) {
+        setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+        return false;
+      }
     } catch {}
 
     if (activityStatus.singleUserMode) {
@@ -458,7 +599,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (forceRefreshEnabled) { setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่'); return; }
+    if (forceRefreshEnabled) {
+      setError('ไม่สามารถบันทึกข้อมูลได้ กรุณาโหลดหน้านี้ใหม่');
+      return;
+    }
     if (!(await validateForm())) return;
     setLoading(true);
     setActiveStep(1);
@@ -536,7 +680,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           location,
           userCode: (formData as any).userCode,
           transcriptSaved: true,
-          timestamp: serverTimestamp()
+          timestamp: serverTimestamp(),
         };
 
         tx.set(recordRef, payload, { merge: false });
@@ -552,7 +696,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         FULL: 'กิจกรรมนี้มีผู้สมัครครบจำนวนแล้ว',
         ALREADY_REGISTERED: 'คุณได้ลงทะเบียนกิจกรรมนี้แล้ว',
         SINGLE_USER_TAKEN: 'กิจกรรมนี้อนุญาตผู้ใช้เดียว และถูกลงทะเบียนไปแล้ว',
-        ACT_NOT_FOUND: 'ไม่พบข้อมูลกิจกรรม'
+        ACT_NOT_FOUND: 'ไม่พบข้อมูลกิจกรรม',
       };
       setError(map[e?.message] || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       setLoading(false);
@@ -560,7 +704,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
   };
 
-  const handleLocationError = (msg: string) => { setError(msg); setLoading(false); setActiveStep(0); };
+  const handleLocationError = (msg: string) => {
+    setError(msg);
+    setLoading(false);
+    setActiveStep(0);
+  };
 
   const getActivityAllowedLocation = () => ({
     latitude: activityStatus.latitude || 13.7563,
@@ -574,11 +722,29 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (isRefreshing) {
     return (
       <Fade in>
-        <Card elevation={12} sx={{ borderRadius: 4, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+        <Card
+          elevation={12}
+          sx={{
+            borderRadius: 4,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+          }}
+        >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <RefreshIcon sx={{ fontSize: 80, mb: 3, animation: 'spin 1s linear infinite', '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } } }} />
-            <Typography variant="h4" sx={{ mt: 2, fontWeight: 700 }}>กำลังโหลดหน้าใหม่...</Typography>
-            <Typography variant="body1" sx={{ mt: 2, opacity: 0.9 }}>กรุณารอสักครู่</Typography>
+            <RefreshIcon
+              sx={{
+                fontSize: 80,
+                mb: 3,
+                animation: 'spin 1s linear infinite',
+                '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } },
+              }}
+            />
+            <Typography variant="h4" sx={{ mt: 2, fontWeight: 700 }}>
+              กำลังโหลดหน้าใหม่...
+            </Typography>
+            <Typography variant="body1" sx={{ mt: 2, opacity: 0.9 }}>
+              กรุณารอสักครู่
+            </Typography>
           </CardContent>
         </Card>
       </Fade>
@@ -594,7 +760,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h4" sx={{ mt: 2, fontWeight: 600, color: 'primary.main' }}>
               กำลังตรวจสอบสถานะกิจกรรม...
             </Typography>
-            <Chip label={`รหัสกิจกรรม: ${activityCode}`} variant="outlined" sx={{ mt: 2, fontFamily: 'monospace', fontWeight: 600 }} />
+            <Chip
+              label={`รหัสกิจกรรม: ${activityCode}`}
+              variant="outlined"
+              sx={{ mt: 2, fontFamily: 'monospace', fontWeight: 600 }}
+            />
           </CardContent>
         </Card>
       </Fade>
@@ -604,12 +774,34 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (!activityStatus.exists) {
     return (
       <Grow in>
-        <Card elevation={8} sx={{ borderRadius: 4, border: '3px solid', borderColor: 'error.main', background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)', color: 'white' }}>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
+            borderColor: 'error.main',
+            background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)',
+            color: 'white',
+          }}
+        >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
             <ErrorIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">ไม่พบกิจกรรมนี้</Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>ไม่พบกิจกรรมที่มีรหัส</Typography>
-            <Chip label={activityCode} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600, fontSize: '1.1rem' }} />
+            <Typography variant="h3" gutterBottom fontWeight="bold">
+              ไม่พบกิจกรรมนี้
+            </Typography>
+            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+              ไม่พบกิจกรรมที่มีรหัส
+            </Typography>
+            <Chip
+              label={activityCode}
+              sx={{
+                bgcolor: 'rgba(255,255,255,0.2)',
+                color: 'white',
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                fontSize: '1.1rem',
+              }}
+            />
           </CardContent>
         </Card>
       </Grow>
@@ -619,12 +811,28 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (!activityStatus.isActive) {
     return (
       <Grow in>
-        <Card elevation={8} sx={{ borderRadius: 4, border: '3px solid', borderColor: 'warning.main', background: 'linear-gradient(135deg, #ffa726 0%, #fb8c00 100%)', color: 'white' }}>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
+            borderColor: 'warning.main',
+            background: 'linear-gradient(135deg, #ffa726 0%, #fb8c00 100%)',
+            color: 'white',
+          }}
+        >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
             <BlockIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">กิจกรรมปิดการลงทะเบียนแล้ว</Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>{activityStatus.closeReason || 'กิจกรรมได้ปิดการลงทะเบียนแล้ว'}</Typography>
-            <Chip label={activityStatus.activityCode} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600 }} />
+            <Typography variant="h3" gutterBottom fontWeight="bold">
+              กิจกรรมปิดการลงทะเบียนแล้ว
+            </Typography>
+            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+              {activityStatus.closeReason || 'กิจกรรมได้ปิดการลงทะเบียนแล้ว'}
+            </Typography>
+            <Chip
+              label={activityStatus.activityCode}
+              sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600 }}
+            />
           </CardContent>
         </Card>
       </Grow>
@@ -634,12 +842,28 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (!activityStatus.userCode) {
     return (
       <Grow in>
-        <Card elevation={8} sx={{ borderRadius: 4, border: '3px solid', borderColor: 'warning.main', background: 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)', color: 'white' }}>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
+            borderColor: 'warning.main',
+            background: 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
+            color: 'white',
+          }}
+        >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
             <PersonIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">ไม่มีรหัสผู้ใช้</Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>กิจกรรมยังไม่ได้ตั้งค่ารหัสผู้ใช้</Typography>
-            <Chip label={activityStatus.activityCode} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600 }} />
+            <Typography variant="h3" gutterBottom fontWeight="bold">
+              ไม่มีรหัสผู้ใช้
+            </Typography>
+            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+              กิจกรรมยังไม่ได้ตั้งค่ารหัสผู้ใช้
+            </Typography>
+            <Chip
+              label={activityStatus.activityCode}
+              sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600 }}
+            />
           </CardContent>
         </Card>
       </Grow>
@@ -649,15 +873,59 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (singleUserViolation) {
     return (
       <Grow in>
-        <Card elevation={8} sx={{ borderRadius: 4, border: '3px solid', borderColor: 'error.main', background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)', color: 'white' }}>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
+            borderColor: 'error.main',
+            background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
+            color: 'white',
+          }}
+        >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
             <LockIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">ไม่สามารถลงทะเบียนได้</Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียวเท่านั้น</Typography>
-            <Chip label={currentRegisteredUser} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', mb: 4, fontWeight: 600 }} />
+            <Typography variant="h3" gutterBottom fontWeight="bold">
+              ไม่สามารถลงทะเบียนได้
+            </Typography>
+            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+              กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียวเท่านั้น
+            </Typography>
+            <Chip
+              label={currentRegisteredUser}
+              sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', mb: 4, fontWeight: 600 }}
+            />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
-              <Button variant="contained" size="large" onClick={handleLogout} startIcon={<LogoutIcon />} sx={{ px: 4, py: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>ออกจากระบบ</Button>
-              <Button variant="outlined" size="large" onClick={() => window.close()} sx={{ px: 4, py: 1.5, borderRadius: 3, borderColor: 'rgba(255,255,255,0.5)', color: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>ปิดหน้าต่าง</Button>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={handleLogout}
+                startIcon={<LogoutIcon />}
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  borderRadius: 3,
+                  bgcolor: 'rgba(255,255,255,0.15)',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+                }}
+              >
+                ออกจากระบบ
+              </Button>
+              <Button
+                variant="outlined"
+                size="large"
+                onClick={() => window.close()}
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  borderRadius: 3,
+                  borderColor: 'rgba(255,255,255,0.5)',
+                  color: 'white',
+                  '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' },
+                }}
+              >
+                ปิดหน้าต่าง
+              </Button>
             </Stack>
           </CardContent>
         </Card>
@@ -668,12 +936,38 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (activityStatus.requiresUniversityLogin && !existingUserProfile && !existingAuthStatus) {
     return (
       <Grow in>
-        <Card elevation={8} sx={{ borderRadius: 4, border: '3px solid', borderColor: 'warning.main', background: 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)', color: 'white' }}>
+        <Card
+          elevation={8}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
+            borderColor: 'warning.main',
+            background: 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)',
+            color: 'white',
+          }}
+        >
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
             <WarningIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">จำเป็นต้องเข้าสู่ระบบ</Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>กิจกรรมนี้ต้องการให้เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยก่อน</Typography>
-            <Button variant="contained" size="large" onClick={() => window.history.back()} sx={{ px: 4, py: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>กลับไปเข้าสู่ระบบ</Button>
+            <Typography variant="h3" gutterBottom fontWeight="bold">
+              จำเป็นต้องเข้าสู่ระบบ
+            </Typography>
+            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+              กิจกรรมนี้ต้องการให้เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยก่อน
+            </Typography>
+            <Button
+              variant="contained"
+              size="large"
+              onClick={() => window.history.back()}
+              sx={{
+                px: 4,
+                py: 1.5,
+                borderRadius: 3,
+                bgcolor: 'rgba(255,255,255,0.15)',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+              }}
+            >
+              กลับไปเข้าสู่ระบบ
+            </Button>
           </CardContent>
         </Card>
       </Grow>
@@ -683,16 +977,49 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (success) {
     return (
       <Fade in>
-        <Card elevation={12} sx={{ borderRadius: 4, border: '3px solid', borderColor: 'success.main', background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)', color: 'white' }}>
+        <Card
+          elevation={12}
+          sx={{
+            borderRadius: 4,
+            border: '3px solid',
+            borderColor: 'success.main',
+            background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)',
+            color: 'white',
+          }}
+        >
           <CardContent sx={{ textAlign: 'center', py: 6 }}>
             <CheckCircleIcon sx={{ fontSize: 120, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">บันทึกสำเร็จ!</Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>ข้อมูลการเข้าร่วมกิจกรรมของคุณได้รับการบันทึกเรียบร้อยแล้ว</Typography>
-            <Alert severity="success" sx={{ mb: 3, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', color: 'white', '& .MuiAlert-icon': { color: 'white' } }}>
+            <Typography variant="h3" gutterBottom fontWeight="bold">
+              บันทึกสำเร็จ!
+            </Typography>
+            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+              ข้อมูลการเข้าร่วมกิจกรรมของคุณได้รับการบันทึกเรียบร้อยแล้ว
+            </Typography>
+            <Alert
+              severity="success"
+              sx={{
+                mb: 3,
+                borderRadius: 2,
+                bgcolor: 'rgba(255,255,255,0.15)',
+                color: 'white',
+                '& .MuiAlert-icon': { color: 'white' },
+              }}
+            >
               บันทึก Transcript เรียบร้อยแล้ว
             </Alert>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
-              <Button variant="contained" size="large" onClick={() => window.close()} sx={{ px: 4, py: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={() => window.close()}
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  borderRadius: 3,
+                  bgcolor: 'rgba(255,255,255,0.15)',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+                }}
+              >
                 ปิดหน้าต่าง
               </Button>
             </Stack>
@@ -737,12 +1064,19 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             sx={{
               mb: { xs: 2.5, sm: 4 },
               '& .MuiStepLabel-root .Mui-completed': { color: 'success.main' },
-              '& .MuiStepLabel-root .Mui-active': { color: 'primary.main' }
+              '& .MuiStepLabel-root .Mui-active': { color: 'primary.main' },
             }}
           >
-            {['กรอกข้อมูล','ตรวจสอบตำแหน่ง','บันทึกสำเร็จ'].map((label, index) => (
+            {['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'].map((label, index) => (
               <Step key={label}>
-                <StepLabel sx={{ '& .MuiStepLabel-label': { fontWeight: activeStep === index ? 'bold' : 'normal', color: activeStep === index ? 'primary.main' : 'text.secondary' } }}>
+                <StepLabel
+                  sx={{
+                    '& .MuiStepLabel-label': {
+                      fontWeight: activeStep === index ? 'bold' : 'normal',
+                      color: activeStep === index ? 'primary.main' : 'text.secondary',
+                    },
+                  }}
+                >
                   {label}
                 </StepLabel>
               </Step>
@@ -760,94 +1094,201 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Fade in>
               <Box>
                 {/* Organizer code bar */}
-                <Box sx={(t) => ({
-                  mb: 3, p: { xs: 1.5, sm: 2 }, borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap',
-                  bgcolor: t.palette.mode === 'dark' ? 'rgba(20,20,24,0.35)' : 'rgba(255,255,255,0.65)', backdropFilter: 'blur(16px) saturate(160%)',
-                  border: '1px solid rgba(255,255,255,0.35)', boxShadow: '0 8px 32px rgba(0,0,0,.12)',
-                })}>
+                <Box
+                  sx={(t) => ({
+                    mb: 3,
+                    p: { xs: 1.5, sm: 2 },
+                    borderRadius: 3,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    bgcolor: t.palette.mode === 'dark' ? 'rgba(20,20,24,0.35)' : 'rgba(255,255,255,0.65)',
+                    backdropFilter: 'blur(16px) saturate(160%)',
+                    border: '1px solid rgba(255,255,255,0.35)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,.12)',
+                  })}
+                >
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="caption" sx={{ opacity: 0.75, display: 'block' }}>รหัสที่ได้รับจากผู้จัดกิจกรรม</Typography>
-                    <Typography variant="h6" sx={{ fontFamily: 'monospace', fontWeight: 800, letterSpacing: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: { xs: 180, sm: 260 } }} title={activityStatus.userCode || ''}>
+                    <Typography variant="caption" sx={{ opacity: 0.75, display: 'block' }}>
+                      รหัสที่ได้รับจากผู้จัดกิจกรรม
+                    </Typography>
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontFamily: 'monospace',
+                        fontWeight: 800,
+                        letterSpacing: 1,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: { xs: 180, sm: 260 },
+                      }}
+                      title={activityStatus.userCode || ''}
+                    >
                       {activityStatus.userCode || '—'}
                     </Typography>
                   </Box>
                   <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
-                    <Button variant="outlined" size="small" onClick={() => setFormData((prev) => ({ ...prev, userCode: activityStatus.userCode || '' }))}>ใส่รหัสให้เลย</Button>
-                    <Button variant="text" size="small" startIcon={<ContentCopyIcon fontSize="small" />} onClick={async () => { try { await navigator.clipboard.writeText(activityStatus.userCode || ''); } catch {} }}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => setFormData((prev) => ({ ...prev, userCode: activityStatus.userCode || '' }))}
+                    >
+                      ใส่รหัสให้เลย
+                    </Button>
+                    <Button
+                      variant="text"
+                      size="small"
+                      startIcon={<ContentCopyIcon fontSize="small" />}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(activityStatus.userCode || '');
+                        } catch {}
+                      }}
+                    >
                       คัดลอก
                     </Button>
                   </Stack>
                 </Box>
 
                 <Grid container spacing={2.5}>
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
                       label="รหัสนักศึกษา"
                       value={(formData as any).studentId}
                       onChange={handleInputChange('studentId')}
-                      fullWidth required
+                      fullWidth
+                      required
                       disabled={isFieldReadOnly('studentId') || loading || forceRefreshEnabled}
-                      InputProps={{ startAdornment: <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}><BadgeIcon sx={{ color: 'text.secondary' }} />{isFieldReadOnly('studentId') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}</Box> }}
+                      InputProps={{
+                        startAdornment: (
+                          <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                            <BadgeIcon sx={{ color: 'text.secondary' }} />
+                            {isFieldReadOnly('studentId') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
+                          </Box>
+                        ),
+                      }}
                       helperText={isFieldReadOnly('studentId') ? 'ข้อมูลจาก Microsoft' : 'เช่น 6421021234 (10 หลัก, ขึ้นต้นด้วย 64-69)'}
                       sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
                     />
                   </Grid>
 
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
-                      label="ชื่อ" value={(formData as any).firstName} onChange={handleInputChange('firstName')}
-                      fullWidth required disabled={isFieldReadOnly('firstName') || loading || forceRefreshEnabled}
-                      InputProps={{ startAdornment: <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}><PersonIcon sx={{ color: 'text.secondary' }} />{isFieldReadOnly('firstName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}</Box> }}
+                      label="ชื่อ"
+                      value={(formData as any).firstName}
+                      onChange={handleInputChange('firstName')}
+                      fullWidth
+                      required
+                      disabled={isFieldReadOnly('firstName') || loading || forceRefreshEnabled}
+                      InputProps={{
+                        startAdornment: (
+                          <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                            <PersonIcon sx={{ color: 'text.secondary' }} />
+                            {isFieldReadOnly('firstName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
+                          </Box>
+                        ),
+                      }}
                       helperText={isFieldReadOnly('firstName') ? 'ข้อมูลจาก Microsoft' : 'ชื่อจริงเป็นภาษาไทย'}
                     />
                   </Grid>
 
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
-                      label="นามสกุล" value={(formData as any).lastName} onChange={handleInputChange('lastName')}
-                      fullWidth required disabled={isFieldReadOnly('lastName') || loading || forceRefreshEnabled}
-                      InputProps={{ startAdornment: <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}><PersonIcon sx={{ color: 'text.secondary' }} />{isFieldReadOnly('lastName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}</Box> }}
+                      label="นามสกุล"
+                      value={(formData as any).lastName}
+                      onChange={handleInputChange('lastName')}
+                      fullWidth
+                      required
+                      disabled={isFieldReadOnly('lastName') || loading || forceRefreshEnabled}
+                      InputProps={{
+                        startAdornment: (
+                          <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                            <PersonIcon sx={{ color: 'text.secondary' }} />
+                            {isFieldReadOnly('lastName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
+                          </Box>
+                        ),
+                      }}
                       helperText={isFieldReadOnly('lastName') ? 'ข้อมูลจาก Microsoft' : 'นามสกุลเป็นภาษาไทย'}
                     />
                   </Grid>
 
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <FormControl fullWidth required disabled={isFieldReadOnly('faculty') || loading || forceRefreshEnabled}>
                       <InputLabel>คณะ</InputLabel>
                       <Select value={(formData as any).faculty} onChange={handleSelectChange('faculty')} label="คณะ">
-                        {PSU_FACULTIES.map((f) => (<MenuItem key={f.code} value={f.name}>{f.name}</MenuItem>))}
+                        {PSU_FACULTIES.map((f) => (
+                          <MenuItem key={f.code} value={f.name}>
+                            {f.name}
+                          </MenuItem>
+                        ))}
                       </Select>
-                      {isFieldReadOnly('faculty') && <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, ml: 1 }}>ข้อมูลจาก Microsoft</Typography>}
+                      {isFieldReadOnly('faculty') && (
+                        <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, ml: 1 }}>
+                          ข้อมูลจาก Microsoft
+                        </Typography>
+                      )}
                     </FormControl>
                   </Grid>
 
-                  <Grid item xs={12} sm={6}>
-                    <FormControl fullWidth required disabled={departmentsLoading || loading || forceRefreshEnabled || !(formData as any).faculty}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <FormControl
+                      fullWidth
+                      required
+                      disabled={departmentsLoading || loading || forceRefreshEnabled || !(formData as any).faculty}
+                    >
                       <InputLabel>สาขาวิชา</InputLabel>
                       <Select value={(formData as any).department} onChange={handleSelectChange('department')} label="สาขาวิชา">
-                        {filteredDepartments.map((d) => (<MenuItem key={d.id} value={d.name}>{d.name}</MenuItem>))}
-                        {filteredDepartments.length === 0 && (formData as any).faculty && !departmentsLoading && (<MenuItem disabled>ไม่พบสาขาสำหรับคณะนี้</MenuItem>)}
+                        {filteredDepartments.map((d) => (
+                          <MenuItem key={d.id} value={d.name}>
+                            {d.name}
+                          </MenuItem>
+                        ))}
+                        {filteredDepartments.length === 0 && (formData as any).faculty && !departmentsLoading && (
+                          <MenuItem disabled>ไม่พบสาขาสำหรับคณะนี้</MenuItem>
+                        )}
                       </Select>
                       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1 }}>
-                        {departmentsLoading ? 'กำลังโหลดข้อมูลสาขา...' : !(formData as any).faculty ? 'เลือกคณะก่อน' : filteredDepartments.length === 0 ? 'ไม่พบสาขาสำหรับคณะนี้' : `พบ ${filteredDepartments.length} สาขา`}
+                        {departmentsLoading
+                          ? 'กำลังโหลดข้อมูลสาขา...'
+                          : !(formData as any).faculty
+                          ? 'เลือกคณะก่อน'
+                          : filteredDepartments.length === 0
+                          ? 'ไม่พบสาขาสำหรับคณะนี้'
+                          : `พบ ${filteredDepartments.length} สาขา`}
                       </Typography>
                     </FormControl>
                   </Grid>
 
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <FormControl fullWidth required disabled={isFieldReadOnly('degree') || loading || forceRefreshEnabled}>
                       <InputLabel>ระดับการศึกษา</InputLabel>
                       <Select value={(formData as any).degree} onChange={handleSelectChange('degree')} label="ระดับการศึกษา">
-                        {DEGREE_LEVELS.map((d) => (<MenuItem key={d.code} value={d.name}>{d.name}</MenuItem>))}
+                        {DEGREE_LEVELS.map((d) => (
+                          <MenuItem key={d.code} value={d.name}>
+                            {d.name}
+                          </MenuItem>
+                        ))}
                       </Select>
-                      {isFieldReadOnly('degree') && <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, ml: 1 }}>ข้อมูลจาก Microsoft</Typography>}
+                      {isFieldReadOnly('degree') && (
+                        <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, ml: 1 }}>
+                          ข้อมูลจาก Microsoft
+                        </Typography>
+                      )}
                     </FormControl>
                   </Grid>
 
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <TextField
-                      label="รหัสผู้ใช้" value={(formData as any).userCode} onChange={handleInputChange('userCode')}
-                      fullWidth required disabled={loading || forceRefreshEnabled} type="password"
+                      label="รหัสผู้ใช้"
+                      value={(formData as any).userCode}
+                      onChange={handleInputChange('userCode')}
+                      fullWidth
+                      required
+                      disabled={loading || forceRefreshEnabled}
+                      type="password"
                       helperText="รหัสที่ได้รับจากผู้จัดกิจกรรม"
                       sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
                     />
@@ -856,14 +1297,52 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
 
                 <Divider sx={{ my: { xs: 3, sm: 4 } }} />
 
-                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}>
-                  <Chip label={`รหัสกิจกรรม: ${activityCode}`} variant="outlined" sx={{ fontFamily: 'monospace', fontWeight: 600, borderColor: 'primary.main', color: 'primary.main', alignSelf: { xs: 'stretch', sm: 'flex-start' } }} />
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: { xs: 'column', sm: 'row' },
+                    gap: 2,
+                    alignItems: { xs: 'stretch', sm: 'center' },
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Chip
+                    label={`รหัสกิจกรรม: ${activityCode}`}
+                    variant="outlined"
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontWeight: 600,
+                      borderColor: 'primary.main',
+                      color: 'primary.main',
+                      alignSelf: { xs: 'stretch', sm: 'flex-start' },
+                    }}
+                  />
                   <Button
-                    variant="contained" size="large" onClick={handleSubmit}
-                    disabled={loading || departmentsLoading || forceRefreshEnabled || !(formData as any).faculty || filteredDepartments.length === 0}
-                    sx={{ px: 4, py: 1.5, borderRadius: 3, background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)' }}
+                    variant="contained"
+                    size="large"
+                    onClick={handleSubmit}
+                    disabled={
+                      loading ||
+                      departmentsLoading ||
+                      forceRefreshEnabled ||
+                      !(formData as any).faculty ||
+                      filteredDepartments.length === 0
+                    }
+                    sx={{
+                      px: 4,
+                      py: 1.5,
+                      borderRadius: 3,
+                      background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
+                    }}
                   >
-                    {loading ? (<><CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />กำลังเตรียมตรวจสอบ...</>) : ('ตรวจสอบตำแหน่ง')}
+                    {loading ? (
+                      <>
+                        <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
+                        กำลังเตรียมตรวจสอบ...
+                      </>
+                    ) : (
+                      'ตรวจสอบตำแหน่ง'
+                    )}
                   </Button>
                 </Box>
               </Box>
@@ -874,17 +1353,32 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           {activeStep === 1 && (
             <Fade in>
               <Box sx={{ textAlign: 'center' }}>
-                <LocationIcon sx={{ fontSize: 80, mb: 2.5, color: 'primary.main', filter: 'drop-shadow(0 4px 8px rgba(102, 126, 234, .3))' }} />
+                <LocationIcon
+                  sx={{
+                    fontSize: 80,
+                    mb: 2.5,
+                    color: 'primary.main',
+                    filter: 'drop-shadow(0 4px 8px rgba(102, 126, 234, .3))',
+                  }}
+                />
                 {locStage === 'pre' ? (
                   <>
-                    <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">กำลังเตรียมตรวจสอบตำแหน่ง</Typography>
-                    <Typography variant="body1" color="text.secondary" paragraph>กรุณารอสักครู่...</Typography>
+                    <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">
+                      กำลังเตรียมตรวจสอบตำแหน่ง
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary" paragraph>
+                      กรุณารอสักครู่...
+                    </Typography>
                     <CircularProgress />
                   </>
                 ) : (
                   <>
-                    <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">กำลังตรวจสอบตำแหน่ง</Typography>
-                    <Typography variant="body1" color="text.secondary" paragraph>กรุณาอนุญาตการเข้าถึงตำแหน่งของคุณเพื่อยืนยันการเข้าร่วมกิจกรรม</Typography>
+                    <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">
+                      กำลังตรวจสอบตำแหน่ง
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary" paragraph>
+                      กรุณาอนุญาตการเข้าถึงตำแหน่งของคุณเพื่อยืนยันการเข้าร่วมกิจกรรม
+                    </Typography>
                     <LocationChecker
                       allowedLocation={getActivityAllowedLocation()}
                       onLocationVerified={handleLocationVerified}

@@ -31,11 +31,14 @@ import {
 
 import {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   signOut,
   onAuthStateChanged,
   User,
   OAuthProvider,
-  AuthError,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -84,6 +87,15 @@ const MicrosoftLogo: React.FC<{ size?: number }> = ({ size = 22 }) => (
     <rect x="12.5" y="12.5" width="10.5" height="10.5" fill="#FFB900" rx="1" />
   </Box>
 );
+
+/* =========================
+   Helpers: detect in-app browser (LINE/FB/IG/etc.)
+========================= */
+const isInAppBrowser = () => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Line|FBAN|FBAV|Instagram|Twitter|TikTok|WebView|wv/i.test(ua);
+};
 
 /* =========================
    Component
@@ -140,169 +152,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       : `${minutes} นาที`;
 
   const getTimeProgressValue = (): number => (sessionRemainingTime / 30) * 100;
-
-  /* =========================
-     Effects - auth state
-  ========================= */
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
-
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        await loadUserData(firebaseUser.uid);
-
-        if (loginInProgressRef.current) {
-          setSessionValid(true);
-        } else if (!hasCheckedExistingSessionRef.current) {
-          hasCheckedExistingSessionRef.current = true;
-          await checkExistingSession(firebaseUser.uid);
-        }
-      } else {
-        setUser(null);
-        setUserData(null);
-        stopSessionMonitoring();
-        resetSessionState();
-      }
-
-      setLoading(false);
-    });
-
-    return () => {
-      unsub();
-      stopSessionMonitoring();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const resetSessionState = () => {
-    setSessionInitialized(false);
-    setSessionValid(true);
-    setSessionRemainingTime(0);
-    hasCheckedExistingSessionRef.current = false;
-    loginInProgressRef.current = false;
-  };
-
-  /* =========================
-     Session helpers
-  ========================= */
-  const checkExistingSession = async (userId: string) => {
-    try {
-      const sessionResult = await SessionManager.validateSession(userId);
-
-      if (sessionResult.isValid) {
-        setSessionValid(true);
-        setSessionRemainingTime(sessionResult.remainingTime || 0);
-        setSessionInitialized(true);
-        startSessionMonitoring(userId);
-      } else {
-        setSessionValid(false);
-        setSessionInitialized(false);
-      }
-    } catch {
-      setSessionValid(false);
-      setSessionInitialized(false);
-    }
-  };
-
-  const createSessionAndInitialize = async (userId: string, email: string) => {
-    try {
-      const userIP = await getUserIP();
-      currentIpRef.current = userIP;
-
-      const res = await SessionManager.createSession(userId, email, userIP);
-      if (!('success' in res) || !res.success) {
-        if ((res as any).blocked) {
-          const wait = (res as any).waitMinutes ?? 30;
-          const msg = `IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่นแล้ว กรุณารออีก ${wait} นาที`;
-          setError(msg);
-          await signOut(auth);
-          onLoginError?.(msg);
-          return;
-        }
-        const msg = (res as any).message || 'ไม่สามารถสร้างเซสชันได้';
-        setError(msg);
-        await signOut(auth);
-        onLoginError?.(msg);
-        return;
-      }
-
-      const sessionResult = await SessionManager.validateSession(userId);
-      if (sessionResult.isValid) {
-        setSessionValid(true);
-        setSessionRemainingTime(sessionResult.remainingTime || 30);
-        setSessionInitialized(true);
-        startSessionMonitoring(userId);
-      } else {
-        setSessionValid(false);
-        setSessionInitialized(false);
-      }
-    } catch {
-      setError('เข้าสู่ระบบสำเร็จ แต่เกิดข้อผิดพลาดในการสร้างเซสชัน');
-    }
-  };
-
-  const startSessionMonitoring = (userId: string) => {
-    // periodic validity check
-    if (sessionCheckIntervalRef.current) {
-      window.clearInterval(sessionCheckIntervalRef.current);
-    }
-    sessionCheckIntervalRef.current = window.setInterval(async () => {
-      try {
-        const res = await SessionManager.validateSession(userId);
-        if (!res.isValid) {
-          setSessionValid(false);
-          handleSessionExpiredInternal(res.message);
-          return;
-        }
-        setSessionRemainingTime(res.remainingTime || 0);
-      } catch {
-        /* noop */
-      }
-    }, 60_000);
-
-    // real activity listeners → slide expiry via touch()
-    const activityHandler = () => {
-      const now = Date.now();
-      if (now - activityThrottleRef.current < 60_000) return; // throttle 1/min
-      activityThrottleRef.current = now;
-      SessionManager.touch(userId, currentIpRef.current).catch(() => {});
-    };
-
-    const events: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
-    events.forEach((ev) => window.addEventListener(ev, activityHandler, { passive: true }));
-
-    (window as any).__msAuthActivityCleanup = () => {
-      events.forEach((ev) => window.removeEventListener(ev, activityHandler));
-    };
-  };
-
-  const stopSessionMonitoring = () => {
-    if (sessionCheckIntervalRef.current) {
-      window.clearInterval(sessionCheckIntervalRef.current);
-      sessionCheckIntervalRef.current = null;
-    }
-    if ((window as any).__msAuthActivityCleanup) {
-      try {
-        (window as any).__msAuthActivityCleanup();
-      } catch {}
-      (window as any).__msAuthActivityCleanup = undefined;
-    }
-  };
-
-  const handleSessionExpiredInternal = async (message?: string) => {
-    try {
-      stopSessionMonitoring();
-      await signOut(auth);
-      resetSessionState();
-      setUser(null);
-      setUserData(null);
-      if (message) setError(message);
-      onSessionExpired?.();
-    } catch {
-      /* noop */
-    }
-  };
 
   /* =========================
      Firestore helpers
@@ -366,56 +215,137 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   };
 
   /* =========================
-     Auth flows
+     Session helpers
   ========================= */
-  const handleMicrosoftLogin = async () => {
-    let attemptedEmail = '';
+  const resetSessionState = () => {
+    setSessionInitialized(false);
+    setSessionValid(true);
+    setSessionRemainingTime(0);
+    hasCheckedExistingSessionRef.current = false;
+    loginInProgressRef.current = false;
+  };
+
+  const checkExistingSession = async (userId: string) => {
     try {
-      setLoginLoading(true);
-      setError('');
-      loginInProgressRef.current = true;
+      const sessionResult = await SessionManager.validateSession(userId);
 
-      const provider = new OAuthProvider('microsoft.com');
-      provider.addScope('openid');
-      provider.addScope('email');
-      provider.addScope('profile');
-      provider.setCustomParameters({ prompt: 'select_account', response_mode: 'fragment' });
-
-      const result = await signInWithPopup(auth, provider);
-      const firebaseUser = result.user;
-
-      attemptedEmail = firebaseUser.email || '';
-
-      if (!firebaseUser.email?.endsWith('@psu.ac.th')) {
-        await signOut(auth);
-        setError('กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น (@psu.ac.th)');
-        return;
+      if (sessionResult.isValid) {
+        setSessionValid(true);
+        setSessionRemainingTime(sessionResult.remainingTime || 0);
+        setSessionInitialized(true);
+        startSessionMonitoring(userId);
+      } else {
+        setSessionValid(false);
+        setSessionInitialized(false);
       }
-
-      if (onPreLoginCheck) {
-        const canProceed = await onPreLoginCheck(firebaseUser.email);
-        if (!canProceed) {
-          await signOut(auth);
-          return;
-        }
-      }
-
-      await handleSuccessfulLogin(firebaseUser);
-    } catch (err: any) {
-      // แปลงเป็นข้อความกลาง (ไม่มี “บัญชีมีอยู่แล้ว…”)
-      const msg = mapAuthError(err);
-      setError(msg);
-      onLoginError?.(msg);
-    } finally {
-      setLoginLoading(false);
-      loginInProgressRef.current = false;
+    } catch {
+      setSessionValid(false);
+      setSessionInitialized(false);
     }
   };
 
+  const createSessionAndInitialize = async (userId: string, email: string) => {
+    try {
+      const userIP = await getUserIP();
+      currentIpRef.current = userIP;
+
+      const res = await SessionManager.createSession(userId, email, userIP);
+      if (!('success' in res) || !res.success) {
+        if ((res as any).blocked) {
+          const wait = (res as any).waitMinutes ?? 30;
+          const msg = `IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่นแล้ว กรุณารออีก ${wait} นาที`;
+          setError(msg);
+          await signOut(auth);
+          onLoginError?.(msg);
+          return;
+        }
+        const msg = (res as any).message || 'ไม่สามารถสร้างเซสชันได้';
+        setError(msg);
+        await signOut(auth);
+        onLoginError?.(msg);
+        return;
+      }
+
+      const sessionResult = await SessionManager.validateSession(userId);
+      if (sessionResult.isValid) {
+        setSessionValid(true);
+        setSessionRemainingTime(sessionResult.remainingTime || 30);
+        setSessionInitialized(true);
+        startSessionMonitoring(userId);
+      } else {
+        setSessionValid(false);
+        setSessionInitialized(false);
+      }
+    } catch {
+      setError('เข้าสู่ระบบสำเร็จ แต่เกิดข้อผิดพลาดในการสร้างเซสชัน');
+    }
+  };
+
+  const startSessionMonitoring = (userId: string) => {
+    if (sessionCheckIntervalRef.current) {
+      window.clearInterval(sessionCheckIntervalRef.current);
+    }
+    sessionCheckIntervalRef.current = window.setInterval(async () => {
+      try {
+        const res = await SessionManager.validateSession(userId);
+        if (!res.isValid) {
+          setSessionValid(false);
+          handleSessionExpiredInternal(res.message);
+          return;
+        }
+        setSessionRemainingTime(res.remainingTime || 0);
+      } catch {
+        /* noop */
+      }
+    }, 60_000);
+
+    const activityHandler = () => {
+      const now = Date.now();
+      if (now - activityThrottleRef.current < 60_000) return;
+      activityThrottleRef.current = now;
+      SessionManager.touch(userId, currentIpRef.current).catch(() => {});
+    };
+
+    const events: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    events.forEach((ev) => window.addEventListener(ev, activityHandler, { passive: true }));
+
+    (window as any).__msAuthActivityCleanup = () => {
+      events.forEach((ev) => window.removeEventListener(ev, activityHandler));
+    };
+  };
+
+  const stopSessionMonitoring = () => {
+    if (sessionCheckIntervalRef.current) {
+      window.clearInterval(sessionCheckIntervalRef.current);
+      sessionCheckIntervalRef.current = null;
+    }
+    if ((window as any).__msAuthActivityCleanup) {
+      try {
+        (window as any).__msAuthActivityCleanup();
+      } catch {}
+      (window as any).__msAuthActivityCleanup = undefined;
+    }
+  };
+
+  const handleSessionExpiredInternal = async (message?: string) => {
+    try {
+      stopSessionMonitoring();
+      await signOut(auth);
+      resetSessionState();
+      setUser(null);
+      setUserData(null);
+      if (message) setError(message);
+      onSessionExpired?.();
+    } catch {
+      /* noop */
+    }
+  };
+
+  /* =========================
+     Auth success handler
+  ========================= */
   const handleSuccessfulLogin = async (firebaseUser: User) => {
-    const { studentId, degreeLevel, department, faculty } = extractStudentInfoFromEmail(
-      firebaseUser.email!
-    );
+    const { studentId, degreeLevel, department, faculty } = extractStudentInfoFromEmail(firebaseUser.email!);
     const nameParts = (firebaseUser.displayName || '').split(' ');
     const firstName = nameParts[0] || 'ไม่ระบุ';
     const lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
@@ -424,6 +354,7 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     const existingUser = await getDoc(userDocRef);
 
     let finalUserData: UniversityUserData;
+
     if (existingUser.exists()) {
       const existing = existingUser.data() as UniversityUserData;
       finalUserData = {
@@ -461,6 +392,171 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
     setUserData(finalUserData);
     onLoginSuccess?.(finalUserData);
+  };
+
+  /* =========================
+     Effects - auth state
+  ========================= */
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true);
+
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        await loadUserData(firebaseUser.uid);
+
+        if (loginInProgressRef.current) {
+          setSessionValid(true);
+        } else if (!hasCheckedExistingSessionRef.current) {
+          hasCheckedExistingSessionRef.current = true;
+          await checkExistingSession(firebaseUser.uid);
+        }
+      } else {
+        setUser(null);
+        setUserData(null);
+        stopSessionMonitoring();
+        resetSessionState();
+      }
+
+      setLoading(false);
+    });
+
+    return () => {
+      unsub();
+      stopSessionMonitoring();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * สำคัญ: รองรับกรณี popup ถูกบล็อก/ไม่รองรับ แล้ว Firebase ไปใช้ redirect แทน
+   * - ตั้ง persistence เป็น local
+   * - ถ้ามี redirect result กลับมา → ทำต่อให้จบ
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+
+        const res = await getRedirectResult(auth);
+        if (cancelled) return;
+
+        if (res?.user) {
+          setLoginLoading(true);
+          setError('');
+          loginInProgressRef.current = true;
+
+          const firebaseUser = res.user;
+
+          if (!firebaseUser.email?.endsWith('@psu.ac.th')) {
+            await signOut(auth);
+            const msg = 'กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น (@psu.ac.th)';
+            setError(msg);
+            onLoginError?.(msg);
+            return;
+          }
+
+          if (onPreLoginCheck && firebaseUser.email) {
+            const canProceed = await onPreLoginCheck(firebaseUser.email);
+            if (!canProceed) {
+              await signOut(auth);
+              return;
+            }
+          }
+
+          await handleSuccessfulLogin(firebaseUser);
+        }
+      } catch {
+        // ignore
+      } finally {
+        loginInProgressRef.current = false;
+        setLoginLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* =========================
+     Auth flows
+  ========================= */
+  const handleMicrosoftLogin = async () => {
+    try {
+      setLoginLoading(true);
+      setError('');
+      loginInProgressRef.current = true;
+
+      // กันเคสพังหนักสุด: in-app browser
+      if (isInAppBrowser()) {
+        const msg =
+          'เบราว์เซอร์ในแอป (LINE/FB/IG) อาจทำให้เข้าสู่ระบบล้มเหลว กรุณาเปิดลิงก์นี้ใน Chrome/Safari แล้วลองใหม่';
+        setError(msg);
+        onLoginError?.(msg);
+        return;
+      }
+
+      await setPersistence(auth, browserLocalPersistence);
+
+      const provider = new OAuthProvider('microsoft.com');
+      provider.addScope('openid');
+      provider.addScope('email');
+      provider.addScope('profile');
+      provider.setCustomParameters({ prompt: 'select_account' });
+
+      // 1) popup ก่อน
+      let firebaseUser: User | null = null;
+
+      try {
+        const result = await signInWithPopup(auth, provider);
+        firebaseUser = result.user;
+      } catch (err: any) {
+        const code = err?.code as string | undefined;
+
+        // 2) ถ้า popup ใช้ไม่ได้ → fallback redirect
+        const shouldFallbackToRedirect =
+          code === 'auth/popup-blocked' ||
+          code === 'auth/popup-closed-by-user' ||
+          code === 'auth/operation-not-supported-in-this-environment' ||
+          code === 'auth/web-storage-unsupported';
+
+        if (!shouldFallbackToRedirect) throw err;
+
+        await signInWithRedirect(auth, provider);
+        return; // redirect จะพาออกจากหน้า
+      }
+
+      if (!firebaseUser) return;
+
+      if (!firebaseUser.email?.endsWith('@psu.ac.th')) {
+        await signOut(auth);
+        const msg = 'กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น (@psu.ac.th)';
+        setError(msg);
+        onLoginError?.(msg);
+        return;
+      }
+
+      if (onPreLoginCheck) {
+        const canProceed = await onPreLoginCheck(firebaseUser.email || '');
+        if (!canProceed) {
+          await signOut(auth);
+          return;
+        }
+      }
+
+      await handleSuccessfulLogin(firebaseUser);
+    } catch (err: any) {
+      const msg = mapAuthError(err);
+      setError(msg);
+      onLoginError?.(msg);
+    } finally {
+      setLoginLoading(false);
+      loginInProgressRef.current = false;
+    }
   };
 
   const handleLogout = async () => {
@@ -599,7 +695,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
           <Divider sx={{ my: 2 }} />
 
-          {/* actions */}
           <Stack spacing={1}>
             <Button
               variant="outlined"
@@ -708,6 +803,13 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
+              {String(error).toLowerCase().includes('missing initial state') && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="caption" display="block">
+                    แนะนำ: อย่าเปิดผ่าน LINE/FB/IG ให้เปิดด้วย Chrome/Safari แล้วลองใหม่
+                  </Typography>
+                </Box>
+              )}
             </Alert>
           )}
 
@@ -743,7 +845,9 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
               <Alert severity="warning" icon={<TimeIcon />} sx={{ mb: 1.5 }}>
                 ระบบจะออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน 30 นาที (ไม่มีปุ่มขยายเวลา)
               </Alert>
-              <Alert severity="info">ถ้าเบราว์เซอร์บล็อก popup ให้อนุญาต popup สำหรับเว็บนี้แล้วลองใหม่</Alert>
+              <Alert severity="info">
+                ถ้าระบบแจ้งว่า “เปิด popup ไม่ได้” หรือเปิดผ่าน LINE/FB/IG ให้เปิดลิงก์นี้ใน Chrome/Safari แล้วลองใหม่
+              </Alert>
             </AccordionDetails>
           </Accordion>
 

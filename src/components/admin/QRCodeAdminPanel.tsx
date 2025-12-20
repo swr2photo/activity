@@ -1,22 +1,72 @@
+// components/admin/QRCodeAdminPanel.tsx
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import Grid from '@mui/material/Grid';
 import {
-  Box, Grid, Card, CardContent, Typography, Button, Chip, Accordion, AccordionSummary,
-  AccordionDetails, IconButton, Paper, Avatar, Tooltip, Container, Dialog, DialogTitle,
-  DialogContent, DialogActions, TextField, Switch, FormControlLabel, Stack, Divider, Alert,
-  CircularProgress, InputAdornment, MenuItem, Select, FormControl, InputLabel, Slider,
-  Menu, ListItemIcon, ListItemText, Tabs, Tab, TableContainer, Table, TableHead, TableRow,
-  TableCell, TableBody
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  Button,
+  Chip,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  IconButton,
+  Paper,
+  Avatar,
+  Tooltip,
+  Container,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Switch,
+  FormControlLabel,
+  Stack,
+  Divider,
+  Alert,
+  CircularProgress,
+  InputAdornment,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  Slider,
+  Menu,
+  ListItemIcon,
+  ListItemText,
+  Tabs,
+  Tab,
+  TableContainer,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
 } from '@mui/material';
 
 import {
-  ExpandMore as ExpandMoreIcon, QrCode2 as QrCodeIcon, Add as AddIcon, Edit as EditIcon,
-  Delete as DeleteIcon, Visibility as ViewIcon, Image as ImageIcon,
-  Clear as ClearIcon, ColorLens as ColorIcon, Shuffle as ShuffleIcon,
-  ContentCopy as CopyIcon, Preview as PreviewIcon, Place as PlaceIcon,
-  Download as DownloadIcon, People as PeopleIcon, GridView as GridIcon,
-  TableRows as TableIcon, MyLocation as MyLocationIcon
+  ExpandMore as ExpandMoreIcon,
+  QrCode2 as QrCodeIcon,
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Visibility as ViewIcon,
+  Image as ImageIcon,
+  Clear as ClearIcon,
+  ColorLens as ColorIcon,
+  Shuffle as ShuffleIcon,
+  ContentCopy as CopyIcon,
+  Preview as PreviewIcon,
+  Place as PlaceIcon,
+  Download as DownloadIcon,
+  People as PeopleIcon,
+  GridView as GridIcon,
+  TableRows as TableIcon,
+  MyLocation as MyLocationIcon,
 } from '@mui/icons-material';
 
 import dayjs, { Dayjs } from 'dayjs';
@@ -34,8 +84,17 @@ import {
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 
 import {
-  addDoc, collection, getDocs, limit, query, serverTimestamp, where, doc,
-  updateDoc, deleteDoc, deleteField
+  addDoc,
+  collection,
+  getDocs,
+  limit,
+  query,
+  serverTimestamp,
+  where,
+  doc,
+  updateDoc,
+  deleteDoc,
+  deleteField,
 } from 'firebase/firestore';
 import { db, storage } from '../../lib/firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -84,7 +143,7 @@ const pathFromStorageUrl = (url?: string | null): string | null => {
 
 const randomHex = (bytes: number) =>
   Array.from(crypto.getRandomValues(new Uint8Array(bytes)))
-    .map(x => x.toString(16).padStart(2, '0'))
+    .map((x) => x.toString(16).padStart(2, '0'))
     .join('')
     .toUpperCase();
 const randomActivityCode = () => randomHex(16);
@@ -144,8 +203,14 @@ const loadImageSafe = async (src: string, timeoutMs = 12000): Promise<HTMLImageE
       };
 
       const t = setTimeout(() => finish(false), timeoutMs);
-      img.onload = () => { clearTimeout(t); finish(true); };
-      img.onerror = () => { clearTimeout(t); finish(false); };
+      img.onload = () => {
+        clearTimeout(t);
+        finish(true);
+      };
+      img.onerror = () => {
+        clearTimeout(t);
+        finish(false);
+      };
 
       img.src = src;
     } catch {
@@ -157,11 +222,19 @@ const loadImageSafe = async (src: string, timeoutMs = 12000): Promise<HTMLImageE
 const drawCover = (
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
-  dx: number, dy: number, dWidth: number, dHeight: number
+  dx: number,
+  dy: number,
+  dWidth: number,
+  dHeight: number
 ) => {
-  const iw = img.naturalWidth, ih = img.naturalHeight;
-  const ir = iw / ih, tr = dWidth / dHeight;
-  let sx = 0, sy = 0, sw = iw, sh = ih;
+  const iw = img.naturalWidth,
+    ih = img.naturalHeight;
+  const ir = iw / ih,
+    tr = dWidth / dHeight;
+  let sx = 0,
+    sy = 0,
+    sw = iw,
+    sh = ih;
   if (ir > tr) {
     const newW = ih * tr;
     sx = Math.round((iw - newW) / 2);
@@ -195,14 +268,14 @@ type CreateForm = {
   singleUserMode: boolean;
   maxParticipants?: number;
   targetUrl: string;
-  qrDataUrl: string;             // preview QR
+  qrDataUrl: string; // preview QR
   userCode: string;
   bannerMode: BannerMode;
   bannerUrl?: string;
   bannerFile?: File | null;
   bannerColor?: string;
   bannerTintColor?: string;
-  bannerTintOpacity: number;     // 0..1
+  bannerTintOpacity: number; // 0..1
 };
 
 const defaultForm: CreateForm = {
@@ -247,9 +320,10 @@ const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square')
   const qrData = await generateQrPng(shortUrl, 1024);
 
   // ขนาด
-  const size = variant === 'a4'
-    ? { w: 1240, h: 1754 }   // A4 ~150dpi
-    : { w: 1080, h: 1350 };  // สี่เหลี่ยมแนวตั้ง
+  const size =
+    variant === 'a4'
+      ? { w: 1240, h: 1754 } // A4 ~150dpi
+      : { w: 1080, h: 1350 }; // สี่เหลี่ยมแนวตั้ง
 
   const canvas = document.createElement('canvas');
   canvas.width = size.w;
@@ -266,10 +340,10 @@ const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square')
   // หัวโปสเตอร์ (รูปหรือสี)
   const bannerColor = (a as any).bannerColor as string | undefined;
   const tintColor = (a as any).bannerTintColor as string | undefined;
-  const tintOpacity = typeof (a as any).bannerTintOpacity === 'number'
-    ? Number((a as any).bannerTintOpacity) : 0.42;
+  const tintOpacity =
+    typeof (a as any).bannerTintOpacity === 'number' ? Number((a as any).bannerTintOpacity) : 0.42;
 
-  const headerH = Math.round(size.h * 0.20);
+  const headerH = Math.round(size.h * 0.2);
   let drewImage = false;
   const bannerUrl = (a as any).bannerUrl as string | undefined;
   if (bannerUrl) {
@@ -287,8 +361,8 @@ const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square')
   }
   if (!drewImage) {
     const bg = (bannerColor || '').startsWith('linear-gradient')
-      ? '#4f46e5' // ถ้า gradient string → ใช้สีหลักแทน (canvas ใช้ CSS gradient ตรงๆไม่ได้)
-      : (bannerColor || '#c7d2fe');
+      ? '#4f46e5'
+      : bannerColor || '#c7d2fe';
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, size.w, headerH);
   }
@@ -347,7 +421,14 @@ const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square')
   if ((a as any).location) {
     ctx.fillStyle = '#334155';
     ctx.font = `600 ${Math.round(size.w * 0.036)}px Inter, "Noto Sans Thai", system-ui`;
-    wrapText(ctx, (a as any).location, pad, codeY + Math.round(size.w * 0.06), size.w - pad * 2, Math.round(size.w * 0.05));
+    wrapText(
+      ctx,
+      (a as any).location,
+      pad,
+      codeY + Math.round(size.w * 0.06),
+      size.w - pad * 2,
+      Math.round(size.w * 0.05)
+    );
   }
 
   // footer เล็ก ๆ
@@ -409,7 +490,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
 
   // download menu
   const [dlMenu, setDlMenu] = useState<{ anchorEl: HTMLElement | null; activity: Activity | null }>({
-    anchorEl: null, activity: null,
+    anchorEl: null,
+    activity: null,
   });
   const openDownloadMenu = (e: React.MouseEvent<HTMLElement>, a: Activity) =>
     setDlMenu({ anchorEl: e.currentTarget as HTMLElement, activity: a });
@@ -438,9 +520,14 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           ? await getAllActivities()
           : await getActivitiesByDepartment(currentAdmin.department as AdminDepartment);
       setActivities(data);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [currentAdmin.department]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line
+  }, [currentAdmin.department]);
 
   /* ---------- Create ---------- */
   const handleOpenCreate = () => {
@@ -456,7 +543,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     });
     setOpenCreate(true);
   };
-  const handleCloseCreate = () => { if (!saving) setOpenCreate(false); };
+  const handleCloseCreate = () => {
+    if (!saving) setOpenCreate(false);
+  };
 
   const updateForm = <K extends keyof CreateForm>(key: K, value: CreateForm[K]) => {
     setForm((prev) => {
@@ -597,7 +686,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       await load();
     } catch (e: any) {
       setErrMsg(e?.message || 'เกิดข้อผิดพลาดในการบันทึก');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   /* ---------- Edit ---------- */
@@ -634,10 +725,14 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         checkInRadius: a.checkInRadius ?? qr?.checkInRadius ?? 100,
         startDateTime: a.startDateTime
           ? dayjs(a.startDateTime)
-          : qr?.startDateTime ? dayjs(qr.startDateTime.toDate?.() ?? qr.startDateTime) : dayjs(),
+          : qr?.startDateTime
+          ? dayjs(qr.startDateTime.toDate?.() ?? qr.startDateTime)
+          : dayjs(),
         endDateTime: a.endDateTime
           ? dayjs(a.endDateTime)
-          : qr?.endDateTime ? dayjs(qr.endDateTime.toDate?.() ?? qr.endDateTime) : dayjs().add(2, 'hour'),
+          : qr?.endDateTime
+          ? dayjs(qr.endDateTime.toDate?.() ?? qr.endDateTime)
+          : dayjs().add(2, 'hour'),
         isActive: a.isActive ?? true,
         scanEnabled: qr?.scanEnabled !== false,
         requiresUniversityLogin: qr?.requiresUniversityLogin ?? true,
@@ -659,7 +754,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     }
   };
 
-  const handleCloseEdit = () => { if (!editing) setOpenEdit(false); };
+  const handleCloseEdit = () => {
+    if (!editing) setOpenEdit(false);
+  };
 
   const handleEditSubmit = async () => {
     if (!editActivityId) return;
@@ -674,9 +771,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       const lng = typeof form.longitude === 'number' ? form.longitude : undefined;
 
       let newBannerUrl = form.bannerUrl;
-      let bannerColor: string | undefined = (form.bannerMode === 'color')
-        ? ((form.bannerColor || '').trim() || undefined)
-        : undefined;
+      let bannerColor: string | undefined =
+        form.bannerMode === 'color' ? (form.bannerColor || '').trim() || undefined : undefined;
 
       if (form.bannerMode === 'image' && form.bannerFile) {
         if (form.bannerUrl) await deleteBannerIfOwned(form.bannerUrl);
@@ -748,7 +844,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       await load();
     } catch (e: any) {
       setErrMsg(e?.message || 'เกิดข้อผิดพลาดในการบันทึกการแก้ไข');
-    } finally { setEditing(false); }
+    } finally {
+      setEditing(false);
+    }
   };
 
   const handleDeleteActivity = async (a: Activity) => {
@@ -766,18 +864,31 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       try {
         if (!snap.empty) {
           const qd = snap.docs[0];
-          await updateDoc(qd.ref, { isActive: false, scanEnabled: false, forceRefresh: true, updatedAt: serverTimestamp() });
+          await updateDoc(qd.ref, {
+            isActive: false,
+            scanEnabled: false,
+            forceRefresh: true,
+            updatedAt: serverTimestamp(),
+          });
         }
       } catch {}
 
-      try { await updateDoc(doc(db, 'activities', a.id), { isActive: false, updatedAt: serverTimestamp() }); } catch {}
-      try { await deleteDoc(doc(db, 'activities', a.id)); } catch {}
+      try {
+        await updateDoc(doc(db, 'activities', a.id), { isActive: false, updatedAt: serverTimestamp() });
+      } catch {}
+      try {
+        await deleteDoc(doc(db, 'activities', a.id));
+      } catch {}
 
       if (!snap.empty) {
         const qd = snap.docs[0];
         const qdata = qd.data() as any;
-        try { if (qdata?.bannerUrl) await deleteBannerIfOwned(qdata.bannerUrl); } catch {}
-        try { await deleteDoc(qd.ref); } catch {}
+        try {
+          if (qdata?.bannerUrl) await deleteBannerIfOwned(qdata.bannerUrl);
+        } catch {}
+        try {
+          await deleteDoc(qd.ref);
+        } catch {}
       }
       await load();
     } catch (e) {
@@ -812,28 +923,79 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
 
   /* ---------- Small card preview ---------- */
   const QrPreviewCard: React.FC<{
-    title: string; code: string; qr?: string; dept: string; when: string; place?: string; scanEnabled: boolean; bannerUrl?: string; bannerColor?: string;
+    title: string;
+    code: string;
+    qr?: string;
+    dept: string;
+    when: string;
+    place?: string;
+    scanEnabled: boolean;
+    bannerUrl?: string;
+    bannerColor?: string;
   }> = ({ title, code, qr, dept, when, place, scanEnabled, bannerUrl, bannerColor }) => {
     const hasImg = Boolean(bannerUrl);
     const style: React.CSSProperties = hasImg
       ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
       : bannerColor
-        ? { background: bannerColor }
-        : { background: 'linear-gradient(135deg,#4f46e5,#06b6d4)' };
+      ? { background: bannerColor }
+      : { background: 'linear-gradient(135deg,#4f46e5,#06b6d4)' };
 
     return (
-      <Paper elevation={2} sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider', maxWidth: 380, mx: 'auto' }}>
+      <Paper
+        elevation={2}
+        sx={{
+          borderRadius: 2,
+          overflow: 'hidden',
+          border: '1px solid',
+          borderColor: 'divider',
+          maxWidth: 380,
+          mx: 'auto',
+        }}
+      >
         <Box sx={{ height: 90, ...style }} />
         <Box sx={{ p: 2 }}>
           <Stack spacing={1} alignItems="center">
-            <Typography variant="subtitle2" color="text.secondary">{dept}</Typography>
-            <Typography variant="h6" fontWeight={800} textAlign="center">{title}</Typography>
-            <Typography variant="caption" color="text.secondary">{when}</Typography>
-            {place && <Typography variant="caption" color="text.secondary"><PlaceIcon fontSize="inherit" sx={{ mr: .5 }} />{place}</Typography>}
-            <Box sx={{ mt: 1.5, p: 1, borderRadius: 2, border: '1px dashed', borderColor: 'divider', position: 'relative' }}>
-              {qr ? <img src={qr} alt="QR" style={{ width: 200, height: 200 }} /> : <Box sx={{ width: 200, height: 200, bgcolor: 'grey.100' }} />}
+            <Typography variant="subtitle2" color="text.secondary">
+              {dept}
+            </Typography>
+            <Typography variant="h6" fontWeight={800} textAlign="center">
+              {title}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {when}
+            </Typography>
+            {place && (
+              <Typography variant="caption" color="text.secondary">
+                <PlaceIcon fontSize="inherit" sx={{ mr: 0.5 }} />
+                {place}
+              </Typography>
+            )}
+            <Box
+              sx={{
+                mt: 1.5,
+                p: 1,
+                borderRadius: 2,
+                border: '1px dashed',
+                borderColor: 'divider',
+                position: 'relative',
+              }}
+            >
+              {qr ? (
+                <img src={qr} alt="QR" style={{ width: 200, height: 200 }} />
+              ) : (
+                <Box sx={{ width: 200, height: 200, bgcolor: 'grey.100' }} />
+              )}
               {!scanEnabled && (
-                <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(255,255,255,.65)', borderRadius: 2, display: 'grid', placeItems: 'center' }}>
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    bgcolor: 'rgba(255,255,255,.65)',
+                    borderRadius: 2,
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
+                >
                   <Chip color="warning" label="ปิดการสแกนชั่วคราว" />
                 </Box>
               )}
@@ -849,7 +1011,16 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
   return (
     <Container maxWidth="lg" sx={{ py: 3 }}>
       {/* Header */}
-      <Box sx={{ mb: 2.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
+      <Box
+        sx={{
+          mb: 2.5,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 1.5,
+        }}
+      >
         <Stack direction="row" alignItems="center" spacing={1.5}>
           <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <QrCodeIcon /> จัดการ QR Code & กิจกรรม
@@ -859,7 +1030,11 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         </Stack>
 
         <Stack direction="row" spacing={1}>
-          <Tabs value={view === 'cards' ? 0 : 1} onChange={(_, v) => setView(v === 0 ? 'cards' : 'table')} sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36 } }}>
+          <Tabs
+            value={view === 'cards' ? 0 : 1}
+            onChange={(_, v) => setView(v === 0 ? 'cards' : 'table')}
+            sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36 } }}
+          >
             <Tab icon={<GridIcon />} label="การ์ด" />
             <Tab icon={<TableIcon />} label="ตาราง" />
           </Tabs>
@@ -872,17 +1047,26 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
 
       {/* Stats */}
       <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} sm={6} md={4}>
-          <Card><CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h3" color="primary">{activeCount}</Typography>
-            <Typography>กิจกรรมที่เปิดอยู่</Typography>
-          </CardContent></Card>
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <Typography variant="h3" color="primary">
+                {activeCount}
+              </Typography>
+              <Typography>กิจกรรมที่เปิดอยู่</Typography>
+            </CardContent>
+          </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <Card><CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h3" color="success.main">{activities.length}</Typography>
-            <Typography>กิจกรรมทั้งหมด</Typography>
-          </CardContent></Card>
+
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <Typography variant="h3" color="success.main">
+                {activities.length}
+              </Typography>
+              <Typography>กิจกรรมทั้งหมด</Typography>
+            </CardContent>
+          </Card>
         </Grid>
       </Grid>
 
@@ -890,7 +1074,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       <Card>
         <CardContent>
           {loading ? (
-            <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
+            <Box sx={{ textAlign: 'center', py: 6 }}>
+              <CircularProgress />
+            </Box>
           ) : activities.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <QrCodeIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
@@ -905,8 +1091,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 const st = statusOf(a);
                 const when = `${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`;
                 const bannerColor = (a as any).bannerColor as string | undefined;
+
                 return (
-                  <Grid item xs={12} sm={6} md={4} key={a.id}>
+                  <Grid key={a.id} size={{ xs: 12, sm: 6, md: 4 }}>
                     <QrPreviewCard
                       title={a.activityName || 'กิจกรรม'}
                       code={a.activityCode}
@@ -918,27 +1105,50 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                       bannerUrl={(a as any).bannerUrl}
                       bannerColor={bannerColor}
                     />
+
                     <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 1 }}>
                       <Button size="small" variant="outlined" onClick={() => handleToggle(a)}>
                         {a.isActive ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}
                       </Button>
+
                       <Tooltip title="แก้ไข">
-                        <IconButton color="primary" size="small" onClick={() => openEditDialog(a)}><EditIcon /></IconButton>
+                        <IconButton color="primary" size="small" onClick={() => openEditDialog(a)}>
+                          <EditIcon />
+                        </IconButton>
                       </Tooltip>
+
                       <Tooltip title="ดาวน์โหลด">
-                        <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)}><DownloadIcon /></IconButton>
+                        <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)}>
+                          <DownloadIcon />
+                        </IconButton>
                       </Tooltip>
+
                       <Tooltip title="รายชื่อผู้ลงทะเบียน">
-                        <IconButton color="info" size="small" onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}><PeopleIcon /></IconButton>
+                        <IconButton
+                          color="info"
+                          size="small"
+                          onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}
+                        >
+                          <PeopleIcon />
+                        </IconButton>
                       </Tooltip>
+
                       <Tooltip title="ดูหน้าลงทะเบียน">
-                        <IconButton color="info" size="small" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}><ViewIcon /></IconButton>
+                        <IconButton color="info" size="small" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}>
+                          <ViewIcon />
+                        </IconButton>
                       </Tooltip>
+
                       <Tooltip title="ลบ">
-                        <IconButton color="error" size="small" onClick={() => handleDeleteActivity(a)}><DeleteIcon /></IconButton>
+                        <IconButton color="error" size="small" onClick={() => handleDeleteActivity(a)}>
+                          <DeleteIcon />
+                        </IconButton>
                       </Tooltip>
                     </Stack>
-                    <Box sx={{ mt: 1, textAlign: 'center' }}><Chip size="small" label={st.label} color={st.color} /></Box>
+
+                    <Box sx={{ mt: 1, textAlign: 'center' }}>
+                      <Chip size="small" label={st.label} color={st.color} />
+                    </Box>
                   </Grid>
                 );
               })}
@@ -956,40 +1166,60 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                     <TableCell align="right">จัดการ</TableCell>
                   </TableRow>
                 </TableHead>
+
                 <TableBody>
                   {activities.map((a) => {
                     const st = statusOf(a);
                     const when = `${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`;
                     const bannerColor = (a as any).bannerColor as string | undefined;
+
                     return (
                       <TableRow key={a.id} hover>
                         <TableCell>
                           <Stack direction="row" spacing={1.5} alignItems="center">
-                            <Box sx={{
-                              width: 40, height: 28, borderRadius: 1,
-                              background: (a as any).bannerUrl
-                                ? `url(${(a as any).bannerUrl}) center/cover no-repeat`
-                                : (bannerColor || 'linear-gradient(135deg,#4f46e5,#06b6d4)')
-                            }} />
+                            <Box
+                              sx={{
+                                width: 40,
+                                height: 28,
+                                borderRadius: 1,
+                                background: (a as any).bannerUrl
+                                  ? `url(${(a as any).bannerUrl}) center/cover no-repeat`
+                                  : bannerColor || 'linear-gradient(135deg,#4f46e5,#06b6d4)',
+                              }}
+                            />
                             <Box>
                               <Typography fontWeight={700}>{a.activityName || '-'}</Typography>
-                              <Typography variant="caption" color="text.secondary">{deptLabelOf((a as any).department ?? currentAdmin.department)}</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {deptLabelOf((a as any).department ?? currentAdmin.department)}
+                              </Typography>
                             </Box>
                           </Stack>
                         </TableCell>
+
                         <TableCell sx={{ fontFamily: 'monospace' }}>{a.activityCode}</TableCell>
                         <TableCell>{when}</TableCell>
                         <TableCell>{(a as any).location || '-'}</TableCell>
-                        <TableCell align="center"><Chip size="small" label={st.label} color={st.color} /></TableCell>
+                        <TableCell align="center">
+                          <Chip size="small" label={st.label} color={st.color} />
+                        </TableCell>
+
                         <TableCell align="right">
                           <Stack direction="row" spacing={1} justifyContent="flex-end">
                             <Button size="small" variant="outlined" onClick={() => handleToggle(a)}>
                               {a.isActive ? 'ปิด' : 'เปิด'}
                             </Button>
-                            <IconButton size="small" color="primary" onClick={() => openEditDialog(a)}><EditIcon fontSize="small" /></IconButton>
-                            <IconButton size="small" color="secondary" onClick={(e) => openDownloadMenu(e, a)}><DownloadIcon fontSize="small" /></IconButton>
-                            <IconButton size="small" color="info" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}><ViewIcon fontSize="small" /></IconButton>
-                            <IconButton size="small" color="error" onClick={() => handleDeleteActivity(a)}><DeleteIcon fontSize="small" /></IconButton>
+                            <IconButton size="small" color="primary" onClick={() => openEditDialog(a)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton size="small" color="secondary" onClick={(e) => openDownloadMenu(e, a)}>
+                              <DownloadIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton size="small" color="info" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}>
+                              <ViewIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton size="small" color="error" onClick={() => handleDeleteActivity(a)}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -1005,24 +1235,34 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       {/* ====== เมนูดาวน์โหลด ====== */}
       <Menu anchorEl={dlMenu.anchorEl} open={Boolean(dlMenu.anchorEl)} onClose={closeDownloadMenu}>
         <MenuItem onClick={() => handleDownloadQr(512)}>
-          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+          <ListItemIcon>
+            <DownloadIcon fontSize="small" />
+          </ListItemIcon>
           <ListItemText primary="QR PNG (512px)" />
         </MenuItem>
         <MenuItem onClick={() => handleDownloadQr(1024)}>
-          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+          <ListItemIcon>
+            <DownloadIcon fontSize="small" />
+          </ListItemIcon>
           <ListItemText primary="QR PNG (1024px)" />
         </MenuItem>
         <MenuItem onClick={() => handleDownloadQr(2048)}>
-          <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+          <ListItemIcon>
+            <DownloadIcon fontSize="small" />
+          </ListItemIcon>
           <ListItemText primary="QR PNG (2048px)" />
         </MenuItem>
         <Divider />
         <MenuItem onClick={() => handleDownloadPoster('square')}>
-          <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
+          <ListItemIcon>
+            <ImageIcon fontSize="small" />
+          </ListItemIcon>
           <ListItemText primary="โปสเตอร์ (สี่เหลี่ยมแนวตั้ง)" />
         </MenuItem>
         <MenuItem onClick={() => handleDownloadPoster('a4')}>
-          <ListItemIcon><ImageIcon fontSize="small" /></ListItemIcon>
+          <ListItemIcon>
+            <ImageIcon fontSize="small" />
+          </ListItemIcon>
           <ListItemText primary="โปสเตอร์ (A4)" />
         </MenuItem>
       </Menu>
@@ -1031,60 +1271,117 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       <Dialog open={openCreate} onClose={handleCloseCreate} maxWidth="md" fullWidth>
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <QrCodeIcon /><Typography variant="h6">สร้างกิจกรรม & QR Code</Typography>
+            <QrCodeIcon />
+            <Typography variant="h6">สร้างกิจกรรม & QR Code</Typography>
           </Stack>
         </DialogTitle>
+
         <DialogContent dividers>
-          {errMsg && <Alert severity="error" sx={{ mb: 2 }}>{errMsg}</Alert>}
+          {errMsg && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {errMsg}
+            </Alert>
+          )}
 
           <LocalizationProvider dateAdapter={AdapterDayjs}>
             <Grid container spacing={2}>
               {/* สังกัด */}
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="body2" color="text.secondary">สังกัดที่จะบันทึก:</Typography>
-                  <Chip size="small" color="primary" variant="outlined"
-                    label={deptLabelOf(currentAdmin.department)} />
+                  <Typography variant="body2" color="text.secondary">
+                    สังกัดที่จะบันทึก:
+                  </Typography>
+                  <Chip size="small" color="primary" variant="outlined" label={deptLabelOf(currentAdmin.department)} />
                 </Stack>
               </Grid>
 
               {/* ชื่อ/รหัสกิจกรรม + สุ่ม/คัดลอก */}
-              <Grid item xs={12} md={8}>
-                <TextField label="ชื่อกิจกรรม *" fullWidth value={form.activityName}
-                  onChange={(e) => updateForm('activityName', e.target.value)} />
+              <Grid size={{ xs: 12, md: 8 }}>
+                <TextField
+                  label="ชื่อกิจกรรม *"
+                  fullWidth
+                  value={form.activityName}
+                  onChange={(e) => updateForm('activityName', e.target.value)}
+                />
               </Grid>
-              <Grid item xs={12} md={4}>
+
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField label="รหัสกิจกรรม *" fullWidth value={form.activityCode}
+                  <TextField
+                    label="รหัสกิจกรรม *"
+                    fullWidth
+                    value={form.activityCode}
                     onChange={(e) => updateForm('activityCode', e.target.value.toUpperCase())}
-                    inputProps={{ maxLength: 64 }} />
-                  <Tooltip title="สุ่ม"><IconButton onClick={() => updateForm('activityCode', randomActivityCode())}><ShuffleIcon /></IconButton></Tooltip>
-                  <Tooltip title="คัดลอก"><IconButton onClick={async () => { try { await navigator.clipboard.writeText(form.activityCode); } catch {} }}><CopyIcon /></IconButton></Tooltip>
+                    inputProps={{ maxLength: 64 }}
+                  />
+                  <Tooltip title="สุ่ม">
+                    <IconButton onClick={() => updateForm('activityCode', randomActivityCode())}>
+                      <ShuffleIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="คัดลอก">
+                    <IconButton
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(form.activityCode);
+                        } catch {}
+                      }}
+                    >
+                      <CopyIcon />
+                    </IconButton>
+                  </Tooltip>
                 </Stack>
               </Grid>
 
               {/* userCode */}
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField label="รหัสผู้ใช้ (userCode)" fullWidth value={form.userCode}
-                    onChange={(e) => updateForm('userCode', e.target.value)} placeholder="ว่างได้ / กดสุ่ม" />
-                  <Tooltip title="สุ่ม"><IconButton onClick={() => updateForm('userCode', randomUserCode())}><ShuffleIcon /></IconButton></Tooltip>
-                  <Tooltip title="คัดลอก"><IconButton onClick={async () => { try { await navigator.clipboard.writeText(form.userCode); } catch {} }}><CopyIcon /></IconButton></Tooltip>
+                  <TextField
+                    label="รหัสผู้ใช้ (userCode)"
+                    fullWidth
+                    value={form.userCode}
+                    onChange={(e) => updateForm('userCode', e.target.value)}
+                    placeholder="ว่างได้ / กดสุ่ม"
+                  />
+                  <Tooltip title="สุ่ม">
+                    <IconButton onClick={() => updateForm('userCode', randomUserCode())}>
+                      <ShuffleIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="คัดลอก">
+                    <IconButton
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(form.userCode);
+                        } catch {}
+                      }}
+                    >
+                      <CopyIcon />
+                    </IconButton>
+                  </Tooltip>
                 </Stack>
               </Grid>
 
               {/* ส่วนหัว */}
-              <Grid item xs={12} md={8}>
-                <TextField label="ส่วนหัว (จะแสดงบนหน้าลงทะเบียน)" fullWidth value={form.headerTitle}
-                  onChange={(e) => updateForm('headerTitle', e.target.value)} placeholder="เช่น ลงทะเบียนกิจกรรม Orientation" />
+              <Grid size={{ xs: 12, md: 8 }}>
+                <TextField
+                  label="ส่วนหัว (จะแสดงบนหน้าลงทะเบียน)"
+                  fullWidth
+                  value={form.headerTitle}
+                  onChange={(e) => updateForm('headerTitle', e.target.value)}
+                  placeholder="เช่น ลงทะเบียนกิจกรรม Orientation"
+                />
               </Grid>
 
               {/* โหมดแบนเนอร์ */}
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <FormControl fullWidth>
                   <InputLabel>โหมดแบนเนอร์</InputLabel>
-                  <Select label="โหมดแบนเนอร์" value={form.bannerMode}
-                    onChange={(e) => updateForm('bannerMode', e.target.value as BannerMode)}>
+                  <Select
+                    label="โหมดแบนเนอร์"
+                    value={form.bannerMode}
+                    onChange={(e) => updateForm('bannerMode', e.target.value as BannerMode)}
+                  >
                     <MenuItem value="none">ไม่ใช้ (แสดงเป็นสี)</MenuItem>
                     <MenuItem value="image">รูปภาพ</MenuItem>
                     <MenuItem value="color">สี/Gradient</MenuItem>
@@ -1094,21 +1391,32 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
 
               {/* แบนเนอร์ตามโหมด */}
               {form.bannerMode === 'image' && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
                     <Button component="label" startIcon={<ImageIcon />} variant="outlined">
                       เลือกรูปส่วนหัว
-                      <input hidden type="file" accept="image/*"
+                      <input
+                        hidden
+                        type="file"
+                        accept="image/*"
                         onChange={(e) => {
                           const file = e.target.files?.[0] || null;
                           updateForm('bannerFile', file);
                           if (file) updateForm('bannerUrl', URL.createObjectURL(file));
-                        }} />
+                        }}
+                      />
                     </Button>
+
                     {form.bannerUrl && (
                       <Stack direction="row" spacing={1} alignItems="center">
                         <img src={form.bannerUrl} alt="banner-preview" style={{ height: 60, borderRadius: 8 }} />
-                        <IconButton color="error" onClick={() => { updateForm('bannerUrl', undefined); updateForm('bannerFile', null); }}>
+                        <IconButton
+                          color="error"
+                          onClick={() => {
+                            updateForm('bannerUrl', undefined);
+                            updateForm('bannerFile', null);
+                          }}
+                        >
                           <ClearIcon />
                         </IconButton>
                       </Stack>
@@ -1116,22 +1424,33 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   </Stack>
                 </Grid>
               )}
+
               {form.bannerMode === 'color' && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <TextField
-                      label="สี/Gradient (CSS)" fullWidth value={form.bannerColor}
+                      label="สี/Gradient (CSS)"
+                      fullWidth
+                      value={form.bannerColor}
                       onChange={(e) => updateForm('bannerColor', e.target.value)}
                       placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
                       InputProps={{ startAdornment: (<InputAdornment position="start"><ColorIcon /></InputAdornment>) }}
                     />
-                    <Box sx={{ width: 48, height: 48, borderRadius: 1, border: '1px solid rgba(0,0,0,.12)', background: form.bannerColor }} />
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 1,
+                        border: '1px solid rgba(0,0,0,.12)',
+                        background: form.bannerColor,
+                      }}
+                    />
                   </Stack>
                 </Grid>
               )}
 
               {/* สีทับ + ความทึบ */}
-              <Grid item xs={12} md={7}>
+              <Grid size={{ xs: 12, md: 7 }}>
                 <TextField
                   label="สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก"
                   fullWidth
@@ -1141,7 +1460,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   InputProps={{ startAdornment: (<InputAdornment position="start"><ColorIcon /></InputAdornment>) }}
                 />
               </Grid>
-              <Grid item xs={12} md={5}>
+
+              <Grid size={{ xs: 12, md: 5 }}>
                 <Stack spacing={0.5}>
                   <Typography variant="body2" fontWeight={600}>
                     ความทึบของสีทับ: {(form.bannerTintOpacity * 100).toFixed(0)}%
@@ -1161,17 +1481,28 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Grid>
 
               {/* คำอธิบาย/สถานที่ */}
-              <Grid item xs={12}>
-                <TextField label="คำอธิบาย" fullWidth multiline minRows={2}
-                  value={form.description} onChange={(e) => updateForm('description', e.target.value)} />
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  label="คำอธิบาย"
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  value={form.description}
+                  onChange={(e) => updateForm('description', e.target.value)}
+                />
               </Grid>
-              <Grid item xs={12}>
-                <TextField label="สถานที่" fullWidth value={form.location}
-                  onChange={(e) => updateForm('location', e.target.value)} />
+
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  label="สถานที่"
+                  fullWidth
+                  value={form.location}
+                  onChange={(e) => updateForm('location', e.target.value)}
+                />
               </Grid>
 
               {/* แผนที่ */}
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <GeofenceMap
                   center={{
                     lat: typeof form.latitude === 'number' ? form.latitude : 13.7563,
@@ -1180,7 +1511,10 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   radius={form.checkInRadius || 100}
                   title="กำหนดจุดกิจกรรม"
                   editable
-                  onCenterChange={(pos) => { updateForm('latitude', pos.lat); updateForm('longitude', pos.lng); }}
+                  onCenterChange={(pos) => {
+                    updateForm('latitude', pos.lat);
+                    updateForm('longitude', pos.lng);
+                  }}
                   onUseCurrentLocation={useCurrentLocation}
                 />
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
@@ -1192,7 +1526,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Grid>
 
               {/* เลือกระยะ */}
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>
                   รัศมีเช็คอิน (เมตร): {form.checkInRadius}
                 </Typography>
@@ -1207,44 +1541,75 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Grid>
 
               {/* เวลา */}
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <DateTimePicker
                   label="เริ่มต้น"
                   value={form.startDateTime}
-                  onChange={(value: any, _ctx) => updateForm('startDateTime', value as Dayjs | null)}
+                  onChange={(value: any) => updateForm('startDateTime', value as Dayjs | null)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
+
+              <Grid size={{ xs: 12, md: 6 }}>
                 <DateTimePicker
                   label="สิ้นสุด"
                   value={form.endDateTime}
-                  onChange={(value: any, _ctx) => updateForm('endDateTime', value as Dayjs | null)}
+                  onChange={(value: any) => updateForm('endDateTime', value as Dayjs | null)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
 
               {/* options */}
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <TextField
-                  label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)" fullWidth value={form.maxParticipants ?? ''}
-                  onChange={(e) => updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))}
+                  label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)"
+                  fullWidth
+                  value={form.maxParticipants ?? ''}
+                  onChange={(e) =>
+                    updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))
+                  }
                   placeholder="เช่น 300"
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems="center" justifyContent="flex-end" sx={{ height: '100%' }}>
-                  <FormControlLabel control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked)} />} label="เปิดใช้งาน" />
-                  <FormControlLabel control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked)} />} label="เปิดให้สแกน QR" />
-                  <FormControlLabel control={<Switch checked={form.requiresUniversityLogin} onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked)} />} label="ต้องลงชื่อเข้าใช้มหาวิทยาลัย" />
-                  <FormControlLabel control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked)} />} label="Single-user mode" />
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  alignItems="center"
+                  justifyContent="flex-end"
+                  sx={{ height: '100%' }}
+                >
+                  <FormControlLabel
+                    control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked)} />}
+                    label="เปิดใช้งาน"
+                  />
+                  <FormControlLabel
+                    control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked)} />}
+                    label="เปิดให้สแกน QR"
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={form.requiresUniversityLogin}
+                        onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked)}
+                      />
+                    }
+                    label="ต้องลงชื่อเข้าใช้มหาวิทยาลัย"
+                  />
+                  <FormControlLabel
+                    control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked)} />}
+                    label="Single-user mode"
+                  />
                 </Stack>
               </Grid>
 
               {/* พรีวิว QR */}
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <Divider sx={{ my: 1 }} />
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>พรีวิว QR & รายละเอียด</Typography>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  พรีวิว QR & รายละเอียด
+                </Typography>
                 <QrPreviewCard
                   title={form.activityName || 'กิจกรรม'}
                   code={form.activityCode}
@@ -1260,6 +1625,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
             </Grid>
           </LocalizationProvider>
         </DialogContent>
+
         <DialogActions sx={{ justifyContent: 'space-between' }}>
           <Button
             startIcon={<PreviewIcon />}
@@ -1298,6 +1664,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
             <PreviewIcon /> <Typography variant="h6">พรีวิวหน้าลงทะเบียน</Typography>
           </Stack>
         </DialogTitle>
+
         <DialogContent dividers>
           {/* แบนเนอร์พรีวิว */}
           {(() => {
@@ -1312,26 +1679,43 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   mb: 2,
                   position: 'relative',
                   ...(hasImage
-                    ? { backgroundImage: `url(${form.bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', height: 160 }
+                    ? {
+                        backgroundImage: `url(${form.bannerUrl})`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        height: 160,
+                      }
                     : form.bannerMode === 'color' && form.bannerColor
                     ? { background: form.bannerColor, height: 120 }
                     : { background: tint, height: 120 }),
                 }}
               >
                 {hasImage && (
-                  <Box sx={{
-                    position: 'absolute', inset: 0,
-                    background: `linear-gradient(180deg, rgba(0,0,0,0) 0%, ${op ? 'rgba(0,0,0,' + (op*0.15).toFixed(2) + ')' : 'transparent'} 35%, ${tint})`,
-                    mixBlendMode: 'multiply',
-                    opacity: op,
-                  }} />
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      background: `linear-gradient(180deg, rgba(0,0,0,0) 0%, ${
+                        op ? 'rgba(0,0,0,' + (op * 0.15).toFixed(2) + ')' : 'transparent'
+                      } 35%, ${tint})`,
+                      mixBlendMode: 'multiply',
+                      opacity: op,
+                    }}
+                  />
                 )}
               </Box>
             );
           })()}
 
-          <Typography variant="h5" fontWeight={800} gutterBottom>{form.activityName || 'กิจกรรม'}</Typography>
-          {form.headerTitle && <Typography color="text.secondary" gutterBottom>{form.headerTitle}</Typography>}
+          <Typography variant="h5" fontWeight={800} gutterBottom>
+            {form.activityName || 'กิจกรรม'}
+          </Typography>
+          {form.headerTitle && (
+            <Typography color="text.secondary" gutterBottom>
+              {form.headerTitle}
+            </Typography>
+          )}
+
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
             <Chip size="small" label={`สังกัด: ${deptLabelOf(currentAdmin.department)}`} />
             <Chip size="small" label={`${fmt(form.startDateTime)} - ${fmt(form.endDateTime)}`} />
@@ -1363,6 +1747,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
             />
           </Box>
         </DialogContent>
+
         <DialogActions>
           <Button onClick={() => setOpenPreview(false)}>ปิด</Button>
         </DialogActions>
@@ -1372,92 +1757,154 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       <Dialog open={openEdit} onClose={handleCloseEdit} maxWidth="md" fullWidth>
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <EditIcon /><Typography variant="h6">แก้ไขกิจกรรม</Typography>
+            <EditIcon />
+            <Typography variant="h6">แก้ไขกิจกรรม</Typography>
           </Stack>
         </DialogTitle>
+
         <DialogContent dividers>
-          {errMsg && <Alert severity="error" sx={{ mb: 2 }}>{errMsg}</Alert>}
+          {errMsg && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {errMsg}
+            </Alert>
+          )}
 
           <LocalizationProvider dateAdapter={AdapterDayjs}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={8}>
-                <TextField label="ชื่อกิจกรรม *" fullWidth value={form.activityName}
-                  onChange={(e) => updateForm('activityName', e.target.value)} />
+              <Grid size={{ xs: 12, md: 8 }}>
+                <TextField
+                  label="ชื่อกิจกรรม *"
+                  fullWidth
+                  value={form.activityName}
+                  onChange={(e) => updateForm('activityName', e.target.value)}
+                />
               </Grid>
-              <Grid item xs={12} md={4}>
+
+              <Grid size={{ xs: 12, md: 4 }}>
                 <TextField label="รหัสกิจกรรม" fullWidth value={form.activityCode} disabled />
               </Grid>
 
               {/* userCode */}
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField label="รหัสผู้ใช้ (userCode)" fullWidth value={form.userCode}
-                    onChange={(e) => updateForm('userCode', e.target.value)} />
-                  <Tooltip title="สุ่ม"><IconButton onClick={() => updateForm('userCode', randomUserCode())}><ShuffleIcon /></IconButton></Tooltip>
-                  <Tooltip title="คัดลอก"><IconButton onClick={async () => { try { await navigator.clipboard.writeText(form.userCode); } catch {} }}><CopyIcon /></IconButton></Tooltip>
+                  <TextField
+                    label="รหัสผู้ใช้ (userCode)"
+                    fullWidth
+                    value={form.userCode}
+                    onChange={(e) => updateForm('userCode', e.target.value)}
+                  />
+                  <Tooltip title="สุ่ม">
+                    <IconButton onClick={() => updateForm('userCode', randomUserCode())}>
+                      <ShuffleIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="คัดลอก">
+                    <IconButton
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(form.userCode);
+                        } catch {}
+                      }}
+                    >
+                      <CopyIcon />
+                    </IconButton>
+                  </Tooltip>
                 </Stack>
               </Grid>
 
               {/* ส่วนหัว */}
-              <Grid item xs={12} md={8}>
-                <TextField label="ส่วนหัว" fullWidth value={form.headerTitle}
-                  onChange={(e) => updateForm('headerTitle', e.target.value)} />
+              <Grid size={{ xs: 12, md: 8 }}>
+                <TextField
+                  label="ส่วนหัว"
+                  fullWidth
+                  value={form.headerTitle}
+                  onChange={(e) => updateForm('headerTitle', e.target.value)}
+                />
               </Grid>
 
               {/* แบนเนอร์ */}
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <FormControl fullWidth>
                   <InputLabel>โหมดแบนเนอร์</InputLabel>
-                  <Select label="โหมดแบนเนอร์" value={form.bannerMode}
-                    onChange={(e) => updateForm('bannerMode', e.target.value as BannerMode)}>
+                  <Select
+                    label="โหมดแบนเนอร์"
+                    value={form.bannerMode}
+                    onChange={(e) => updateForm('bannerMode', e.target.value as BannerMode)}
+                  >
                     <MenuItem value="none">ไม่ใช้ (แสดงเป็นสี)</MenuItem>
                     <MenuItem value="image">รูปภาพ</MenuItem>
                     <MenuItem value="color">สี/Gradient</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
+
               {form.bannerMode === 'image' && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
                     <Button component="label" startIcon={<ImageIcon />} variant="outlined">
                       เปลี่ยนรูปส่วนหัว
-                      <input hidden type="file" accept="image/*"
+                      <input
+                        hidden
+                        type="file"
+                        accept="image/*"
                         onChange={(e) => {
                           const file = e.target.files?.[0] || null;
                           updateForm('bannerFile', file);
                           if (file) updateForm('bannerUrl', URL.createObjectURL(file));
-                        }} />
+                        }}
+                      />
                     </Button>
+
                     {form.bannerUrl ? (
                       <Stack direction="row" spacing={1} alignItems="center">
                         <img src={form.bannerUrl} alt="banner-preview" style={{ height: 60, borderRadius: 8 }} />
-                        <Button color="error" startIcon={<ClearIcon />}
-                          onClick={async () => { await deleteBannerIfOwned(form.bannerUrl); updateForm('bannerUrl', undefined); updateForm('bannerFile', null); }}>
+                        <Button
+                          color="error"
+                          startIcon={<ClearIcon />}
+                          onClick={async () => {
+                            await deleteBannerIfOwned(form.bannerUrl);
+                            updateForm('bannerUrl', undefined);
+                            updateForm('bannerFile', null);
+                          }}
+                        >
                           ลบรูป
                         </Button>
                       </Stack>
                     ) : (
-                      <Typography variant="body2" color="text.secondary">ไม่มีรูปส่วนหัว</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        ไม่มีรูปส่วนหัว
+                      </Typography>
                     )}
                   </Stack>
                 </Grid>
               )}
+
               {form.bannerMode === 'color' && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <TextField
-                      label="สี/Gradient (CSS)" fullWidth value={form.bannerColor}
+                      label="สี/Gradient (CSS)"
+                      fullWidth
+                      value={form.bannerColor}
                       onChange={(e) => updateForm('bannerColor', e.target.value)}
                       placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
                       InputProps={{ startAdornment: (<InputAdornment position="start"><ColorIcon /></InputAdornment>) }}
                     />
-                    <Box sx={{ width: 48, height: 48, borderRadius: 1, border: '1px solid rgba(0,0,0,.12)', background: form.bannerColor }} />
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 1,
+                        border: '1px solid rgba(0,0,0,.12)',
+                        background: form.bannerColor,
+                      }}
+                    />
                   </Stack>
                 </Grid>
               )}
 
               {/* สีทับ + ความทึบ */}
-              <Grid item xs={12} md={7}>
+              <Grid size={{ xs: 12, md: 7 }}>
                 <TextField
                   label="สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก"
                   fullWidth
@@ -1467,7 +1914,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   InputProps={{ startAdornment: (<InputAdornment position="start"><ColorIcon /></InputAdornment>) }}
                 />
               </Grid>
-              <Grid item xs={12} md={5}>
+
+              <Grid size={{ xs: 12, md: 5 }}>
                 <Stack spacing={0.5}>
                   <Typography variant="body2" fontWeight={600}>
                     ความทึบของสีทับ: {(form.bannerTintOpacity * 100).toFixed(0)}%
@@ -1487,17 +1935,28 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Grid>
 
               {/* คำอธิบาย/สถานที่ */}
-              <Grid item xs={12}>
-                <TextField label="คำอธิบาย" fullWidth multiline minRows={2}
-                  value={form.description} onChange={(e) => updateForm('description', e.target.value)} />
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  label="คำอธิบาย"
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  value={form.description}
+                  onChange={(e) => updateForm('description', e.target.value)}
+                />
               </Grid>
-              <Grid item xs={12}>
-                <TextField label="สถานที่" fullWidth value={form.location}
-                  onChange={(e) => updateForm('location', e.target.value)} />
+
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  label="สถานที่"
+                  fullWidth
+                  value={form.location}
+                  onChange={(e) => updateForm('location', e.target.value)}
+                />
               </Grid>
 
               {/* แผนที่ */}
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <GeofenceMap
                   center={{
                     lat: typeof form.latitude === 'number' ? form.latitude : 13.7563,
@@ -1506,13 +1965,16 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   radius={form.checkInRadius || 100}
                   title="ปรับตำแหน่งกิจกรรม"
                   editable
-                  onCenterChange={(pos) => { updateForm('latitude', pos.lat); updateForm('longitude', pos.lng); }}
+                  onCenterChange={(pos) => {
+                    updateForm('latitude', pos.lat);
+                    updateForm('longitude', pos.lng);
+                  }}
                   onUseCurrentLocation={useCurrentLocation}
                 />
               </Grid>
 
               {/* เลือกระยะ */}
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>
                   รัศมีเช็คอิน (เมตร): {form.checkInRadius}
                 </Typography>
@@ -1527,47 +1989,81 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Grid>
 
               {/* เวลา */}
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <DateTimePicker
                   label="เริ่มต้น"
                   value={form.startDateTime}
-                  onChange={(value: any, _ctx) => updateForm('startDateTime', value as Dayjs | null)}
+                  onChange={(value: any) => updateForm('startDateTime', value as Dayjs | null)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
+
+              <Grid size={{ xs: 12, md: 6 }}>
                 <DateTimePicker
                   label="สิ้นสุด"
                   value={form.endDateTime}
-                  onChange={(value: any, _ctx) => updateForm('endDateTime', value as Dayjs | null)}
+                  onChange={(value: any) => updateForm('endDateTime', value as Dayjs | null)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
 
               {/* options */}
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <TextField
-                  label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)" fullWidth value={form.maxParticipants ?? ''}
+                  label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)"
+                  fullWidth
+                  value={form.maxParticipants ?? ''}
                   onChange={(e) =>
                     updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))
                   }
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems="center" justifyContent="flex-end" sx={{ height: '100%' }}>
-                  <FormControlLabel control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked)} />} label="เปิดใช้งาน" />
-                  <FormControlLabel control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked)} />} label="เปิดให้สแกน QR" />
-                  <FormControlLabel control={<Switch checked={form.requiresUniversityLogin} onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked)} />} label="ต้องลงชื่อเข้าใช้มหาวิทยาลัย" />
-                  <FormControlLabel control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked)} />} label="Single-user mode" />
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  alignItems="center"
+                  justifyContent="flex-end"
+                  sx={{ height: '100%' }}
+                >
+                  <FormControlLabel
+                    control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked)} />}
+                    label="เปิดใช้งาน"
+                  />
+                  <FormControlLabel
+                    control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked)} />}
+                    label="เปิดให้สแกน QR"
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={form.requiresUniversityLogin}
+                        onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked)}
+                      />
+                    }
+                    label="ต้องลงชื่อเข้าใช้มหาวิทยาลัย"
+                  />
+                  <FormControlLabel
+                    control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked)} />}
+                    label="Single-user mode"
+                  />
                 </Stack>
               </Grid>
             </Grid>
           </LocalizationProvider>
         </DialogContent>
+
         <DialogActions>
-          <Button onClick={handleCloseEdit} disabled={editing}>ยกเลิก</Button>
-          <Button onClick={handleEditSubmit} variant="contained" disabled={editing}
-            startIcon={editing ? <CircularProgress size={18} /> : <EditIcon />}>
+          <Button onClick={handleCloseEdit} disabled={editing}>
+            ยกเลิก
+          </Button>
+          <Button
+            onClick={handleEditSubmit}
+            variant="contained"
+            disabled={editing}
+            startIcon={editing ? <CircularProgress size={18} /> : <EditIcon />}
+          >
             บันทึกการแก้ไข
           </Button>
         </DialogActions>

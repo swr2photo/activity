@@ -1,5 +1,6 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Card,
@@ -26,11 +27,13 @@ import {
   Tooltip,
   TextField,
   InputAdornment,
-  Grid,
   Paper,
   Stack,
-  Badge // เพิ่ม Badge import
+  Badge,
 } from '@mui/material';
+
+import Grid from '@mui/material/Grid';
+
 import {
   CheckCircle as ApproveIcon,
   Block as SuspendIcon,
@@ -40,16 +43,10 @@ import {
   Download as ExportIcon,
   Person as PersonIcon,
   School as SchoolIcon,
-  Email as EmailIcon,
-  Badge as BadgeIcon
+  Badge as BadgeIcon,
 } from '@mui/icons-material';
-import {
-  getAllUsers,
-  getPendingUsers,
-  approveUser,
-  suspendUser,
-  UniversityUserProfile
-} from '../lib/firebaseAuth';
+
+import { getAllUsers, getPendingUsers, approveUser, suspendUser, UniversityUserProfile } from '../lib/firebaseAuth';
 
 interface UserDetailDialogProps {
   user: UniversityUserProfile | null;
@@ -59,24 +56,15 @@ interface UserDetailDialogProps {
   onSuspend?: (uid: string) => void;
 }
 
-const UserDetailDialog: React.FC<UserDetailDialogProps> = ({
-  user,
-  open,
-  onClose,
-  onApprove,
-  onSuspend
-}) => {
+const UserDetailDialog: React.FC<UserDetailDialogProps> = ({ user, open, onClose, onApprove, onSuspend }) => {
   const [actionLoading, setActionLoading] = useState(false);
 
   const handleApprove = async () => {
     if (!user || !onApprove) return;
-    
     setActionLoading(true);
     try {
       await onApprove(user.uid);
       onClose();
-    } catch (error) {
-      console.error('Error approving user:', error);
     } finally {
       setActionLoading(false);
     }
@@ -84,13 +72,10 @@ const UserDetailDialog: React.FC<UserDetailDialogProps> = ({
 
   const handleSuspend = async () => {
     if (!user || !onSuspend) return;
-    
     setActionLoading(true);
     try {
       await onSuspend(user.uid);
       onClose();
-    } catch (error) {
-      console.error('Error suspending user:', error);
     } finally {
       setActionLoading(false);
     }
@@ -106,10 +91,10 @@ const UserDetailDialog: React.FC<UserDetailDialogProps> = ({
         </Avatar>
         รายละเอียดผู้ใช้: {user.displayName}
       </DialogTitle>
-      
+
       <DialogContent>
         <Grid container spacing={3}>
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: 2, mb: 2 }}>
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <PersonIcon />
@@ -138,7 +123,7 @@ const UserDetailDialog: React.FC<UserDetailDialogProps> = ({
             </Paper>
           </Grid>
 
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: 2, mb: 2 }}>
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <SchoolIcon />
@@ -173,25 +158,17 @@ const UserDetailDialog: React.FC<UserDetailDialogProps> = ({
             </Paper>
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Paper sx={{ p: 2 }}>
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <BadgeIcon />
                 สถานะบัญชี
               </Typography>
               <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-                <Chip 
-                  label={user.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} 
-                  color={user.isActive ? 'success' : 'error'} 
-                  size="small"
-                />
-                <Chip 
-                  label={user.isVerified ? 'ได้รับการอนุมัติ' : 'รอการอนุมัติ'} 
-                  color={user.isVerified ? 'success' : 'warning'} 
-                  size="small"
-                />
+                <Chip label={user.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} color={user.isActive ? 'success' : 'error'} size="small" />
+                <Chip label={user.isVerified ? 'ได้รับการอนุมัติ' : 'รอการอนุมัติ'} color={user.isVerified ? 'success' : 'warning'} size="small" />
               </Stack>
-              
+
               <Stack spacing={1}>
                 <Box>
                   <Typography variant="subtitle2">วันที่สร้างบัญชี</Typography>
@@ -216,30 +193,18 @@ const UserDetailDialog: React.FC<UserDetailDialogProps> = ({
           </Grid>
         </Grid>
       </DialogContent>
-      
+
       <DialogActions>
-        <Button onClick={onClose}>
-          ปิด
-        </Button>
+        <Button onClick={onClose}>ปิด</Button>
+
         {!user.isVerified && onApprove && (
-          <Button
-            variant="contained"
-            color="success"
-            startIcon={actionLoading ? <CircularProgress size={16} /> : <ApproveIcon />}
-            onClick={handleApprove}
-            disabled={actionLoading}
-          >
+          <Button variant="contained" color="success" startIcon={actionLoading ? <CircularProgress size={16} /> : <ApproveIcon />} onClick={handleApprove} disabled={actionLoading}>
             อนุมัติ
           </Button>
         )}
+
         {user.isActive && onSuspend && (
-          <Button
-            variant="contained"
-            color="error"
-            startIcon={actionLoading ? <CircularProgress size={16} /> : <SuspendIcon />}
-            onClick={handleSuspend}
-            disabled={actionLoading}
-          >
+          <Button variant="contained" color="error" startIcon={actionLoading ? <CircularProgress size={16} /> : <SuspendIcon />} onClick={handleSuspend} disabled={actionLoading}>
             ระงับการใช้งาน
           </Button>
         )}
@@ -264,24 +229,22 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
 
   useEffect(() => {
     loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadUsers = async () => {
     try {
       setLoading(true);
       setError('');
-      
-      const [allUsersData, pendingUsersData] = await Promise.all([
-        getAllUsers(),
-        getPendingUsers()
-      ]);
-      
-      setAllUsers(allUsersData.sort((a, b) => 
-        (b.createdAt?.toDate?.()?.getTime() || 0) - (a.createdAt?.toDate?.()?.getTime() || 0)
-      ));
-      setPendingUsers(pendingUsersData.sort((a, b) => 
-        (b.createdAt?.toDate?.()?.getTime() || 0) - (a.createdAt?.toDate?.()?.getTime() || 0)
-      ));
+
+      const [allUsersData, pendingUsersData] = await Promise.all([getAllUsers(), getPendingUsers()]);
+
+      setAllUsers(
+        allUsersData.sort((a, b) => (b.createdAt?.toDate?.()?.getTime() || 0) - (a.createdAt?.toDate?.()?.getTime() || 0))
+      );
+      setPendingUsers(
+        pendingUsersData.sort((a, b) => (b.createdAt?.toDate?.()?.getTime() || 0) - (a.createdAt?.toDate?.()?.getTime() || 0))
+      );
     } catch (err) {
       console.error('Error loading users:', err);
       setError('เกิดข้อผิดพลาดในการโหลดข้อมูลผู้ใช้');
@@ -294,7 +257,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
     try {
       await approveUser(uid);
       await loadUsers();
-      if (onUserUpdate) onUserUpdate();
+      onUserUpdate?.();
     } catch (error) {
       console.error('Error approving user:', error);
       setError('เกิดข้อผิดพลาดในการอนุมัติผู้ใช้');
@@ -305,23 +268,17 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
     try {
       await suspendUser(uid);
       await loadUsers();
-      if (onUserUpdate) onUserUpdate();
+      onUserUpdate?.();
     } catch (error) {
       console.error('Error suspending user:', error);
       setError('เกิดข้อผิดพลาดในการระงับผู้ใช้');
     }
   };
 
-  // ลบ function นี้ออก เพราะซ้ำกับด้านล่าง
-  // const handleViewUser = (user: UniversityUserProfile) => {
-  //   setSelectedUser(user);
-  //   setShowUserDialog(true);
-  // };
-
   const exportUsers = () => {
     const csvContent = [
       ['รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'อีเมล', 'คณะ', 'สาขา', 'ระดับปริญญา', 'สถานะ', 'วันที่สร้าง'],
-      ...allUsers.map(user => [
+      ...allUsers.map((user) => [
         user.studentId,
         user.firstName,
         user.lastName,
@@ -330,9 +287,11 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
         user.department,
         user.degreeLevel,
         user.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ',
-        user.createdAt?.toDate?.()?.toLocaleDateString('th-TH') || ''
-      ])
-    ].map(row => row.join(',')).join('\n');
+        user.createdAt?.toDate?.()?.toLocaleDateString('th-TH') || '',
+      ]),
+    ]
+      .map((row) => row.join(','))
+      .join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -343,19 +302,21 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
 
   const filteredUsers = (users: UniversityUserProfile[]) => {
     if (!searchTerm) return users;
-    
-    return users.filter(user =>
-      user.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.studentId.includes(searchTerm) ||
-      user.faculty.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.department.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const s = searchTerm.toLowerCase();
+
+    return users.filter((u) => {
+      return (
+        u.displayName.toLowerCase().includes(s) ||
+        u.firstName.toLowerCase().includes(s) ||
+        u.lastName.toLowerCase().includes(s) ||
+        u.email.toLowerCase().includes(s) ||
+        u.studentId.includes(searchTerm) ||
+        u.faculty.toLowerCase().includes(s) ||
+        u.department.toLowerCase().includes(s)
+      );
+    });
   };
 
-  // ย้าย handleViewUser มาไว้ก่อน renderUserTable
   const handleViewUser = (user: UniversityUserProfile) => {
     setSelectedUser(user);
     setShowUserDialog(true);
@@ -392,7 +353,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
                   </Box>
                 </Box>
               </TableCell>
-              
+
               <TableCell>
                 <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                   {user.studentId}
@@ -401,72 +362,48 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
                   {user.degreeLevel}
                 </Typography>
               </TableCell>
-              
+
               <TableCell>
-                <Typography variant="body2">
-                  {user.faculty}
-                </Typography>
+                <Typography variant="body2">{user.faculty}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   {user.department}
                 </Typography>
               </TableCell>
-              
+
               <TableCell>
                 <Stack direction="column" spacing={0.5}>
-                  <Chip 
-                    label={user.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'} 
-                    color={user.isVerified ? 'success' : 'warning'} 
-                    size="small"
-                  />
-                  <Chip 
-                    label={user.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} 
-                    color={user.isActive ? 'success' : 'error'} 
-                    size="small"
-                  />
+                  <Chip label={user.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'} color={user.isVerified ? 'success' : 'warning'} size="small" />
+                  <Chip label={user.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} color={user.isActive ? 'success' : 'error'} size="small" />
                 </Stack>
               </TableCell>
-              
+
               <TableCell>
-                <Typography variant="body2">
-                  {user.createdAt?.toDate?.()?.toLocaleDateString('th-TH') || 'ไม่ระบุ'}
-                </Typography>
+                <Typography variant="body2">{user.createdAt?.toDate?.()?.toLocaleDateString('th-TH') || 'ไม่ระบุ'}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   เข้าสู่ระบบ: {user.loginCount || 0} ครั้ง
                 </Typography>
               </TableCell>
-              
+
               {showActions && (
                 <TableCell align="center">
                   <Stack direction="row" spacing={0.5} justifyContent="center">
                     <Tooltip title="ดูรายละเอียด">
-                      <IconButton 
-                        size="small" 
-                        onClick={() => handleViewUser(user)}
-                        color="primary"
-                      >
+                      <IconButton size="small" onClick={() => handleViewUser(user)} color="primary">
                         <ViewIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    
+
                     {!user.isVerified && (
                       <Tooltip title="อนุมัติ">
-                        <IconButton 
-                          size="small" 
-                          onClick={() => handleApproveUser(user.uid)}
-                          color="success"
-                        >
+                        <IconButton size="small" onClick={() => handleApproveUser(user.uid)} color="success">
                           <ApproveIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     )}
-                    
+
                     {user.isActive && (
                       <Tooltip title="ระงับการใช้งาน">
-                        <IconButton 
-                          size="small" 
-                          onClick={() => handleSuspendUser(user.uid)}
-                          color="error"
-                        >
+                        <IconButton size="small" onClick={() => handleSuspendUser(user.uid)} color="error">
                           <SuspendIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -492,47 +429,27 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
 
   return (
     <Box>
-      {/* Header */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h5">
-              จัดการผู้ใช้มหาวิทยาลัย
-            </Typography>
+            <Typography variant="h5">จัดการผู้ใช้มหาวิทยาลัย</Typography>
             <Stack direction="row" spacing={1}>
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={loadUsers}
-                disabled={loading}
-              >
+              <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadUsers} disabled={loading}>
                 รีเฟรช
               </Button>
-              <Button
-                variant="outlined"
-                startIcon={<ExportIcon />}
-                onClick={exportUsers}
-                disabled={allUsers.length === 0}
-              >
+              <Button variant="outlined" startIcon={<ExportIcon />} onClick={exportUsers} disabled={allUsers.length === 0}>
                 ส่งออก CSV
               </Button>
             </Stack>
           </Box>
 
-          {/* Search */}
           <TextField
             fullWidth
             variant="outlined"
             placeholder="ค้นหาผู้ใช้ (ชื่อ, อีเมล, รหัสนักศึกษา, คณะ, สาขา)"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
           />
         </CardContent>
       </Card>
@@ -545,7 +462,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
 
       {/* Statistics */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h4" color="primary">
               {allUsers.length}
@@ -555,8 +472,8 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
             </Typography>
           </Paper>
         </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
+
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h4" color="warning.main">
               {pendingUsers.length}
@@ -566,22 +483,22 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
             </Typography>
           </Paper>
         </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
+
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h4" color="success.main">
-              {allUsers.filter(u => u.isVerified).length}
+              {allUsers.filter((u) => u.isVerified).length}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               อนุมัติแล้ว
             </Typography>
           </Paper>
         </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
+
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h4" color="error.main">
-              {allUsers.filter(u => !u.isActive).length}
+              {allUsers.filter((u) => !u.isActive).length}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               ถูกระงับ
@@ -590,16 +507,11 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
         </Grid>
       </Grid>
 
-      {/* Tabs */}
       <Card>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs 
-            value={tabValue} 
-            onChange={(e, newValue) => setTabValue(newValue)}
-            sx={{ px: 2 }}
-          >
-            <Tab 
-              label={`รออนุมัติ (${pendingUsers.length})`} 
+          <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)} sx={{ px: 2 }}>
+            <Tab
+              label={`รออนุมัติ (${pendingUsers.length})`}
               icon={
                 <Badge badgeContent={pendingUsers.length} color="warning">
                   <PersonIcon />
@@ -607,50 +519,16 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({ onUserUpdate 
               }
               iconPosition="start"
             />
-            <Tab 
-              label={`ผู้ใช้ทั้งหมด (${allUsers.length})`}
-              icon={<PersonIcon />}
-              iconPosition="start"
-            />
+            <Tab label={`ผู้ใช้ทั้งหมด (${allUsers.length})`} icon={<PersonIcon />} iconPosition="start" />
           </Tabs>
         </Box>
 
         <CardContent>
-          {/* Pending Users Tab */}
-          {tabValue === 0 && (
-            <Box>
-              {pendingUsers.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="h6" color="text.secondary">
-                    ไม่มีผู้ใช้ที่รออนุมัติ
-                  </Typography>
-                </Box>
-              ) : (
-                renderUserTable(pendingUsers)
-              )}
-            </Box>
-          )}
-
-          {/* All Users Tab */}
-          {tabValue === 1 && (
-            <Box>
-              {allUsers.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="h6" color="text.secondary">
-                    ไม่มีผู้ใช้ในระบบ
-                  </Typography>
-                </Box>
-              ) : (
-                renderUserTable(allUsers)
-              )}
-            </Box>
-          )}
+          {tabValue === 0 && <Box>{pendingUsers.length === 0 ? <Box sx={{ textAlign: 'center', py: 4 }}><PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} /><Typography variant="h6" color="text.secondary">ไม่มีผู้ใช้ที่รออนุมัติ</Typography></Box> : renderUserTable(pendingUsers)}</Box>}
+          {tabValue === 1 && <Box>{allUsers.length === 0 ? <Box sx={{ textAlign: 'center', py: 4 }}><PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} /><Typography variant="h6" color="text.secondary">ไม่มีผู้ใช้ในระบบ</Typography></Box> : renderUserTable(allUsers)}</Box>}
         </CardContent>
       </Card>
 
-      {/* User Detail Dialog */}
       <UserDetailDialog
         user={selectedUser}
         open={showUserDialog}

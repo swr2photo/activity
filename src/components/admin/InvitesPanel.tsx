@@ -2,12 +2,26 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import Grid from '@mui/material/Grid';
 import {
-  Box, Card, CardContent, Typography, TextField, InputAdornment, Grid,
-  Chip, IconButton, Tooltip, Button, ButtonGroup, Stack
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  TextField,
+  InputAdornment,
+  Chip,
+  IconButton,
+  Tooltip,
+  Button,
+  ButtonGroup,
+  Stack,
 } from '@mui/material';
 import {
-  Search as SearchIcon, ContentCopy as CopyIcon, Delete as DeleteIcon, Block as CancelIcon,
+  Search as SearchIcon,
+  ContentCopy as CopyIcon,
+  Delete as DeleteIcon,
+  Block as CancelIcon,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { listInvites, deleteInvite, cancelInvite, type AdminInvite } from '@/lib/invitesApi';
@@ -26,14 +40,18 @@ export default function InvitesPanel() {
       setInvites(data);
     } catch (e: any) {
       enqueueSnackbar(e?.message || 'โหลดประวัติคำเชิญล้มเหลว', { variant: 'error' });
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { load(); }, []); // once
+  useEffect(() => {
+    void load();
+  }, []);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return invites.filter(x => {
+    return invites.filter((x) => {
       const okStatus = status === 'all' ? true : x.status === status;
       const okSearch =
         !s ||
@@ -70,17 +88,14 @@ export default function InvitesPanel() {
     try {
       await deleteInvite(it.id);
       enqueueSnackbar('ลบประวัติคำเชิญแล้ว', { variant: 'success' });
-      setInvites(prev => prev.filter(x => x.id !== it.id));
+      setInvites((prev) => prev.filter((x) => x.id !== it.id));
     } catch (e: any) {
       enqueueSnackbar(e?.message || 'ลบไม่สำเร็จ', { variant: 'error' });
     }
   };
 
   const statusColor = (s: AdminInvite['status']) =>
-    s === 'pending' ? 'warning'
-    : s === 'accepted' ? 'success'
-    : s === 'cancelled' ? 'default'
-    : 'error';
+    s === 'pending' ? 'warning' : s === 'accepted' ? 'success' : s === 'cancelled' ? 'default' : 'error';
 
   return (
     <Card sx={{ mt: 3 }}>
@@ -113,7 +128,9 @@ export default function InvitesPanel() {
               <option value="cancelled">ยกเลิก</option>
             </TextField>
             <ButtonGroup>
-              <Button onClick={load} disabled={loading}>รีเฟรช</Button>
+              <Button onClick={load} disabled={loading}>
+                รีเฟรช
+              </Button>
             </ButtonGroup>
           </Stack>
         </Stack>
@@ -125,8 +142,8 @@ export default function InvitesPanel() {
             </Typography>
           ) : (
             <Grid container spacing={1}>
-              {filtered.map(it => (
-                <Grid item xs={12} key={it.id}>
+              {filtered.map((it) => (
+                <Grid key={it.id} size={{ xs: 12 }}>
                   <Card variant="outlined">
                     <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                       <Box sx={{ minWidth: 240 }}>
@@ -135,27 +152,42 @@ export default function InvitesPanel() {
                           บทบาท: {it.role} • สังกัด: {it.department}
                         </Typography>
                       </Box>
+
                       <Chip label={it.status} color={statusColor(it.status) as any} size="small" />
+
                       <Box sx={{ color: 'text.secondary', fontSize: 12 }}>
                         สร้างเมื่อ: {it.createdAt ? new Date(it.createdAt).toLocaleString('th-TH') : '-'}
                         {it.expiresAt ? ` • หมดอายุ: ${new Date(it.expiresAt).toLocaleString('th-TH')}` : ''}
                       </Box>
+
                       <Box sx={{ flex: 1 }} />
+
                       <Stack direction="row" spacing={0.5}>
                         <Tooltip title="คัดลอกลิงก์ยืนยัน">
                           <span>
-                            <IconButton size="small" onClick={() => copyLink(it)} disabled={it.status !== 'pending' || !it.token}>
+                            <IconButton
+                              size="small"
+                              onClick={() => copyLink(it)}
+                              disabled={it.status !== 'pending' || !it.token}
+                            >
                               <CopyIcon fontSize="small" />
                             </IconButton>
                           </span>
                         </Tooltip>
+
                         <Tooltip title="ยกเลิกคำเชิญ (ทำให้ลิงก์ใช้ไม่ได้)">
                           <span>
-                            <IconButton size="small" color="warning" onClick={() => doCancel(it)} disabled={it.status !== 'pending'}>
+                            <IconButton
+                              size="small"
+                              color="warning"
+                              onClick={() => doCancel(it)}
+                              disabled={it.status !== 'pending'}
+                            >
                               <CancelIcon fontSize="small" />
                             </IconButton>
                           </span>
                         </Tooltip>
+
                         <Tooltip title="ลบประวัติคำเชิญ">
                           <IconButton size="small" color="error" onClick={() => doDelete(it)}>
                             <DeleteIcon fontSize="small" />

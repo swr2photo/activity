@@ -1,60 +1,73 @@
+'use client';
+
 // components/QRCodeAdminPanel.tsx
 import React, { useState } from 'react';
-import {
-  Box,
-  Typography,
-  Paper,
-  TextField,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  Alert
-} from '@mui/material';
-import QRCode from 'qrcode';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Paper from '@mui/material/Paper';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import Grid from '@mui/material/Grid';
+import Alert from '@mui/material/Alert';
+
+import * as QRCode from 'qrcode';
 
 interface QRCodeAdminPanelProps {
   baseUrl: string;
 }
 
 const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ baseUrl }) => {
-  const [activityId, setActivityId] = useState('');
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [error, setError] = useState('');
+  const [activityId, setActivityId] = useState<string>('');
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+  const [error, setError] = useState<string>('');
 
-  const generateQRCode = async () => {
+  const generateQRCode = async (): Promise<void> => {
     if (!activityId.trim()) {
       setError('กรุณาใส่ ID กิจกรรม');
+      setQrCodeUrl('');
       return;
     }
 
     try {
-      const url = `${baseUrl}/activity/${activityId}`;
+      const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
+      const url = `${normalizedBaseUrl}/activity/${activityId.trim()}`;
+
       const qrCodeDataUrl = await QRCode.toDataURL(url, {
         width: 256,
         margin: 2,
         color: {
           dark: '#000000',
-          light: '#FFFFFF'
-        }
+          light: '#FFFFFF',
+        },
       });
-      
+
       setQrCodeUrl(qrCodeDataUrl);
       setError('');
     } catch (err) {
       setError('เกิดข้อผิดพลาดในการสร้าง QR Code');
+      setQrCodeUrl('');
+      // eslint-disable-next-line no-console
       console.error('QR Code generation error:', err);
     }
   };
 
-  const downloadQRCode = () => {
+  const downloadQRCode = (): void => {
     if (!qrCodeUrl) return;
 
     const link = document.createElement('a');
-    link.download = `qr-activity-${activityId}.png`;
+    link.download = `qr-activity-${activityId.trim() || 'unknown'}.png`;
     link.href = qrCodeUrl;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
   };
+
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
+  const displayUrl = activityId.trim()
+    ? `${normalizedBaseUrl}/activity/${activityId.trim()}`
+    : `${normalizedBaseUrl}/activity/<activityId>`;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -62,13 +75,13 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ baseUrl }) => {
         สร้าง QR Code สำหรับกิจกรรม
       </Typography>
 
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
+      <Grid container spacing={3} sx={{ width: 1 }}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               ข้อมูลกิจกรรม
             </Typography>
-            
+
             <TextField
               fullWidth
               label="Activity ID"
@@ -87,7 +100,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ baseUrl }) => {
             <Button
               variant="contained"
               onClick={generateQRCode}
-              sx={{ mt: 2, mr: 2 }}
+              sx={{ mt: 2 }}
               fullWidth
             >
               สร้าง QR Code
@@ -95,24 +108,27 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ baseUrl }) => {
           </Paper>
         </Grid>
 
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               QR Code ที่สร้าง
             </Typography>
-            
+
             {qrCodeUrl ? (
               <Card>
                 <CardContent sx={{ textAlign: 'center' }}>
-                  <img 
-                    src={qrCodeUrl} 
+                  <Box
+                    component="img"
+                    src={qrCodeUrl}
                     alt="QR Code"
-                    style={{ maxWidth: '100%', height: 'auto' }}
+                    sx={{ maxWidth: '100%', height: 'auto' }}
                   />
+
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="body2" color="text.secondary">
-                      URL: {baseUrl}/activity/{activityId}
+                      URL: {displayUrl}
                     </Typography>
+
                     <Button
                       variant="outlined"
                       onClick={downloadQRCode}
@@ -135,5 +151,4 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ baseUrl }) => {
   );
 };
 
-// Make sure to have a default export
 export default QRCodeAdminPanel;

@@ -1,5 +1,6 @@
-// components/navigation/NavigationBar.tsx
+// src/components/navigation/NavigationBar.tsx
 'use client';
+
 import React, { useState, useEffect } from 'react';
 import {
   AppBar,
@@ -47,7 +48,7 @@ export type NavNotice = {
   key: string; // unique
   severity: 'success' | 'info' | 'warning' | 'error';
   message: React.ReactNode | string;
-  autoHideMs?: number;        // ถ้าไม่ใส่ = ไม่ auto hide
+  autoHideMs?: number; // ถ้าไม่ใส่ = ไม่ auto hide
   actionLabel?: string;
   onAction?: () => void;
   onClose?: () => void;
@@ -102,7 +103,10 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   const open = Boolean(anchorEl);
   const handleMenuClick = (e: React.MouseEvent<HTMLElement>) => setAnchorEl(e.currentTarget);
   const handleMenuClose = () => setAnchorEl(null);
-  const handleLogoutClick = () => { handleMenuClose(); onLogout(); };
+  const handleLogoutClick = () => {
+    handleMenuClose();
+    onLogout();
+  };
 
   /* ---------- Bell menu (preview notices) ---------- */
   const [notifEl, setNotifEl] = useState<null | HTMLElement>(null);
@@ -111,7 +115,11 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   /* ---------- AutoFill/Profile form ---------- */
   const [autoFillDialogOpen, setAutoFillDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success' as 'success' | 'error',
+  });
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -138,18 +146,20 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   /* ---------- เปิด/ปิด snackbar ต่อ notice ---------- */
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
   const [urgentOpenMap, setUrgentOpenMap] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     const next: Record<string, boolean> = {};
     for (const n of notices) next[n.key] = true;
     setOpenMap(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(notices.map(n => n.key))]);
+  }, [JSON.stringify(notices.map((n) => n.key))]);
+
   useEffect(() => {
     const next: Record<string, boolean> = {};
     for (const n of urgentNotices) next[n.key] = true;
     setUrgentOpenMap(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(urgentNotices.map(n => n.key))]);
+  }, [JSON.stringify(urgentNotices.map((n) => n.key))]);
 
   /* ---------- Sync form data ---------- */
   useEffect(() => {
@@ -171,9 +181,19 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
 
   /* ---------- Helpers ---------- */
   const extractMicrosoftUserInfo = (displayName: string) => {
-    const result = { englishName: '', firstName: '', lastName: '', degree: '', department: '', faculty: '', university: 'มหาวิทยาลัยสงขลานครินทร์' };
+    const result = {
+      englishName: '',
+      firstName: '',
+      lastName: '',
+      degree: '',
+      department: '',
+      faculty: '',
+      university: 'มหาวิทยาลัยสงขลานครินทร์',
+    };
+
     const englishNameMatch = displayName.match(/^([^(]+)/);
     if (englishNameMatch) result.englishName = englishNameMatch[1].trim();
+
     const thaiNameMatch = displayName.match(/\(([^)]+)\)/);
     if (thaiNameMatch) {
       const thaiFullName = thaiNameMatch[1].trim();
@@ -181,32 +201,41 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
       result.firstName = parts[0] || '';
       result.lastName = parts.slice(1).join(' ') || '';
     }
+
     const degreeMatch = displayName.match(/ปริญญา\w+/);
     if (degreeMatch) result.degree = degreeMatch[0];
+
     const departmentMatch = displayName.match(/สาขาวิชา([^\s]+(?:\s+[^\s]+)*?)(?:\s+คณะ|$)/);
     if (departmentMatch) result.department = departmentMatch[1].trim();
+
     const facultyMatch = displayName.match(/คณะ([^\s]+(?:\s+[^\s]+)*?)(?:\s|$)/);
     if (facultyMatch) result.faculty = `คณะ${facultyMatch[1].trim()}`;
+
     return result;
   };
 
   const availableFaculties = PSU_FACULTIES;
+
   const generateStudentId = (faculty: string) => {
     const year = new Date().getFullYear().toString().slice(-2);
     const degreeLevel = '1';
-    const facultyCode = PSU_FACULTIES.find(f => f.name === faculty)?.code || '02';
+    const facultyCode = PSU_FACULTIES.find((f) => f.name === faculty)?.code || '02';
     const majorCode = '1';
-    const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    const randomNum = Math.floor(Math.random() * 10000)
+      .toString()
+      .padStart(4, '0');
     return `${year}${degreeLevel}${facultyCode}${majorCode}${randomNum}`;
   };
+
   const detectInfoFromStudentId = (studentId: string): { faculty: string; degree: string } => {
     const result = { faculty: 'คณะวิทยาศาสตร์', degree: 'ปริญญาตรี' };
     if (studentId.length >= 5) {
       const degreeCode = studentId.substring(2, 3);
-      const d = DEGREE_LEVELS.find(x => x.code === degreeCode);
+      const d = DEGREE_LEVELS.find((x) => x.code === degreeCode);
       if (d) result.degree = d.name;
+
       const facultyCode = studentId.substring(3, 5);
-      const f = PSU_FACULTIES.find(x => x.code === facultyCode);
+      const f = PSU_FACULTIES.find((x) => x.code === facultyCode);
       if (f) result.faculty = f.name;
     }
     return result;
@@ -216,6 +245,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
     const email = user?.email || '';
     const displayName = user?.displayName || '';
     const extracted = extractMicrosoftUserInfo(displayName);
+
     let studentId = '';
     let faculty = extracted.faculty || 'คณะวิทยาศาสตร์';
     let degree = 'ปริญญาตรี';
@@ -239,7 +269,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
       degree,
     });
 
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       firstName: extracted.firstName || 'ไม่ระบุ',
       lastName: extracted.lastName || 'ไม่ระบุ',
@@ -258,6 +288,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
 
   const saveUserData = async (dataToSave: any) => {
     if (!user?.uid) return false;
+
     setLoading(true);
     try {
       const userDocRef = doc(db, 'users', user.uid);
@@ -268,6 +299,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
         lastUpdated: new Date(),
         createdAt: (userData as any)?.createdAt || new Date(),
       };
+
       await setDoc(userDocRef, userProfile, { merge: true });
       onUserDataUpdate?.(userProfile);
       setSnackbar({ open: true, message: 'บันทึกข้อมูลเรียบร้อยแล้ว', severity: 'success' });
@@ -281,9 +313,17 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
     }
   };
 
-  const handleAutoFillClick = () => { handleMenuClose(); autoFillUserData(); };
-  const handleConfirmAutoFill = async () => { const ok = await saveUserData(formData); if (ok) setAutoFillDialogOpen(false); };
-  const handleFormChange = (field: string, value: string) => setFormData(prev => ({ ...prev, [field]: value }));
+  const handleAutoFillClick = () => {
+    handleMenuClose();
+    autoFillUserData();
+  };
+
+  const handleConfirmAutoFill = async () => {
+    const ok = await saveUserData(formData);
+    if (ok) setAutoFillDialogOpen(false);
+  };
+
+  const handleFormChange = (field: string, value: string) => setFormData((prev) => ({ ...prev, [field]: value }));
 
   /* ---------- display helpers ---------- */
   const getDisplayName = () => {
@@ -296,10 +336,15 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
     if (user?.email) return user.email.split('@')[0];
     return 'ผู้ใช้';
   };
+
   const getAvatarSrc = () => userData?.photoURL || user?.photoURL || null;
+
   const getAvatarLetter = () =>
     userData?.firstName?.charAt(0).toUpperCase() ||
-    (user?.displayName ? extractMicrosoftUserInfo(user.displayName).firstName.charAt(0).toUpperCase() : getDisplayName().charAt(0).toUpperCase());
+    (user?.displayName
+      ? extractMicrosoftUserInfo(user.displayName).firstName.charAt(0).toUpperCase()
+      : getDisplayName().charAt(0).toUpperCase());
+
   const getSubtitle = () => {
     if ((userData as any)?.faculty && (userData as any)?.department) return `${(userData as any).faculty} - ${(userData as any).department}`;
     if ((userData as any)?.department) return (userData as any).department;
@@ -311,7 +356,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
   return (
     <>
       {/* AppBar glass */}
-      <Box sx={{ position: 'sticky', top: 0, zIndex: t => t.zIndex.appBar + 1 }}>
+      <Box sx={{ position: 'sticky', top: 0, zIndex: (t) => t.zIndex.appBar + 1 }}>
         <AppBar
           elevation={0}
           position="sticky"
@@ -324,7 +369,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             backdropFilter: 'blur(16px) saturate(180%)',
             backgroundColor: 'rgba(255,255,255,0.65)',
             border: '1px solid rgba(255,255,255,0.25)',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.15)',
+            boxShadow:
+              '0 8px 24px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.15)',
           }}
         >
           <Toolbar sx={{ minHeight: { xs: 64, sm: 72 } }}>
@@ -371,7 +417,11 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
 
                 {/* กระดิ่งแจ้งเตือน (ขวาสุด, คลิกได้) */}
                 <Tooltip title="แจ้งเตือน">
-                  <IconButton size="small" color="inherit" onClick={(e) => setNotifEl(e.currentTarget)}>
+                  <IconButton
+                    size="small"
+                    color="inherit"
+                    onClick={(e) => setNotifEl((prev) => (prev ? null : e.currentTarget))}
+                  >
                     <Badge
                       color="error"
                       variant={notices.length > 0 || urgentNotices.length > 0 ? 'dot' : 'standard'}
@@ -448,7 +498,9 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                   {/* กรอกข้อมูลอัตโนมัติ */}
                   {(!userData || getSubtitle() === 'กรุณากรอกข้อมูลส่วนตัว') && (
                     <MenuItem onClick={handleAutoFillClick} sx={{ py: 1.25 }}>
-                      <ListItemIcon><AutoFillIcon fontSize="small" color="primary" /></ListItemIcon>
+                      <ListItemIcon>
+                        <AutoFillIcon fontSize="small" color="primary" />
+                      </ListItemIcon>
                       <ListItemText
                         primary="กรอกข้อมูลอัตโนมัติ"
                         secondary="ช่วยดึงข้อมูลจากบัญชี Microsoft"
@@ -460,8 +512,10 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
 
                   {/* ปุ่มแก้ไขโปรไฟล์ (ถ้า parent ส่ง handler มา) */}
                   {onEditProfile && (
-                    <MenuItem onClick={() => { onEditProfile(); }} sx={{ py: 1.25 }}>
-                      <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+                    <MenuItem onClick={() => onEditProfile()} sx={{ py: 1.25 }}>
+                      <ListItemIcon>
+                        <EditIcon fontSize="small" />
+                      </ListItemIcon>
                       <ListItemText primary="แก้ไขโปรไฟล์" primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 'medium' }} />
                     </MenuItem>
                   )}
@@ -469,7 +523,9 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                   <Divider />
 
                   <MenuItem onClick={handleLogoutClick} sx={{ py: 1.25 }}>
-                    <ListItemIcon><LogoutIcon fontSize="small" color="error" /></ListItemIcon>
+                    <ListItemIcon>
+                      <LogoutIcon fontSize="small" color="error" />
+                    </ListItemIcon>
                     <ListItemText
                       primary="ออกจากระบบ"
                       secondary="ออกจากบัญชีปัจจุบัน"
@@ -479,69 +535,80 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                   </MenuItem>
                 </Menu>
 
-                {/* เมนูกระดิ่ง: พรีวิวรายการแจ้งเตือน (แสดงได้, กดปิดได้) */}
+                {/* ✅ เมนูกระดิ่ง: FIX ไม่ให้ Menu รับ Fragment/array เป็น children */}
                 <Menu
                   anchorEl={notifEl}
                   open={notifOpen}
                   onClose={() => setNotifEl(null)}
                   PaperProps={{ sx: { mt: 1, minWidth: 320 } }}
+                  MenuListProps={{ dense: true }}
                 >
                   <Box sx={{ px: 2, py: 1.5 }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                       การแจ้งเตือนล่าสุด
                     </Typography>
                   </Box>
+
                   {notices.length === 0 && urgentNotices.length === 0 ? (
                     <MenuItem disabled>
                       <ListItemText primary="ไม่มีการแจ้งเตือน" />
                     </MenuItem>
                   ) : (
-                    <>
-                      {[...urgentNotices, ...notices].slice(0, 6).map(n => (
-                        <MenuItem
-                          key={`menu-${n.key}`}
-                          onClick={() => {
-                            n.onAction?.();
-                            n.onClose?.();
-                            setNotifEl(null);
-                          }}
-                          sx={{ alignItems: 'flex-start', whiteSpace: 'normal' }}
-                        >
-                          <ListItemText
-                            primary={
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <Badge
-                                  variant="dot"
-                                  color={
-                                    n.severity === 'error' ? 'error' :
-                                    n.severity === 'warning' ? 'warning' :
-                                    n.severity === 'success' ? 'success' : 'info'
-                                  }
-                                />
-                                <Typography variant="body2">{n.message}</Typography>
-                              </Stack>
-                            }
-                          />
-                        </MenuItem>
-                      ))}
-                      {[
-                        <Divider key="divider-clear" />,
-                        <MenuItem
-                          key="clear-all"
-                          onClick={() => {
-                            const mm: Record<string, boolean> = {};
-                            for (const n of notices) mm[n.key] = false;
-                            setOpenMap(prev => ({ ...prev, ...mm }));
-                            const uu: Record<string, boolean> = {};
-                            for (const n of urgentNotices) uu[n.key] = false;
-                            setUrgentOpenMap(prev => ({ ...prev, ...uu }));
-                            setNotifEl(null);
-                          }}
-                        >
-                          ล้างทั้งหมด
-                        </MenuItem>,
-                      ]}
-                    </>
+                    // ✅ ใช้ Box ครอบ แทน Fragment (<>...</>)
+                    <Box component="div">
+                      {[...urgentNotices, ...notices]
+                        .slice(0, 6)
+                        .map((n) => (
+                          <MenuItem
+                            key={`menu-${n.key}`}
+                            onClick={() => {
+                              n.onAction?.();
+                              n.onClose?.();
+                              setNotifEl(null);
+                            }}
+                            sx={{ alignItems: 'flex-start', whiteSpace: 'normal' }}
+                          >
+                            <ListItemText
+                              primary={
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                  <Badge
+                                    variant="dot"
+                                    color={
+                                      n.severity === 'error'
+                                        ? 'error'
+                                        : n.severity === 'warning'
+                                        ? 'warning'
+                                        : n.severity === 'success'
+                                        ? 'success'
+                                        : 'info'
+                                    }
+                                  />
+                                  <Typography variant="body2">{n.message}</Typography>
+                                </Stack>
+                              }
+                            />
+                          </MenuItem>
+                        ))}
+
+                      {/* ✅ อย่าทำเป็น array ของ element */}
+                      <Divider />
+
+                      <MenuItem
+                        onClick={() => {
+                          const mm: Record<string, boolean> = {};
+                          for (const n of notices) mm[n.key] = false;
+                          setOpenMap((prev) => ({ ...prev, ...mm }));
+
+                          const uu: Record<string, boolean> = {};
+                          for (const n of urgentNotices) uu[n.key] = false;
+                          setUrgentOpenMap((prev) => ({ ...prev, ...uu }));
+
+                          setNotifEl(null);
+                        }}
+                      >
+                        ล้างทั้งหมด
+                      </MenuItem>
+                    </Box>
                   )}
                 </Menu>
               </Box>
@@ -563,7 +630,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
           position: 'fixed',
           right: 16,
           top: 16 + 56, // เผื่อความสูง AppBar
-          zIndex: t => t.zIndex.snackbar + 10,
+          zIndex: (t) => t.zIndex.snackbar + 10,
           display: 'flex',
           flexDirection: 'column',
           gap: 1,
@@ -576,12 +643,12 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             autoHideDuration={n.autoHideMs}
             onClose={() => {
               n.onClose?.();
-              setUrgentOpenMap(prev => ({ ...prev, [n.key]: false }));
+              setUrgentOpenMap((prev) => ({ ...prev, [n.key]: false }));
             }}
             anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
             sx={{
               '& .MuiPaper-root': {
-                transform: `translateY(${i * 8}px)`, // ซ้อนขยับลงเล็ก ๆ
+                transform: `translateY(${i * 8}px)`,
                 transition: 'transform .2s ease',
               },
             }}
@@ -589,7 +656,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             <Alert
               onClose={() => {
                 n.onClose?.();
-                setUrgentOpenMap(prev => ({ ...prev, [n.key]: false }));
+                setUrgentOpenMap((prev) => ({ ...prev, [n.key]: false }));
               }}
               severity={n.severity}
               variant="filled"
@@ -601,7 +668,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                     size="small"
                     onClick={() => {
                       n.onAction?.();
-                      if (!n.autoHideMs) setUrgentOpenMap(prev => ({ ...prev, [n.key]: false }));
+                      if (!n.autoHideMs) setUrgentOpenMap((prev) => ({ ...prev, [n.key]: false }));
                     }}
                   >
                     {n.actionLabel}
@@ -620,8 +687,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
         sx={{
           position: 'fixed',
           right: 16,
-          top: 16 + 56 + 84, // ใต้ถาดเร่งด่วน
-          zIndex: t => t.zIndex.snackbar + 9,
+          top: 16 + 56 + 84,
+          zIndex: (t) => t.zIndex.snackbar + 9,
           display: 'flex',
           flexDirection: 'column',
           gap: 1,
@@ -634,7 +701,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             autoHideDuration={n.autoHideMs}
             onClose={() => {
               n.onClose?.();
-              setOpenMap(prev => ({ ...prev, [n.key]: false }));
+              setOpenMap((prev) => ({ ...prev, [n.key]: false }));
             }}
             anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
             sx={{
@@ -647,7 +714,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             <Alert
               onClose={() => {
                 n.onClose?.();
-                setOpenMap(prev => ({ ...prev, [n.key]: false }));
+                setOpenMap((prev) => ({ ...prev, [n.key]: false }));
               }}
               severity={n.severity}
               variant="filled"
@@ -659,7 +726,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
                     size="small"
                     onClick={() => {
                       n.onAction?.();
-                      if (!n.autoHideMs) setOpenMap(prev => ({ ...prev, [n.key]: false }));
+                      if (!n.autoHideMs) setOpenMap((prev) => ({ ...prev, [n.key]: false }));
                     }}
                   >
                     {n.actionLabel}
@@ -685,7 +752,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             backdropFilter: 'blur(20px) saturate(180%)',
             backgroundColor: 'rgba(255,255,255,0.7)',
             border: '1px solid rgba(255,255,255,0.35)',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -1px 0 rgba(255,255,255,0.25)',
+            boxShadow:
+              '0 20px 60px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -1px 0 rgba(255,255,255,0.25)',
           },
         }}
       >
@@ -694,6 +762,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             <AutoFillIcon color="primary" /> กรอกข้อมูลอัตโนมัติ
           </Box>
         </DialogTitle>
+
         <DialogContent>
           <Alert severity="info" sx={{ mb: 2 }}>
             ระบบดึงข้อมูลจากบัญชี Microsoft ของคุณมาให้แล้ว กรุณาตรวจสอบและปรับแก้ได้ตามต้องการ
@@ -757,7 +826,11 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             <FormControl size="small" fullWidth>
               <InputLabel>คณะ</InputLabel>
               <Select value={formData.faculty} onChange={(e) => handleFormChange('faculty', e.target.value)} label="คณะ">
-                {availableFaculties.map(f => (<MenuItem key={f.name} value={f.name}>{f.name}</MenuItem>))}
+                {availableFaculties.map((f) => (
+                  <MenuItem key={f.name} value={f.name}>
+                    {f.name}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
 
@@ -771,8 +844,11 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             />
           </Box>
         </DialogContent>
+
         <DialogActions>
-          <Button onClick={() => setAutoFillDialogOpen(false)} disabled={loading}>ยกเลิก</Button>
+          <Button onClick={() => setAutoFillDialogOpen(false)} disabled={loading}>
+            ยกเลิก
+          </Button>
           <Button
             onClick={handleConfirmAutoFill}
             variant="contained"
@@ -785,12 +861,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
       </Dialog>
 
       {/* Snackbar ภายในของ NavigationBar (ผลบันทึกโปรไฟล์) */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
-      >
-        <Alert onClose={() => setSnackbar(prev => ({ ...prev, open: false }))} severity={snackbar.severity} sx={{ width: '100%' }}>
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}>
+        <Alert onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))} severity={snackbar.severity} sx={{ width: '100%' }}>
           {snackbar.message}
         </Alert>
       </Snackbar>

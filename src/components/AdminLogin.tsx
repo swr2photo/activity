@@ -15,7 +15,8 @@ import {
   Stack,
   Divider,
   alpha,
-  useTheme
+  useTheme,
+  Chip,
 } from '@mui/material';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -24,12 +25,7 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { useSnackbar } from 'notistack';
 
 import { auth, db } from '../lib/firebase';
-import {
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut,
-  UserCredential,
-} from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, signOut, UserCredential } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, updateDoc, Timestamp } from 'firebase/firestore';
 
 // ✅ session helpers
@@ -58,10 +54,22 @@ const GoogleIcon = () => (
     viewBox="0 0 48 48"
     sx={{ width: 22, height: 22, mr: 1 }}
   >
-    <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.657 31.987 29.223 35 24 35 16.82 35 11 29.18 11 22S16.82 9 24 9c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 3.02 30.2 1 24 1 10.745 1 0 11.745 0 25s10.745 24 24 24 24-10.745 24-24c0-1.603-.166-3.169-.389-4.917z"/>
-    <path fill="#FF3D00" d="M6.306 14.691l6.571 4.817C14.3 16.012 18.78 13 24 13c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 7.02 30.2 5 24 5 15.317 5 7.985 9.936 6.306 14.691z"/>
-    <path fill="#4CAF50" d="M24 45c5.135 0 9.773-1.982 13.286-5.214l-6.131-5.182C28.827 35.517 26.518 36 24 36c-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.793 39.985 15.124 45 24 45z"/>
-    <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-1.368 3.254-4.713 7-11.303 7-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.985 38.064 15.317 43 24 43c11.223 0 19-7.5 19-18 0-1.603-.166-3.169-.389-4.917z"/>
+    <path
+      fill="#FFC107"
+      d="M43.611 20.083H42V20H24v8h11.303C33.657 31.987 29.223 35 24 35 16.82 35 11 29.18 11 22S16.82 9 24 9c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 3.02 30.2 1 24 1 10.745 1 0 11.745 0 25s10.745 24 24 24 24-10.745 24-24c0-1.603-.166-3.169-.389-4.917z"
+    />
+    <path
+      fill="#FF3D00"
+      d="M6.306 14.691l6.571 4.817C14.3 16.012 18.78 13 24 13c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 7.02 30.2 5 24 5 15.317 5 7.985 9.936 6.306 14.691z"
+    />
+    <path
+      fill="#4CAF50"
+      d="M24 45c5.135 0 9.773-1.982 13.286-5.214l-6.131-5.182C28.827 35.517 26.518 36 24 36c-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.793 39.985 15.124 45 24 45z"
+    />
+    <path
+      fill="#1976D2"
+      d="M43.611 20.083H42V20H24v8h11.303c-1.368 3.254-4.713 7-11.303 7-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.985 38.064 15.317 43 24 43c11.223 0 19-7.5 19-18 0-1.603-.166-3.169-.389-4.917z"
+    />
   </Box>
 );
 
@@ -72,24 +80,28 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const gradientBg = useMemo(
-    () =>
-      `radial-gradient(1200px 600px at 10% -10%, ${alpha(
-        theme.palette.primary.main,
-        0.35
-      )}, transparent 60%), radial-gradient(900px 500px at 110% 10%, ${alpha(
-        theme.palette.secondary.main,
-        0.25
-      )}, transparent 55%), linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 70%)`,
+  // ใหม่: background สาย enterprise + soft noise (ใช้ gradient + surface)
+  const bg = useMemo(() => {
+    const p = theme.palette.primary.main;
+    const s = theme.palette.secondary.main;
+    return `
+      radial-gradient(1100px 520px at 0% -10%, ${alpha(p, 0.22)}, transparent 55%),
+      radial-gradient(900px 500px at 100% 0%, ${alpha(s, 0.16)}, transparent 50%),
+      linear-gradient(180deg, ${alpha(theme.palette.background.default, 0.85)} 0%, ${theme.palette.background.default} 60%, ${theme.palette.background.paper} 100%)
+    `;
+  }, [theme]);
+
+  const glassCardSx = useMemo(
+    () => ({
+      borderRadius: 4,
+      backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.78),
+      backdropFilter: 'blur(14px)',
+      border: `1px solid ${alpha(theme.palette.divider, 0.65)}`,
+      boxShadow: `0 18px 55px ${alpha('#000', theme.palette.mode === 'dark' ? 0.45 : 0.18)}`,
+      overflow: 'hidden',
+    }),
     [theme]
   );
-
-  const cardGlass = {
-    backgroundColor: alpha(theme.palette.background.paper, 0.6),
-    backdropFilter: 'blur(12px)',
-    border: `1px solid ${alpha(theme.palette.common.white, 0.25)}`,
-    boxShadow: `0 10px 35px ${alpha('#000', 0.25)}`,
-  };
 
   const parseFirebaseError = (code?: string, message?: string) => {
     if (!code) return message || 'ไม่สามารถเข้าสู่ระบบได้';
@@ -114,7 +126,6 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
       if (!snap.exists()) {
         await signOut(auth);
         setErr('บัญชีนี้ยังไม่ได้รับอนุญาตให้เป็นผู้ดูแลระบบ');
-        setLoading(false);
         enqueueSnackbar('บัญชีนี้ยังไม่ได้รับสิทธิ์ผู้ดูแล', { variant: 'error' });
         return;
       }
@@ -131,7 +142,6 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
       if (!data.isActive) {
         await signOut(auth);
         setErr('บัญชีผู้ดูแลระบบนี้ถูกปิดการใช้งาน');
-        setLoading(false);
         enqueueSnackbar('บัญชีผู้ดูแลถูกปิดใช้งาน', { variant: 'error' });
         return;
       }
@@ -160,17 +170,18 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
             ? data.lastLogin
             : new Date(),
         createdAt:
-          data.createdAt instanceof Timestamp
-            ? data.createdAt.toDate()
-            : (data.createdAt as Date) ?? new Date(),
+          data.createdAt instanceof Timestamp ? data.createdAt.toDate() : (data.createdAt as Date) ?? new Date(),
       };
 
       onLoginSuccess(adminUser);
     } catch (e: any) {
       console.error(e);
-      setErr(parseFirebaseError(e?.code, e?.message));
-      enqueueSnackbar(parseFirebaseError(e?.code, e?.message), { variant: 'error' });
-      try { await signOut(auth); } catch {}
+      const msg = parseFirebaseError(e?.code, e?.message);
+      setErr(msg);
+      enqueueSnackbar(msg, { variant: 'error' });
+      try {
+        await signOut(auth);
+      } catch {}
     } finally {
       setLoading(false);
     }
@@ -195,7 +206,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
     <Box
       sx={{
         minHeight: '100vh',
-        background: gradientBg,
+        background: bg,
         display: 'flex',
         alignItems: 'center',
         py: { xs: 6, md: 8 },
@@ -204,76 +215,107 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
       <Container maxWidth="lg">
         <Grid container spacing={4} alignItems="stretch">
           {/* Visual / Copy side */}
-          <Grid item xs={12} md={6} lg={7}>
-            <Card sx={{ height: '100%', ...cardGlass, p: { xs: 2, md: 3 } }}>
-              <CardContent sx={{ height: '100%' }}>
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-                  <Avatar sx={{ bgcolor: 'common.white', color: 'primary.main', width: 56, height: 56 }}>
-                    <AdminPanelSettingsIcon fontSize="large" />
+          <Grid size={{ xs: 12, md: 6, lg: 7 }}>
+            <Card sx={{ height: '100%', ...glassCardSx }}>
+              <Box
+                sx={{
+                  p: { xs: 2.5, md: 3.5 },
+                  background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.22)} 0%, ${alpha(
+                    theme.palette.secondary.main,
+                    0.16
+                  )} 100%)`,
+                  borderBottom: `1px solid ${alpha(theme.palette.divider, 0.6)}`,
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1.5}>
+                  <Avatar
+                    sx={{
+                      bgcolor: alpha(theme.palette.primary.main, 0.14),
+                      color: theme.palette.primary.main,
+                      width: 54,
+                      height: 54,
+                      border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`,
+                    }}
+                  >
+                    <AdminPanelSettingsIcon fontSize="medium" />
                   </Avatar>
-                  <Box>
-                    <Typography variant="h4" fontWeight={800} color="common.white">
+
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="h4" fontWeight={900} sx={{ letterSpacing: -0.3 }}>
                       กล่องควบคุมผู้ดูแลระบบ
                     </Typography>
-                    <Typography variant="body2" sx={{ color: alpha('#fff', 0.85) }}>
-                      เข้าสู่ระบบเพื่อจัดการกิจกรรม ผู้ใช้ และรายงานได้ในที่เดียว
+                    <Typography variant="body2" color="text.secondary">
+                      จัดการกิจกรรม ผู้ใช้ และรายงานได้จากศูนย์กลาง
                     </Typography>
                   </Box>
                 </Stack>
+              </Box>
 
-                <Box
-                  sx={{
-                    mt: 3,
-                    p: { xs: 2, md: 3 },
-                    borderRadius: 3,
-                    background: alpha('#000', 0.2),
-                    color: 'common.white',
-                  }}
-                >
-                  <Typography variant="h6" fontWeight={700} gutterBottom>
-                    ไฮไลต์ความสามารถ
+              <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
+                <Stack spacing={2.2}>
+                  <Box
+                    sx={{
+                      p: 2.25,
+                      borderRadius: 3,
+                      border: `1px solid ${alpha(theme.palette.divider, 0.7)}`,
+                      backgroundColor: alpha(theme.palette.background.paper, 0.55),
+                    }}
+                  >
+                    <Typography variant="h6" fontWeight={800} gutterBottom>
+                      ไฮไลต์ความสามารถ
+                    </Typography>
+
+                    <Stack spacing={1.1}>
+                      <Typography variant="body2">• สร้าง/แก้ไขกิจกรรม พร้อม QR Code อัตโนมัติ</Typography>
+                      <Typography variant="body2">• เช็คอินตามพิกัด + กำหนดรัศมี</Typography>
+                      <Typography variant="body2">• รายงานภาพรวมแบบเรียลไทม์</Typography>
+                      <Typography variant="body2">• สิทธิ์การเข้าถึงตามบทบาท</Typography>
+                    </Stack>
+
+                    <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
+                      <Chip size="small" label="Role-based access" variant="outlined" />
+                      <Chip size="small" label="Realtime" variant="outlined" />
+                      <Chip size="small" label="Audit-friendly" variant="outlined" />
+                    </Stack>
+                  </Box>
+
+                  <Typography variant="caption" color="text.secondary">
+                    หากล็อกอินสำเร็จแต่ยังเข้าไม่ได้ ให้ติดต่อผู้ดูแลเพื่อเพิ่มสิทธิ์ในคอลเลกชัน{' '}
+                    <b>adminUsers</b>
                   </Typography>
-                  <Stack spacing={1.2}>
-                    <Typography variant="body2">• สร้าง/แก้ไขกิจกรรม พร้อม QR Code อัตโนมัติ</Typography>
-                    <Typography variant="body2">• เช็คอินตามพิกัด + กำหนดรัศมี</Typography>
-                    <Typography variant="body2">• รายงานภาพรวมแบบเรียลไทม์</Typography>
-                    <Typography variant="body2">• สิทธิ์การเข้าถึงตามบทบาท</Typography>
-                  </Stack>
-                </Box>
-
-                <Typography variant="caption" sx={{ display: 'block', mt: 2, color: alpha('#fff', 0.8) }}>
-                  * หากล็อกอินสำเร็จแต่ยังเข้าไม่ได้ ให้ติดต่อผู้ดูแลเพื่อเพิ่มสิทธิ์ในฐานข้อมูล
-                </Typography>
+                </Stack>
               </CardContent>
             </Card>
           </Grid>
 
           {/* Login side */}
-          <Grid item xs={12} md={6} lg={5}>
+          <Grid size={{ xs: 12, md: 6, lg: 5 }}>
             <Card
               sx={{
                 height: '100%',
-                ...cardGlass,
+                ...glassCardSx,
                 display: 'flex',
                 alignItems: 'center',
               }}
             >
               <CardContent sx={{ width: '100%', p: { xs: 3, md: 4 } }}>
-                <Box sx={{ textAlign: 'center', mb: 2 }}>
+                <Box sx={{ textAlign: 'center', mb: 2.25 }}>
                   <Avatar
                     sx={{
                       width: 72,
                       height: 72,
                       mx: 'auto',
                       mb: 1.5,
-                      bgcolor: 'common.white',
-                      color: 'primary.main',
-                      boxShadow: `0 6px 18px ${alpha('#000', 0.25)}`
+                      bgcolor: alpha(theme.palette.primary.main, 0.12),
+                      color: theme.palette.primary.main,
+                      border: `1px solid ${alpha(theme.palette.primary.main, 0.22)}`,
+                      boxShadow: `0 10px 28px ${alpha('#000', 0.12)}`,
                     }}
                   >
                     <LockOpenIcon fontSize="large" />
                   </Avatar>
-                  <Typography variant="h5" fontWeight={800}>
+
+                  <Typography variant="h5" fontWeight={900} sx={{ letterSpacing: -0.2 }}>
                     เข้าสู่ระบบผู้ดูแล
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
@@ -294,24 +336,25 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
                   disabled={loading}
                   startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <GoogleIcon />}
                   sx={{
-                    borderRadius: 2,
-                    py: 1.3,
-                    fontWeight: 700,
-                    backgroundColor: 'common.white',
-                    color: 'text.primary',
-                    boxShadow: `0 8px 20px ${alpha('#000', 0.22)}`,
-                    '&:hover': { backgroundColor: alpha('#fff', 0.9) }
+                    borderRadius: 2.25,
+                    py: 1.35,
+                    fontWeight: 800,
+                    backgroundColor: theme.palette.common.white,
+                    color: theme.palette.text.primary,
+                    boxShadow: `0 10px 24px ${alpha('#000', 0.16)}`,
+                    border: `1px solid ${alpha(theme.palette.divider, 0.65)}`,
+                    '&:hover': { backgroundColor: alpha('#fff', 0.92) },
                   }}
                 >
                   {loading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Google'}
                 </Button>
 
                 <Stack direction="row" alignItems="center" spacing={2} sx={{ my: 2 }}>
-                  <Divider sx={{ flex: 1, opacity: 0.6 }} />
+                  <Divider sx={{ flex: 1, opacity: 0.7 }} />
                   <Typography variant="caption" color="text.secondary">
                     ตัวช่วย
                   </Typography>
-                  <Divider sx={{ flex: 1, opacity: 0.6 }} />
+                  <Divider sx={{ flex: 1, opacity: 0.7 }} />
                 </Stack>
 
                 <Button
@@ -328,7 +371,12 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
 
                 <Typography
                   variant="caption"
-                  sx={{ display: 'block', textAlign: 'center', mt: 2, color: alpha(theme.palette.text.primary, 0.7) }}
+                  sx={{
+                    display: 'block',
+                    textAlign: 'center',
+                    mt: 2,
+                    color: alpha(theme.palette.text.primary, 0.65),
+                  }}
                 >
                   v1.0 • Secure by Firebase Auth & Firestore
                 </Typography>

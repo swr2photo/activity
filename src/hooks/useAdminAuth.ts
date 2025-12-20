@@ -1,9 +1,9 @@
 "use client"
 // hooks/useAdminAuth.ts
 import { useState, useEffect } from 'react';
-import { AdminProfile } from '../src/types/admin';
+import { AdminProfile } from '../types/admin';
 // hooks/useAdminAuth.ts
-import { getCurrentAdmin, signInAdmin, signOutAdmin } from '../src/lib/adminFirebase';
+import { getCurrentAdmin, signInAdmin, signOutAdmin } from '../lib/adminFirebase';
 
 
 // Rest of your hook implementation

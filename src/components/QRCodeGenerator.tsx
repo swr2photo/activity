@@ -7,7 +7,6 @@ import {
   CardContent,
   Typography,
   TextField,
-  Grid,
   Alert,
   IconButton,
   Dialog,
@@ -17,10 +16,6 @@ import {
   Switch,
   Tooltip,
   Chip,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Divider,
   Paper,
   Accordion,
@@ -33,6 +28,10 @@ import {
   useMediaQuery,
   Avatar
 } from '@mui/material';
+
+// ✅ MUI v7: ใช้ Grid v2 (Grid2)
+import Grid from '@mui/material/Grid';
+
 import {
   Edit as EditIcon,
   Delete as DeleteIcon,
@@ -49,11 +48,16 @@ import {
   Image as ImageIcon,
   Close as CloseIcon
 } from '@mui/icons-material';
+
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+
 import { GoogleMap, MarkerF, CircleF, useLoadScript } from '@react-google-maps/api';
-import QRCode from 'qrcode';
+
+// ✅ safer TS import for qrcode
+import * as QRCode from 'qrcode';
+
 import {
   collection,
   addDoc,
@@ -67,11 +71,11 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { 
-  ref, 
-  uploadBytes, 
-  getDownloadURL, 
-  deleteObject 
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject
 } from 'firebase/storage';
 import { storage } from '../lib/firebase';
 
@@ -260,7 +264,7 @@ const ImageUploader: React.FC<{
         alert('กรุณาเลือกไฟล์รูปภาพเท่านั้น');
         return;
       }
-      
+
       // ตรวจสอบขนาดไฟล์ (สูงสุด 5MB)
       if (file.size > 5 * 1024 * 1024) {
         alert('ขนาดไฟล์ต้องไม่เกิน 5MB');
@@ -300,7 +304,7 @@ const ImageUploader: React.FC<{
           เลือกรูป Banner (ไม่เกิน 5MB)
         </Button>
       </label>
-      
+
       {previewUrl && (
         <Box sx={{ position: 'relative', mb: 2 }}>
           <img
@@ -339,7 +343,7 @@ const ImageUploader: React.FC<{
 const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  
+
   const [formData, setFormData] = useState<Partial<ActivityData>>({
     activityCode: '',
     activityName: '',
@@ -353,7 +357,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
     endDateTime: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2 hours later
     maxParticipants: 0
   });
-  
+
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [bannerPreviewUrl, setBannerPreviewUrl] = useState<string>('');
   const [editBannerFile, setEditBannerFile] = useState<File | null>(null);
@@ -371,10 +375,10 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
   const loadActivities = async () => {
     try {
       const snapshot = await getDocs(collection(db, 'activityQRCodes'));
-      const list = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return { 
-          id: doc.id, 
+      const list = snapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
           ...data,
           startDateTime: data.startDateTime?.toDate() || new Date(),
           endDateTime: data.endDateTime?.toDate() || new Date(),
@@ -386,8 +390,8 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
         } as ActivityData;
       });
       setActivities(list.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds));
-    } catch (error) {
-      console.error('Error loading activities:', error);
+    } catch (err) {
+      console.error('Error loading activities:', err);
       setError('ไม่สามารถโหลดข้อมูลกิจกรรมได้');
     }
   };
@@ -444,7 +448,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
     const timestamp = Date.now();
     const fileName = `banners/${activityCode}_${timestamp}_${file.name}`;
     const storageRef = ref(storage, fileName);
-    
+
     await uploadBytes(storageRef, file);
     const downloadURL = await getDownloadURL(storageRef);
     return downloadURL;
@@ -453,18 +457,20 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
   // Delete banner from Firebase Storage
   const deleteBanner = async (bannerUrl: string) => {
     try {
+      // หมายเหตุ: ถ้า bannerUrl เป็น downloadURL ปกติควรเก็บ "fullPath" ไว้แทน
+      // แต่คงไว้ตามโค้ดเดิมของคุณ
       const storageRef = ref(storage, bannerUrl);
       await deleteObject(storageRef);
-    } catch (error) {
-      console.error('Error deleting banner:', error);
+    } catch (err) {
+      console.error('Error deleting banner:', err);
     }
   };
 
   const isActivityActive = (activity: ActivityData) => {
     const now = new Date();
-    return activity.isActive && 
-           now >= activity.startDateTime && 
-           now <= activity.endDateTime;
+    return activity.isActive &&
+      now >= activity.startDateTime &&
+      now <= activity.endDateTime;
   };
 
   const getActivityStatus = (activity: ActivityData) => {
@@ -481,7 +487,6 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
     setQrCodeUrl('');
     setUploading(true);
 
-    // Validation
     if (!formData.activityName?.trim()) {
       setError('กรุณาใส่ชื่อกิจกรรม');
       setUploading(false);
@@ -519,8 +524,10 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
     }
 
     try {
-      // Check for duplicate activity code
-      const activityQuery = query(collection(db, 'activityQRCodes'), where('activityCode', '==', formData.activityCode.trim()));
+      const activityQuery = query(
+        collection(db, 'activityQRCodes'),
+        where('activityCode', '==', formData.activityCode.trim())
+      );
       const activitySnapshot = await getDocs(activityQuery);
 
       if (!activitySnapshot.empty) {
@@ -529,8 +536,10 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
         return;
       }
 
-      // Check for duplicate user code
-      const userCodeQuery = query(collection(db, 'activityQRCodes'), where('userCode', '==', formData.userCode.trim()));
+      const userCodeQuery = query(
+        collection(db, 'activityQRCodes'),
+        where('userCode', '==', formData.userCode.trim())
+      );
       const userCodeSnapshot = await getDocs(userCodeQuery);
 
       if (!userCodeSnapshot.empty) {
@@ -539,14 +548,14 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
         return;
       }
 
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-      const url = `${baseUrl}/register?activity=${encodeURIComponent(formData.activityCode)}`;
+      const envBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+      const url = `${envBaseUrl}/register?activity=${encodeURIComponent(formData.activityCode)}`;
+
       const qrUrl = await QRCode.toDataURL(url);
 
       let bannerUrl = '';
       let bannerFileName = '';
-      
-      // อัปโหลดรูป banner ถ้ามี
+
       if (bannerFile) {
         bannerUrl = await uploadBanner(bannerFile, formData.activityCode.trim());
         bannerFileName = bannerFile.name;
@@ -593,8 +602,8 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
       setBannerPreviewUrl('');
       setSuccessMessage('สร้างกิจกรรมและ QR Code เรียบร้อยแล้ว');
       loadActivities();
-    } catch (error) {
-      console.error('Error generating QR code:', error);
+    } catch (err) {
+      console.error('Error generating QR code:', err);
       setError('เกิดข้อผิดพลาดในการสร้าง QR Code');
     } finally {
       setUploading(false);
@@ -603,36 +612,35 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('คุณแน่ใจหรือไม่ที่จะลบกิจกรรมนี้?')) return;
-    
+
     try {
       const activity = activities.find(a => a.id === id);
-      
-      // ลบรูป banner ถ้ามี
+
       if (activity?.bannerUrl) {
         await deleteBanner(activity.bannerUrl);
       }
-      
+
       await deleteDoc(doc(db, 'activityQRCodes', id));
       setSuccessMessage('ลบกิจกรรมเรียบร้อยแล้ว');
       loadActivities();
-    } catch (error) {
-      console.error('Error deleting activity:', error);
+    } catch (err) {
+      console.error('Error deleting activity:', err);
       setError('ไม่สามารถลบกิจกรรมได้');
     }
   };
 
   const handleToggleActive = async (id: string, current: boolean) => {
     try {
-      await updateDoc(doc(db, 'activityQRCodes', id), { 
+      await updateDoc(doc(db, 'activityQRCodes', id), {
         isActive: !current,
         updatedAt: serverTimestamp()
       });
-      
+
       const newStatus = !current ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
       setSuccessMessage(`${newStatus}กิจกรรมเรียบร้อยแล้ว`);
       loadActivities();
-    } catch (error) {
-      console.error('Error toggling activity status:', error);
+    } catch (err) {
+      console.error('Error toggling activity status:', err);
       setError('ไม่สามารถเปลี่ยนสถานะกิจกรรมได้');
     }
   };
@@ -648,22 +656,18 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
       setError('กรุณาใส่ชื่อกิจกรรมที่ถูกต้อง');
       return;
     }
-
     if (!editingActivity?.activityCode?.trim()) {
       setError('กรุณาใส่รหัสกิจกรรมที่ถูกต้อง');
       return;
     }
-
     if (!editingActivity?.userCode?.trim()) {
       setError('กรุณาใส่รหัสผู้ใช้ที่ถูกต้อง');
       return;
     }
-
     if (!editingActivity?.startDateTime || !editingActivity?.endDateTime) {
       setError('กรุณาเลือกวันเวลาเปิด-ปิดกิจกรรม');
       return;
     }
-
     if (editingActivity.startDateTime >= editingActivity.endDateTime) {
       setError('วันเวลาเริ่มต้องน้อยกว่าวันเวลาสิ้นสุด');
       return;
@@ -672,14 +676,13 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
     setUploading(true);
 
     try {
-      // Check for duplicate activity code
       if (editingActivity.activityCode.trim() !== activities.find(a => a.id === editingActivity.id)?.activityCode) {
         const activityQuery = query(
-          collection(db, 'activityQRCodes'), 
+          collection(db, 'activityQRCodes'),
           where('activityCode', '==', editingActivity.activityCode.trim())
         );
         const activitySnapshot = await getDocs(activityQuery);
-        
+
         if (!activitySnapshot.empty) {
           setError('รหัสกิจกรรมนี้ถูกใช้งานไปแล้ว');
           setUploading(false);
@@ -687,14 +690,13 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
         }
       }
 
-      // Check for duplicate user code
       if (editingActivity.userCode.trim() !== activities.find(a => a.id === editingActivity.id)?.userCode) {
         const userCodeQuery = query(
-          collection(db, 'activityQRCodes'), 
+          collection(db, 'activityQRCodes'),
           where('userCode', '==', editingActivity.userCode.trim())
         );
         const userCodeSnapshot = await getDocs(userCodeQuery);
-        
+
         if (!userCodeSnapshot.empty) {
           setError('รหัสผู้ใช้นี้ถูกใช้งานไปแล้ว');
           setUploading(false);
@@ -705,14 +707,10 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
       let bannerUrl = editingActivity.bannerUrl || '';
       let bannerFileName = editingActivity.bannerFileName || '';
 
-      // ถ้ามีการอัปโหลดรูปใหม่
       if (editBannerFile) {
-        // ลบรูปเก่าถ้ามี
         if (editingActivity.bannerUrl) {
           await deleteBanner(editingActivity.bannerUrl);
         }
-        
-        // อัปโหลดรูปใหม่
         bannerUrl = await uploadBanner(editBannerFile, editingActivity.activityCode.trim());
         bannerFileName = editBannerFile.name;
       }
@@ -735,15 +733,15 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
       };
 
       await updateDoc(doc(db, 'activityQRCodes', editingActivity.id!), updateData);
-      
+
       setEditDialogOpen(false);
       setEditingActivity(null);
       setEditBannerFile(null);
       setEditBannerPreviewUrl('');
       setSuccessMessage('แก้ไขข้อมูลกิจกรรมเรียบร้อยแล้ว');
       loadActivities();
-    } catch (error) {
-      console.error('Error updating activity:', error);
+    } catch (err) {
+      console.error('Error updating activity:', err);
       setError('ไม่สามารถแก้ไขข้อมูลกิจกรรมได้');
     } finally {
       setUploading(false);
@@ -756,19 +754,11 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
     }
   };
 
-  // Helper function to convert Dayjs/Date to Date
   const convertToDate = (value: any): Date => {
     if (!value) return new Date();
     if (value instanceof Date) return value;
-    // If it's a Dayjs object, convert to Date
-    if (value.toDate && typeof value.toDate === 'function') {
-      return value.toDate();
-    }
-    // If it has a toJSDate method (Dayjs)
-    if (value.toJSDate && typeof value.toJSDate === 'function') {
-      return value.toJSDate();
-    }
-    // Fallback
+    if (value.toDate && typeof value.toDate === 'function') return value.toDate();
+    if (value.toJSDate && typeof value.toJSDate === 'function') return value.toJSDate();
     return new Date(value);
   };
 
@@ -782,16 +772,16 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               สร้างกิจกรรมและ QR Code
             </Typography>
             <Divider sx={{ mb: 3 }} />
-            
+
             <Grid container spacing={isMobile ? 2 : 3}>
               {/* Banner Upload */}
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <ImageIcon />
                   รูป Banner กิจกรรม
                 </Typography>
                 <Paper sx={{ p: 2 }}>
-                  <ImageUploader 
+                  <ImageUploader
                     onImageChange={handleBannerChange}
                     currentImageUrl={bannerPreviewUrl}
                     disabled={uploading}
@@ -800,7 +790,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* ชื่อกิจกรรม */}
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <TextField
                   fullWidth
                   label="ชื่อกิจกรรม *"
@@ -811,7 +801,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* รหัสกิจกรรม */}
-              <Grid item xs={12} sm={8}>
+              <Grid size={{ xs: 12, sm: 8 }}>
                 <TextField
                   fullWidth
                   label="รหัสกิจกรรม *"
@@ -821,7 +811,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                   disabled={autoGenerateCode}
                 />
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', gap: 1, flexDirection: isMobile ? 'column' : 'row' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Switch
@@ -832,7 +822,10 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                     <Typography variant="body2">สร้างรหัสอัตโนมัติ</Typography>
                   </Box>
                   {autoGenerateCode && (
-                    <IconButton size="small" onClick={() => setFormData(prev => ({ ...prev, activityCode: generateActivityCode() }))}>
+                    <IconButton
+                      size="small"
+                      onClick={() => setFormData(prev => ({ ...prev, activityCode: generateActivityCode() }))}
+                    >
                       <RefreshIcon />
                     </IconButton>
                   )}
@@ -840,7 +833,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* รหัสผู้ใช้ */}
-              <Grid item xs={12} sm={8}>
+              <Grid size={{ xs: 12, sm: 8 }}>
                 <TextField
                   fullWidth
                   label="รหัสผู้ใช้ *"
@@ -854,7 +847,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                 />
                 <FormHelperText>รหัสนี้จะใช้สำหรับให้ผู้ใช้กรอกเมื่อลงทะเบียน</FormHelperText>
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', gap: 1, flexDirection: isMobile ? 'column' : 'row' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Switch
@@ -865,7 +858,10 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                     <Typography variant="body2">สร้างรหัสอัตโนมัติ</Typography>
                   </Box>
                   {autoGenerateUserCode && (
-                    <IconButton size="small" onClick={() => setFormData(prev => ({ ...prev, userCode: generateUserCode() }))}>
+                    <IconButton
+                      size="small"
+                      onClick={() => setFormData(prev => ({ ...prev, userCode: generateUserCode() }))}
+                    >
                       <RefreshIcon />
                     </IconButton>
                   )}
@@ -873,7 +869,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* รายละเอียด */}
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <TextField
                   fullWidth
                   multiline
@@ -886,7 +882,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* สถานที่ */}
-              <Grid item xs={12} sm={8}>
+              <Grid size={{ xs: 12, sm: 8 }}>
                 <TextField
                   fullWidth
                   label="สถานที่จัดงาน"
@@ -897,7 +893,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* รัศมีเช็คอิน */}
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <TextField
                   fullWidth
                   type="number"
@@ -911,7 +907,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* จำนวนผู้เข้าร่วมสูงสุด */}
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
                   type="number"
@@ -924,7 +920,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* วันเวลาเริ่มกิจกรรม */}
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <DateTimePicker
                   label="วันเวลาเริ่มกิจกรรม *"
                   value={formData.startDateTime || null}
@@ -934,7 +930,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* วันเวลาสิ้นสุด */}
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <DateTimePicker
                   label="วันเวลาสิ้นสุดกิจกรรม *"
                   value={formData.endDateTime || null}
@@ -944,16 +940,16 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* ตำแหน่งที่ตั้ง */}
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <MapIcon />
                   ตำแหน่งที่ตั้งกิจกรรม
                 </Typography>
                 <Paper sx={{ p: 2 }}>
                   <LocationPicker
-                    location={{ 
-                      latitude: formData.latitude || 13.7563, 
-                      longitude: formData.longitude || 100.5018 
+                    location={{
+                      latitude: formData.latitude || 13.7563,
+                      longitude: formData.longitude || 100.5018
                     }}
                     radius={formData.checkInRadius || 100}
                     onLocationChange={handleLocationChange}
@@ -978,10 +974,10 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
               </Grid>
 
               {/* ปุ่มสร้าง */}
-              <Grid item xs={12}>
-                <Button 
-                  fullWidth 
-                  variant="contained" 
+              <Grid size={12}>
+                <Button
+                  fullWidth
+                  variant="contained"
                   onClick={generateQRCode}
                   size="large"
                   sx={{ py: 1.5 }}
@@ -1013,7 +1009,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
           activities.map((activity) => {
             const statusInfo = getActivityStatus(activity);
             const isLive = isActivityActive(activity);
-            
+
             return (
               <Accordion key={activity.id} sx={{ mb: 2 }}>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -1035,7 +1031,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                         </Typography>
                       </Box>
                     </Box>
-                    <Chip 
+                    <Chip
                       label={statusInfo.status}
                       color={statusInfo.color}
                       variant={isLive ? 'filled' : 'outlined'}
@@ -1043,11 +1039,10 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                     />
                   </Box>
                 </AccordionSummary>
-                
+
                 <AccordionDetails>
                   <Grid container spacing={3}>
-                    <Grid item xs={12} md={activity.bannerUrl ? 12 : 8}>
-                      {/* Banner Image */}
+                    <Grid size={{ xs: 12, md: activity.bannerUrl ? 12 : 8 }}>
                       {activity.bannerUrl && (
                         <Box sx={{ mb: 2 }}>
                           <CardMedia
@@ -1059,7 +1054,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                           />
                         </Box>
                       )}
-                      
+
                       <Stack spacing={2}>
                         {activity.description && (
                           <Box>
@@ -1067,14 +1062,14 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                             <Typography variant="body2">{activity.description}</Typography>
                           </Box>
                         )}
-                        
+
                         {activity.location && (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <LocationIcon color="action" fontSize="small" />
                             <Typography variant="body2">{activity.location}</Typography>
                           </Box>
                         )}
-                        
+
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <TimeIcon color="action" fontSize="small" />
                           <Typography variant="body2">
@@ -1092,7 +1087,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <MapIcon color="action" fontSize="small" />
                           <Typography variant="body2">
-                            ตำแหน่ง: {activity.latitude.toFixed(6)}, {activity.longitude.toFixed(6)} 
+                            ตำแหน่ง: {activity.latitude.toFixed(6)}, {activity.longitude.toFixed(6)}
                             (รัศมี {activity.checkInRadius} ม.)
                           </Typography>
                         </Box>
@@ -1103,13 +1098,13 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                             รหัสผู้ใช้: <strong>{activity.userCode}</strong>
                           </Typography>
                         </Box>
-                        
+
                         {(activity.maxParticipants && activity.maxParticipants > 0) && (
                           <Typography variant="body2">
                             ผู้เข้าร่วม: {activity.currentParticipants || 0}/{activity.maxParticipants} คน
                           </Typography>
                         )}
-                        
+
                         <Typography variant="caption" color="text.secondary">
                           สร้างเมื่อ: {activity.createdAt?.toDate?.()?.toLocaleString('th-TH') || 'ไม่ทราบ'}
                           {activity.updatedAt && (
@@ -1118,8 +1113,8 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                         </Typography>
                       </Stack>
                     </Grid>
-                    
-                    <Grid item xs={12} md={activity.bannerUrl ? 12 : 4}>
+
+                    <Grid size={{ xs: 12, md: activity.bannerUrl ? 12 : 4 }}>
                       <Box sx={{ textAlign: 'center' }}>
                         <img src={activity.qrUrl} alt="QR Code" width={isMobile ? 120 : 150} />
                         <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 1 }}>
@@ -1128,15 +1123,15 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                               <EditIcon />
                             </IconButton>
                           </Tooltip>
-                          
+
                           <Tooltip title="ลบกิจกรรม">
                             <IconButton color="error" onClick={() => handleDelete(activity.id!)} size={isMobile ? 'small' : 'medium'}>
                               <DeleteIcon />
                             </IconButton>
                           </Tooltip>
-                          
+
                           <Tooltip title={activity.isActive ? 'ปิดใช้งานกิจกรรม' : 'เปิดใช้งานกิจกรรม'}>
-                            <IconButton 
+                            <IconButton
                               onClick={() => handleToggleActive(activity.id!, activity.isActive)}
                               color={activity.isActive ? 'warning' : 'success'}
                               size={isMobile ? 'small' : 'medium'}
@@ -1145,7 +1140,7 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                             </IconButton>
                           </Tooltip>
                         </Box>
-                        
+
                         <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <Typography variant="body2" sx={{ mr: 1 }}>
                             เปิดใช้งาน:
@@ -1167,24 +1162,23 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
         )}
 
         {/* Edit Dialog */}
-        <Dialog 
-          open={editDialogOpen} 
-          onClose={() => setEditDialogOpen(false)} 
-          maxWidth="lg" 
+        <Dialog
+          open={editDialogOpen}
+          onClose={() => setEditDialogOpen(false)}
+          maxWidth="lg"
           fullWidth
           fullScreen={isMobile}
         >
           <DialogTitle>แก้ไขข้อมูลกิจกรรม</DialogTitle>
           <DialogContent>
             <Grid container spacing={2} sx={{ mt: 1 }}>
-              {/* Banner Upload for Edit */}
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <ImageIcon />
                   รูป Banner กิจกรรม
                 </Typography>
                 <Paper sx={{ p: 2 }}>
-                  <ImageUploader 
+                  <ImageUploader
                     onImageChange={handleEditBannerChange}
                     currentImageUrl={editBannerPreviewUrl}
                     disabled={uploading}
@@ -1192,101 +1186,100 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                 </Paper>
               </Grid>
 
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <TextField
                   fullWidth
                   label="ชื่อกิจกรรม"
                   value={editingActivity?.activityName || ''}
-                  onChange={(e) => setEditingActivity(prev => ({ 
-                    ...prev!, 
-                    activityName: e.target.value 
-                  }))}
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="รหัสกิจกรรม"
-                  value={editingActivity?.activityCode || ''}
-                  onChange={(e) => setEditingActivity(prev => ({ 
-                    ...prev!, 
-                    activityCode: e.target.value 
+                  onChange={(e) => setEditingActivity(prev => ({
+                    ...prev!,
+                    activityName: e.target.value
                   }))}
                 />
               </Grid>
 
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="รหัสกิจกรรม"
+                  value={editingActivity?.activityCode || ''}
+                  onChange={(e) => setEditingActivity(prev => ({
+                    ...prev!,
+                    activityCode: e.target.value
+                  }))}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
                   label="รหัสผู้ใช้"
                   value={editingActivity?.userCode || ''}
-                  onChange={(e) => setEditingActivity(prev => ({ 
-                    ...prev!, 
-                    userCode: e.target.value 
+                  onChange={(e) => setEditingActivity(prev => ({
+                    ...prev!,
+                    userCode: e.target.value
                   }))}
                   InputProps={{
                     startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />
                   }}
                 />
               </Grid>
-              
-              <Grid item xs={12}>
+
+              <Grid size={12}>
                 <TextField
                   fullWidth
                   multiline
                   rows={3}
                   label="รายละเอียดกิจกรรม"
                   value={editingActivity?.description || ''}
-                  onChange={(e) => setEditingActivity(prev => ({ 
-                    ...prev!, 
-                    description: e.target.value 
+                  onChange={(e) => setEditingActivity(prev => ({
+                    ...prev!,
+                    description: e.target.value
                   }))}
                 />
               </Grid>
-              
-              <Grid item xs={12} sm={8}>
+
+              <Grid size={{ xs: 12, sm: 8 }}>
                 <TextField
                   fullWidth
                   label="สถานที่จัดงาน"
                   value={editingActivity?.location || ''}
-                  onChange={(e) => setEditingActivity(prev => ({ 
-                    ...prev!, 
-                    location: e.target.value 
+                  onChange={(e) => setEditingActivity(prev => ({
+                    ...prev!,
+                    location: e.target.value
                   }))}
                 />
               </Grid>
-              
-              <Grid item xs={12} sm={4}>
+
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <TextField
                   fullWidth
                   type="number"
                   label="รัศมีเช็คอิน (เมตร)"
                   value={editingActivity?.checkInRadius || ''}
-                  onChange={(e) => setEditingActivity(prev => ({ 
-                    ...prev!, 
-                    checkInRadius: parseInt(e.target.value) || 100 
+                  onChange={(e) => setEditingActivity(prev => ({
+                    ...prev!,
+                    checkInRadius: parseInt(e.target.value) || 100
                   }))}
                   inputProps={{ min: 10, max: 1000 }}
                 />
               </Grid>
-              
-              <Grid item xs={12} sm={6}>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
                   type="number"
                   label="จำนวนผู้เข้าร่วมสูงสุด"
                   value={editingActivity?.maxParticipants || ''}
-                  onChange={(e) => setEditingActivity(prev => ({ 
-                    ...prev!, 
-                    maxParticipants: parseInt(e.target.value) || 0 
+                  onChange={(e) => setEditingActivity(prev => ({
+                    ...prev!,
+                    maxParticipants: parseInt(e.target.value) || 0
                   }))}
                   inputProps={{ min: 0 }}
                 />
               </Grid>
 
-              {/* ตำแหน่งที่ตั้งในการแก้ไข */}
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <MapIcon />
                   ตำแหน่งที่ตั้งกิจกรรม
@@ -1295,9 +1288,9 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                   {editingActivity && (
                     <>
                       <LocationPicker
-                        location={{ 
-                          latitude: editingActivity.latitude || 13.7563, 
-                          longitude: editingActivity.longitude || 100.5018 
+                        location={{
+                          latitude: editingActivity.latitude || 13.7563,
+                          longitude: editingActivity.longitude || 100.5018
                         }}
                         radius={editingActivity.checkInRadius || 100}
                         onLocationChange={handleEditLocationChange}
@@ -1322,25 +1315,25 @@ const QRCodeAdminPanel: React.FC<{ baseUrl: string }> = ({ baseUrl }) => {
                   )}
                 </Paper>
               </Grid>
-              
-              <Grid item xs={12} sm={6}>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <DateTimePicker
                   label="วันเวลาเริ่มกิจกรรม"
                   value={editingActivity?.startDateTime || null}
-                  onChange={(newValue) => setEditingActivity(prev => ({ 
-                    ...prev!, 
+                  onChange={(newValue) => setEditingActivity(prev => ({
+                    ...prev!,
                     startDateTime: convertToDate(newValue)
                   }))}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
-              
-              <Grid item xs={12} sm={6}>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <DateTimePicker
                   label="วันเวลาสิ้นสุดกิจกรรม"
                   value={editingActivity?.endDateTime || null}
-                  onChange={(newValue) => setEditingActivity(prev => ({ 
-                    ...prev!, 
+                  onChange={(newValue) => setEditingActivity(prev => ({
+                    ...prev!,
                     endDateTime: convertToDate(newValue)
                   }))}
                   slotProps={{ textField: { fullWidth: true } }}

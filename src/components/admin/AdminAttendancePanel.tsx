@@ -2,12 +2,13 @@
 'use client';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Box, Card, CardContent, Typography, TextField, Button, Grid, Alert, Table, TableBody,
+  Box, Card, CardContent, Typography, TextField, Button, Alert, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Dialog, DialogTitle,
   DialogContent, DialogActions, IconButton, Tooltip, Snackbar, LinearProgress, InputAdornment,
   ButtonGroup, AppBar, Toolbar, Container, Fade, Skeleton, Checkbox, FormControl, InputLabel,
   Select, OutlinedInput, MenuItem, ListItemText, Avatar, useMediaQuery, Badge, Menu, ListItemAvatar
 } from '@mui/material';
+import Grid from '@mui/material/Grid';
 import { useTheme } from '@mui/material/styles';
 import {
   Download as DownloadIcon, Refresh as RefreshIcon, Delete as DeleteIcon, Visibility as ViewIcon,
@@ -50,25 +51,39 @@ type AdminNotif = {
   id: string;
   title?: string;
   message?: string;
-  department?: string;     // อาจเป็นชื่อไทยเก่า
-  departmentKey?: string;  // คีย์ normalize เช่น science_faculty
+  department?: string;
+  departmentKey?: string;
   createdAt?: Date | Timestamp | null;
 };
 
 const NotificationBell: React.FC<{
   currentAdmin: AdminProfile;
-  allowedDeptKey: string;          // normalize แล้ว
+  allowedDeptKey: string; // normalize แล้ว
 }> = ({ currentAdmin, allowedDeptKey }) => {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [items, setItems] = useState<AdminNotif[]>([]);
   const open = Boolean(anchorEl);
 
-  // ใช้ localStorage เก็บเวลาเห็นล่าสุด (นับ badge ได้เสถียร โดยไม่ต้องแก้ schema)
-  const LS_KEY = `admin_last_seen_notif_${currentAdmin.uid}`;
-  const lastSeen = useMemo<number>(() => {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? Number(raw) : 0;
+  // SSR-safe localStorage handling
+  const LS_KEY = useMemo(
+    () => `admin_last_seen_notif_${currentAdmin.uid}`,
+    [currentAdmin.uid]
+  );
+
+  const [lastSeen, setLastSeen] = useState<number>(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(LS_KEY);
+    setLastSeen(raw ? Number(raw) : 0);
   }, [LS_KEY]);
+
+  const markSeenNow = () => {
+    if (typeof window === 'undefined') return;
+    const now = Date.now();
+    window.localStorage.setItem(LS_KEY, String(now));
+    setLastSeen(now);
+  };
 
   const unseenCount = useMemo(() => {
     return items.filter(n => {
@@ -80,10 +95,9 @@ const NotificationBell: React.FC<{
   }, [items, lastSeen]);
 
   useEffect(() => {
-    // เราพยายามใช้ collection "adminNotifications" ถ้าไม่มีจะ fallback เป็น "notifications"
     const unsubscribers: Array<() => void> = [];
+
     const watch = (colName: string) => {
-      // super_admin: ดึงทั้งหมด
       if (allowedDeptKey === 'all') {
         const qAll = query(collection(db, colName), orderBy('createdAt', 'desc'), limit(50));
         const un = onSnapshot(qAll, snap => {
@@ -94,8 +108,6 @@ const NotificationBell: React.FC<{
         return;
       }
 
-      // dept scope: ดึงเฉพาะ departmentKey == allowedDeptKey และ departmentKey == 'all'
-      // (บางโปรเจ็คไม่ได้เก็บ departmentKey — ด้านล่างจึงมี fallback)
       const hasDeptKey = query(
         collection(db, colName),
         where('departmentKey', '==', allowedDeptKey),
@@ -109,71 +121,50 @@ const NotificationBell: React.FC<{
         limit(20)
       );
 
-      const un1 = onSnapshot(hasDeptKey, depSnap => {
-        const depDocs = depSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      const mergeSort = (incoming: AdminNotif[]) => {
         setItems(prev => {
           const map = new Map<string, AdminNotif>();
-          [...depDocs, ...prev].forEach(x => map.set(x.id, x));
+          [...incoming, ...prev].forEach(x => map.set(x.id, x));
           return Array.from(map.values()).sort((a, b) => {
             const ta = (a.createdAt as any)?.toMillis?.() ?? new Date(a.createdAt as any || 0).getTime();
             const tb = (b.createdAt as any)?.toMillis?.() ?? new Date(b.createdAt as any || 0).getTime();
             return tb - ta;
           }).slice(0, 60);
         });
+      };
+
+      const un1 = onSnapshot(hasDeptKey, depSnap => {
+        mergeSort(depSnap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
       });
       const un2 = onSnapshot(hasAll, allSnap => {
-        const allDocs = allSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-        setItems(prev => {
-          const map = new Map<string, AdminNotif>();
-          [...allDocs, ...prev].forEach(x => map.set(x.id, x));
-          return Array.from(map.values()).sort((a, b) => {
-            const ta = (a.createdAt as any)?.toMillis?.() ?? new Date(a.createdAt as any || 0).getTime();
-            const tb = (b.createdAt as any)?.toMillis?.() ?? new Date(b.createdAt as any || 0).getTime();
-            return tb - ta;
-          }).slice(0, 60);
-        });
+        mergeSort(allSnap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
       });
+
       unsubscribers.push(un1, un2);
 
-      // Fallback: ถ้าเอกสารไม่มี departmentKey ให้ดึงล่าสุดแล้วกรองฝั่ง client ด้วย deptEquals
       const qLatest = query(collection(db, colName), orderBy('createdAt', 'desc'), limit(60));
       const un3 = onSnapshot(qLatest, snap => {
         const mixed = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
         const scoped = mixed.filter(n => {
-          if (String(n.departmentKey || '').trim()) {
-            // มี departmentKey แล้ว — ปล่อยให้ watcher ด้านบนจัดการ
-            return false;
-          }
+          if (String(n.departmentKey || '').trim()) return false;
           if (allowedDeptKey === 'all') return true;
           const dep = n.departmentKey || n.department;
           return dep === 'all' || deptEquals(dep as any, allowedDeptKey as any);
         });
-        if (scoped.length) {
-          setItems(prev => {
-            const map = new Map<string, AdminNotif>();
-            [...scoped, ...prev].forEach(x => map.set(x.id, x));
-            return Array.from(map.values()).sort((a, b) => {
-              const ta = (a.createdAt as any)?.toMillis?.() ?? new Date(a.createdAt as any || 0).getTime();
-              const tb = (b.createdAt as any)?.toMillis?.() ?? new Date(b.createdAt as any || 0).getTime();
-              return tb - ta;
-            }).slice(0, 60);
-          });
-        }
+        if (scoped.length) mergeSort(scoped);
       });
       unsubscribers.push(un3);
     };
 
-    // ลองดูสองชื่อคอลเลกชัน
     watch('adminNotifications');
     watch('notifications');
 
     return () => unsubscribers.forEach(u => u());
-  }, [allowedDeptKey, currentAdmin.uid]);
+  }, [allowedDeptKey]);
 
   const openMenu = (e: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(e.currentTarget);
-    // mark seen ทันที (local)
-    localStorage.setItem(LS_KEY, String(Date.now()));
+    markSeenNow();
   };
   const closeMenu = () => setAnchorEl(null);
 
@@ -240,14 +231,12 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<ActivityRecord | null>(null);
 
-  // export filename dialog
   const [exportOpen, setExportOpen] = useState(false);
   const [exportSelectedOnly, setExportSelectedOnly] = useState(false);
   const [exportFilename, setExportFilename] = useState(
-    `attendance_${new Date().toISOString().slice(0,10)}.csv`
+    `attendance_${new Date().toISOString().slice(0, 10)}.csv`
   );
 
-  // code -> name map
   const [activityNameByCode, setActivityNameByCode] = useState<Record<string, string>>({});
 
   const [filters, setFilters] = useState<FilterState>({
@@ -261,7 +250,6 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   const perms = (currentAdmin.permissions || []) as AdminPermission[];
   const canExport = isSuperAdmin || perms.includes('export_data') || perms.includes('view_reports');
 
-  // —— scope สังกัดผู้ใช้
   const allowedDeptKey = normalizeDepartment(currentAdmin.department as any);
   const isDeptScoped = allowedDeptKey !== 'all';
 
@@ -326,15 +314,14 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
     setLoading(true);
     setProgress(20);
     try {
-      const data = await getAllActivityRecords(); // โหลดทั้งหมดก่อน แล้ว scope ฝั่ง client ด้วย deptEquals
-
+      const data = await getAllActivityRecords();
       setProgress(60);
+
       const normalized = data.map(d => ({
         ...d,
         timestamp: d.timestamp instanceof Date ? d.timestamp : new Date(d.timestamp)
       }));
       setRecords(normalized);
-
       await loadActivityNames(normalized.map(r => r.activityCode));
 
       setProgress(100);
@@ -377,12 +364,9 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
         );
       });
     }
-    if (filters.activities.length) {
-      list = list.filter(r => filters.activities.includes(r.activityCode));
-    }
-    if (filters.faculties.length) {
-      list = list.filter(r => filters.faculties.includes(String(r.faculty || 'ไม่ระบุ')));
-    }
+    if (filters.activities.length) list = list.filter(r => filters.activities.includes(r.activityCode));
+    if (filters.faculties.length) list = list.filter(r => filters.faculties.includes(String(r.faculty || 'ไม่ระบุ')));
+
     const { start, end } = filters.dateRange;
     if (start || end) {
       list = list.filter(r => {
@@ -398,10 +382,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   }, [baseRecords, filters, activityNameByCode]);
 
   const buildCsv = (rows: ActivityRecord[]) => {
-    const headers = [
-      'วันที่','เวลา','รหัสนักศึกษา','ชื่อ','นามสกุล',
-      'คณะ','สาขา','ชื่อกิจกรรม','รหัสกิจกรรม'
-    ];
+    const headers = ['วันที่', 'เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'คณะ', 'สาขา', 'ชื่อกิจกรรม', 'รหัสกิจกรรม'];
     const lines = rows.map(r => {
       const d = new Date(r.timestamp);
       const name = activityNameByCode[r.activityCode] || r.activityCode;
@@ -426,29 +407,28 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
 
   const doExport = (selectedOnly = false, filename?: string) => {
     if (!canExport) return alert('คุณไม่มีสิทธิ์ส่งออกข้อมูล', 'warning');
-    const rows = selectedOnly
-      ? filteredRecords.filter(r => selected.includes(r.id))
-      : filteredRecords;
+    const rows = selectedOnly ? filteredRecords.filter(r => selected.includes(r.id)) : filteredRecords;
     if (selectedOnly && rows.length === 0) return alert('กรุณาเลือกรายการที่ต้องการส่งออก', 'warning');
+
     const csv = buildCsv(rows);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (filename && filename.trim()) || (selectedOnly
-      ? `selected_attendance_${new Date().toISOString().split('T')[0]}.csv`
-      : `attendance_${new Date().toISOString().split('T')[0]}.csv`);
+    a.download = (filename && filename.trim()) || (
+      selectedOnly
+        ? `selected_attendance_${new Date().toISOString().split('T')[0]}.csv`
+        : `attendance_${new Date().toISOString().split('T')[0]}.csv`
+    );
     a.click();
     URL.revokeObjectURL(url);
-    alert(`ส่งออกข้อมูล${selectedOnly ? 'ที่เลือก' : 'ทั้งหมด'} ${rows.length} รายการสำเร็จ 📊`, 'success');
+    alert(`ส่งออกข้อมูล${selectedOnly ? 'ที่เลือก' : 'ทั้งหมด'} ${rows.length} รายการสำเร็จ`, 'success');
   };
 
   const openExportDialog = (selectedOnly = false) => {
     if (!canExport) return;
     setExportSelectedOnly(selectedOnly);
-    setExportFilename(
-      `${selectedOnly ? 'selected_' : ''}attendance_${new Date().toISOString().slice(0,10)}.csv`
-    );
+    setExportFilename(`${selectedOnly ? 'selected_' : ''}attendance_${new Date().toISOString().slice(0, 10)}.csv`);
     setExportOpen(true);
   };
 
@@ -458,7 +438,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
     try {
       await adjustParticipantsByActivityCode(rec.activityCode, -1);
       await deleteActivityRecord(rec.id);
-      alert('ลบรายการสำเร็จและอัปเดตจำนวนผู้เข้าร่วมแล้ว 🗑️', 'success');
+      alert('ลบรายการสำเร็จและอัปเดตจำนวนผู้เข้าร่วมแล้ว', 'success');
       await load();
     } catch (e: any) {
       console.error(e);
@@ -477,10 +457,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
       const chosen = filteredRecords.filter(r => selected.includes(r.id));
       chosen.forEach(r => { countByCode[r.activityCode] = (countByCode[r.activityCode] || 0) + 1; });
 
-      await Promise.all(
-        Object.entries(countByCode).map(([code, cnt]) => adjustParticipantsByActivityCode(code, -cnt))
-      );
-
+      await Promise.all(Object.entries(countByCode).map(([code, cnt]) => adjustParticipantsByActivityCode(code, -cnt)));
       for (const r of chosen) await deleteActivityRecord(r.id);
 
       setSelected([]);
@@ -495,12 +472,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   const clearFilters = () => {
-    setFilters({
-      search: '',
-      activities: [],
-      faculties: [],
-      dateRange: { start: null, end: null }
-    });
+    setFilters({ search: '', activities: [], faculties: [], dateRange: { start: null, end: null } });
     setSelected([]);
   };
 
@@ -537,15 +509,10 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
             จัดการข้อมูลการเข้าร่วมกิจกรรม
           </Typography>
 
-          {/* 🔔 กระดิ่งแจ้งเตือน: แสดงเฉพาะแจ้งเตือนในสังกัด */}
           <NotificationBell currentAdmin={currentAdmin} allowedDeptKey={allowedDeptKey} />
 
           <Chip
-            label={
-              isDeptScoped
-                ? `สังกัด: ${getDepartmentLabel(currentAdmin.department)}`
-                : 'Super Admin (ทุกสังกัด)'
-            }
+            label={isDeptScoped ? `สังกัด: ${getDepartmentLabel(currentAdmin.department)}` : 'Super Admin (ทุกสังกัด)'}
             color={isDeptScoped ? 'info' : 'warning'}
             variant="filled"
             sx={{ mr: 2 }}
@@ -554,23 +521,21 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
         </Toolbar>
       </AppBar>
 
-      {progress > 0 && progress < 100 && (
-        <LinearProgress variant="determinate" value={progress} />
-      )}
+      {progress > 0 && progress < 100 && <LinearProgress variant="determinate" value={progress} />}
 
       <Container maxWidth="xl" sx={{ py: 4 }}>
         {/* Stats */}
         <Grid container spacing={3} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <StatCard title="รายการทั้งหมด" value={stats.totalRecords} icon={<EventIcon />} color="#1976d2" subtitle="บันทึกการเข้าร่วม" />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <StatCard title="นักศึกษา" value={stats.uniqueStudents} icon={<PeopleIcon />} color="#9c27b0" subtitle="คนที่เข้าร่วม" />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <StatCard title="กิจกรรม" value={stats.uniqueActivities} icon={<EventIcon />} color="#2e7d32" subtitle="กิจกรรมทั้งหมด" />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <StatCard title="วันนี้" value={stats.todayRecords} icon={<TodayIcon />} color="#ed6c02" subtitle="เข้าร่วมวันนี้" />
           </Grid>
         </Grid>
@@ -579,7 +544,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
         <Card sx={{ mb: 3, borderRadius: 3 }}>
           <CardContent>
             <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <TextField
                   fullWidth size="small" label="ค้นหา"
                   value={filters.search}
@@ -595,16 +560,18 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                 />
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>กิจกรรม</InputLabel>
                   <Select
                     multiple value={filters.activities}
                     onChange={(e) => setFilters(v => ({ ...v, activities: (e.target.value as string[]) }))}
                     input={<OutlinedInput label="กิจกรรม" />}
-                    renderValue={(selected) => <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5 }}>
-                      {selected.map((v) => <Chip key={v} size="small" label={activityNameByCode[v] || v} />)}
-                    </Box>}
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5 }}>
+                        {selected.map((v) => <Chip key={v} size="small" label={activityNameByCode[v] || v} />)}
+                      </Box>
+                    )}
                   >
                     {availableActivities.map((a) => (
                       <MenuItem key={a} value={a}>
@@ -616,16 +583,18 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>คณะ</InputLabel>
                   <Select
                     multiple value={filters.faculties}
                     onChange={(e) => setFilters(v => ({ ...v, faculties: (e.target.value as string[]) }))}
                     input={<OutlinedInput label="คณะ" />}
-                    renderValue={(selected) => <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5 }}>
-                      {selected.map((v) => <Chip key={v} size="small" label={v} />)}
-                    </Box>}
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5 }}>
+                        {selected.map((v) => <Chip key={v} size="small" label={v} />)}
+                      </Box>
+                    )}
                   >
                     {availableFaculties.map((d) => (
                       <MenuItem key={d} value={d}>
@@ -637,7 +606,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sx={{ display: 'flex', gap: 1, justifyContent: { xs: 'stretch', md: 'flex-end' } }}>
+              <Grid size={12} sx={{ display: 'flex', gap: 1, justifyContent: { xs: 'stretch', md: 'flex-end' } }}>
                 <Button variant="outlined" onClick={clearFilters} startIcon={<ClearIcon />}>ล้างตัวกรอง</Button>
                 <ButtonGroup variant="contained">
                   <Button onClick={load} disabled={loading} startIcon={<RefreshIcon />}>รีเฟรช</Button>
@@ -705,7 +674,9 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                   <TableBody>
                     {loading ? (
                       Array.from({ length: 5 }).map((_, i) => (
-                        <TableRow key={i}>{Array.from({ length: 8 }).map((_, j) => <TableCell key={j}><Skeleton height={40} /></TableCell>)}</TableRow>
+                        <TableRow key={i}>
+                          {Array.from({ length: 8 }).map((_, j) => <TableCell key={j}><Skeleton height={40} /></TableCell>)}
+                        </TableRow>
                       ))
                     ) : (
                       filteredRecords.map((r) => (
@@ -750,19 +721,18 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
             </CardContent>
           </Card>
         ) : (
-          // Mobile cards
           <Grid container spacing={2}>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
-                <Grid item xs={12} key={i}><Skeleton variant="rounded" height={96} /></Grid>
+                <Grid size={12} key={i}><Skeleton variant="rounded" height={96} /></Grid>
               ))
             ) : filteredRecords.length === 0 ? (
-              <Grid item xs={12}><Card><CardContent><Typography align="center" color="text.secondary">ไม่มีข้อมูล</Typography></CardContent></Card></Grid>
+              <Grid size={12}><Card><CardContent><Typography align="center" color="text.secondary">ไม่มีข้อมูล</Typography></CardContent></Card></Grid>
             ) : (
               filteredRecords.map((r) => {
                 const d = new Date(r.timestamp);
                 return (
-                  <Grid item xs={12} key={r.id}>
+                  <Grid size={12} key={r.id}>
                     <Card variant="outlined">
                       <CardContent sx={{ display: 'flex', gap: 2 }}>
                         <Avatar sx={{ bgcolor: 'primary.main' }}><EventIcon /></Avatar>
@@ -810,28 +780,52 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
             <DialogTitle>รายละเอียดการลงทะเบียน</DialogTitle>
             <DialogContent>
               <Grid container spacing={2} sx={{ mt: .5 }}>
-                <Grid item xs={12} sm={6}><Typography variant="body2" color="text.secondary">รหัสนักศึกษา</Typography><Typography variant="h6">{selectedRecord.studentId}</Typography></Grid>
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="body2" color="text.secondary">รหัสนักศึกษา</Typography>
+                  <Typography variant="h6">{selectedRecord.studentId}</Typography>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <Typography variant="body2" color="text.secondary">กิจกรรม</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <ActivityChip code={selectedRecord.activityCode} />
                     <Tooltip title="คัดลอกรหัสกิจกรรม">
-                      <IconButton size="small" onClick={() => navigator.clipboard.writeText(selectedRecord.activityCode).catch(()=>{})}>
+                      <IconButton size="small" onClick={() => navigator.clipboard.writeText(selectedRecord.activityCode).catch(() => { })}>
                         <CopyIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                   </Box>
                 </Grid>
-                <Grid item xs={12}><Typography variant="body2" color="text.secondary">ชื่อ-นามสกุล</Typography><Typography variant="h6">{selectedRecord.firstName} {selectedRecord.lastName}</Typography></Grid>
-                <Grid item xs={12} sm={6}><Typography variant="body2" color="text.secondary">คณะ</Typography><Typography>{String(selectedRecord.faculty || 'ไม่ระบุ')}</Typography></Grid>
-                <Grid item xs={12} sm={6}><Typography variant="body2" color="text.secondary">สาขาวิชา</Typography><Typography>{getDepartmentLabel(selectedRecord.department as any)}</Typography></Grid>
-                <Grid item xs={12} sm={6}><Typography variant="body2" color="text.secondary">วันที่</Typography><Typography>{new Date(selectedRecord.timestamp).toLocaleDateString('th-TH')}</Typography></Grid>
-                <Grid item xs={12} sm={6}><Typography variant="body2" color="text.secondary">เวลา</Typography><Typography>{new Date(selectedRecord.timestamp).toLocaleTimeString('th-TH')}</Typography></Grid>
+                <Grid size={12}>
+                  <Typography variant="body2" color="text.secondary">ชื่อ-นามสกุล</Typography>
+                  <Typography variant="h6">{selectedRecord.firstName} {selectedRecord.lastName}</Typography>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="body2" color="text.secondary">คณะ</Typography>
+                  <Typography>{String(selectedRecord.faculty || 'ไม่ระบุ')}</Typography>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="body2" color="text.secondary">สาขาวิชา</Typography>
+                  <Typography>{getDepartmentLabel(selectedRecord.department as any)}</Typography>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="body2" color="text.secondary">วันที่</Typography>
+                  <Typography>{new Date(selectedRecord.timestamp).toLocaleDateString('th-TH')}</Typography>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="body2" color="text.secondary">เวลา</Typography>
+                  <Typography>{new Date(selectedRecord.timestamp).toLocaleTimeString('th-TH')}</Typography>
+                </Grid>
               </Grid>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setDetailOpen(false)}>ปิด</Button>
-              <Button color="error" variant="contained" startIcon={<DeleteIcon />} disabled={!isSuperAdmin} onClick={() => { setDetailOpen(false); handleDeleteOne(selectedRecord); }}>
+              <Button
+                color="error"
+                variant="contained"
+                startIcon={<DeleteIcon />}
+                disabled={!isSuperAdmin}
+                onClick={() => { setDetailOpen(false); handleDeleteOne(selectedRecord); }}
+              >
                 ลบรายการ
               </Button>
             </DialogActions>

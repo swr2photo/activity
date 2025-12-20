@@ -2,22 +2,33 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Grid from '@mui/material/Grid';
 import {
-  Box, Typography, Grid, Card, CardContent, Avatar, List, ListItem,
-  ListItemAvatar, ListItemText, Divider, Container, Chip
+  Box,
+  Typography,
+  Card,
+  CardContent,
+  Avatar,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
+  Divider,
+  Container,
+  Chip,
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
   People as PeopleIcon,
   Event as EventIcon,
-  Assessment as AssessmentIcon
+  Assessment as AssessmentIcon,
 } from '@mui/icons-material';
 import { AdminProfile, DEPARTMENT_LABELS, type AdminDepartment } from '../../types/admin';
 import {
   getActivitiesByDepartment,
   getActivityRecordsByDepartment,
   getUsersByDepartment,
-  type Activity
+  type Activity,
 } from '../../lib/adminFirebase';
 
 interface DepartmentDashboardProps {
@@ -46,11 +57,7 @@ const ResponsiveContainer: React.FC<{ children: React.ReactNode }> = ({ children
 // compare day (ไม่แก้ object เดิม)
 const isSameDay = (a?: Date, b?: Date) => {
   if (!a || !b) return false;
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 };
 
 const getDepartmentDashboardData = async (department: AdminDepartment): Promise<DashboardData> => {
@@ -67,30 +74,19 @@ const getDepartmentDashboardData = async (department: AdminDepartment): Promise<
   const today = new Date();
   const todayParticipants = activityRecords.filter((r) => isSameDay(r.timestamp, today)).length;
 
-  // สร้างแผนที่ activityCode -> จำนวน record เพื่อคำนวณ top
   const countsByCode = activityRecords.reduce((acc, r) => {
     const code = r.activityCode || '';
     acc[code] = (acc[code] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
-  // กิจกรรมล่าสุด: sort ตาม createdAt (fallback เป็น startDateTime/endDateTime)
   const createdTime = (a: Activity) =>
-    a.createdAt?.getTime() ??
-    a.startDateTime?.getTime() ??
-    a.endDateTime?.getTime() ??
-    0;
+    a.createdAt?.getTime() ?? a.startDateTime?.getTime() ?? a.endDateTime?.getTime() ?? 0;
 
-  const recentActivities = [...activities]
-    .sort((a, b) => createdTime(b) - createdTime(a))
-    .slice(0, 5);
+  const recentActivities = [...activities].sort((a, b) => createdTime(b) - createdTime(a)).slice(0, 5);
 
-  // Top โดยนับจาก activityCode
   const topActivities = activities
-    .map((a) => ({
-      ...a,
-      participantCount: countsByCode[a.activityCode] || 0,
-    }))
+    .map((a) => ({ ...a, participantCount: countsByCode[a.activityCode] || 0 }))
     .sort((a, b) => b.participantCount - a.participantCount)
     .slice(0, 5);
 
@@ -153,7 +149,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
 
       {/* KPIs */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <ResponsiveCard>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Avatar sx={{ bgcolor: 'primary.main' }}><EventIcon /></Avatar>
@@ -165,7 +161,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
           </ResponsiveCard>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <ResponsiveCard>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Avatar sx={{ bgcolor: 'success.main' }}><TrendingUpIcon /></Avatar>
@@ -177,7 +173,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
           </ResponsiveCard>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <ResponsiveCard>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Avatar sx={{ bgcolor: 'info.main' }}><PeopleIcon /></Avatar>
@@ -189,7 +185,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
           </ResponsiveCard>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <ResponsiveCard>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Avatar sx={{ bgcolor: 'warning.main' }}><TrendingUpIcon /></Avatar>
@@ -204,7 +200,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
 
       <Grid container spacing={3}>
         {/* Recent activities */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <ResponsiveCard>
             <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <EventIcon /> กิจกรรมล่าสุด
@@ -220,9 +216,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
                   <React.Fragment key={a.id}>
                     <ListItem>
                       <ListItemAvatar>
-                        <Avatar sx={{ bgcolor: 'primary.main' }}>
-                          {(a.activityName || '?').charAt(0)}
-                        </Avatar>
+                        <Avatar sx={{ bgcolor: 'primary.main' }}>{(a.activityName || '?').charAt(0)}</Avatar>
                       </ListItemAvatar>
                       <ListItemText
                         primary={a.activityName}
@@ -239,7 +233,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
         </Grid>
 
         {/* Top activities */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <ResponsiveCard>
             <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <TrendingUpIcon /> กิจกรรมยอดนิยม
@@ -257,10 +251,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
                       <ListItemAvatar>
                         <Avatar sx={{ bgcolor: 'success.main' }}>{i + 1}</Avatar>
                       </ListItemAvatar>
-                      <ListItemText
-                        primary={a.activityName}
-                        secondary={`${a.participantCount} ผู้เข้าร่วม`}
-                      />
+                      <ListItemText primary={a.activityName} secondary={`${a.participantCount} ผู้เข้าร่วม`} />
                       <Typography variant="h6" color="success.main">#{i + 1}</Typography>
                     </ListItem>
                     {i < data.topActivities.length - 1 && <Divider />}
@@ -275,5 +266,4 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
   );
 };
 
-// ให้มี default export ด้วย ป้องกันปัญหาการ import ต่างรูปแบบ
 export default DepartmentDashboard;

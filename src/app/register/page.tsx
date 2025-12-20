@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useMemo, useState, Suspense, useRef } from 'react';
+import React, { useEffect, useMemo, useState, Suspense, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Alert,
@@ -20,7 +20,6 @@ import {
 } from '@mui/material';
 import { alpha, keyframes } from '@mui/material/styles';
 import {
-  AccessTime as TimeIcon,
   Refresh as RefreshIcon,
   Warning as WarningIcon,
   GpsFixed as GpsFixedIcon,
@@ -47,7 +46,6 @@ import {
 import NavigationBar, { NavNotice } from '../../components/navigation/NavigationBar';
 import MicrosoftAuthSection from '../../components/auth/MicrosoftAuthSection';
 import {
-  IPRestrictionAlert,
   DuplicateRegistrationAlert,
   ProfileSetupAlert,
   SuccessAlert,
@@ -200,28 +198,29 @@ const float2 = keyframes`
 /* ============================= Helpers ============================= */
 const getActivityStatus = (activity: ActivityData): ActivityStatusInfo => {
   const now = new Date();
-  const startTime: Date =
-    activity.startDateTime?.toDate?.() || new Date(activity.startDateTime);
+  const startTime: Date = activity.startDateTime?.toDate?.() || new Date(activity.startDateTime);
   const endTime: Date = activity.endDateTime?.toDate?.() || new Date(activity.endDateTime);
+
   if (!activity.isActive)
     return { status: 'inactive', message: activity.closeReason || 'กิจกรรมนี้ถูกปิดใช้งานแล้ว' };
+
   if (now < startTime)
     return {
       status: 'upcoming',
       message: `กิจกรรมจะเปิดลงทะเบียนในวันที่ ${formatDateTime(startTime)}`,
       startTime,
     };
+
   if (now > endTime)
     return {
       status: 'ended',
       message: `กิจกรรมสิ้นสุดแล้วเมื่อวันที่ ${formatDateTime(endTime)}`,
       endTime,
     };
-  if (
-    activity.maxParticipants > 0 &&
-    activity.currentParticipants >= activity.maxParticipants
-  )
+
+  if (activity.maxParticipants > 0 && activity.currentParticipants >= activity.maxParticipants)
     return { status: 'full', message: 'กิจกรรมนี้มีผู้สมัครครบจำนวนแล้ว' };
+
   return { status: 'active', message: '' };
 };
 
@@ -231,12 +230,12 @@ const ModernActivityBanner: React.FC<{
   status: ActivityStatusInfo;
   adminSettings: AdminSettings | null;
 }> = ({ activity, status, adminSettings }) => {
-
-  // ถ้าไม่มีรูป → ใช้สีแทน
-  const tintColor = activity.bannerTintColor || (adminSettings as any)?.branding?.primaryColor || '#0ea5e9';
-  const tintOpacity = typeof activity.bannerTintOpacity === 'number'
-    ? Math.max(0, Math.min(1, activity.bannerTintOpacity))
-    : 0.42;
+  const tintColor =
+    activity.bannerTintColor || (adminSettings as any)?.branding?.primaryColor || '#0ea5e9';
+  const tintOpacity =
+    typeof activity.bannerTintOpacity === 'number'
+      ? Math.max(0, Math.min(1, activity.bannerTintOpacity))
+      : 0.42;
 
   const hasImage = !!activity.bannerUrl;
 
@@ -279,7 +278,6 @@ const ModernActivityBanner: React.FC<{
               backgroundColor: '#000',
             }}
           />
-          {/* overlay สีทับ */}
           <Box
             sx={{
               position: 'absolute',
@@ -293,7 +291,13 @@ const ModernActivityBanner: React.FC<{
           />
         </>
       ) : (
-        <Box sx={{ width: '100%', height: { xs: 160, md: 220 }, background: activity.bannerColor || tintColor }} />
+        <Box
+          sx={{
+            width: '100%',
+            height: { xs: 160, md: 220 },
+            background: activity.bannerColor || tintColor,
+          }}
+        />
       )}
 
       <Container maxWidth="md" sx={{ position: 'relative', zIndex: 1 }}>
@@ -309,14 +313,22 @@ const ModernActivityBanner: React.FC<{
               boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
             }}
           >
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between">
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              alignItems={{ xs: 'flex-start', md: 'center' }}
+              justifyContent="space-between"
+            >
               <Box>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                  {/* หมายเหตุ: ไม่โชว์รหัสกิจกรรมตาม requirement ล่าสุด */}
                   <Chip label={statusLabel} color={statusColor} size="small" sx={{ borderRadius: 2 }} />
                 </Stack>
-                <Typography variant="h5" fontWeight={800}>{activity.activityName}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{activity.location}</Typography>
+                <Typography variant="h5" fontWeight={800}>
+                  {activity.activityName}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {activity.location}
+                </Typography>
               </Box>
               <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' } }} />
               <Box>
@@ -379,23 +391,42 @@ const RegisterPageContent: React.FC = () => {
   // GPS / Geofence
   const [geoSupported, setGeoSupported] = useState(true);
   const [geoLoading, setGeoLoading] = useState(false);
-  const [geoAllowed, setGeoAllowed] = useState(false); // ✅ เพิ่ม state ที่หาย
+  const [geoAllowed, setGeoAllowed] = useState(false);
   const [geoError, setGeoError] = useState('');
   const [distanceM, setDistanceM] = useState<number | null>(null);
   const [inRadius, setInRadius] = useState(false);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
 
-  // Realtime toggle feedback
-  const [snack, setSnack] = useState<{ open: boolean; text: string; severity: 'success' | 'warning' | 'info'; }>
-  ({ open: false, text: '', severity: 'info' });
+  // Realtime toggle feedback (สำรอง)
+  const [snack, setSnack] = useState<{ open: boolean; text: string; severity: 'success' | 'warning' | 'info' }>(
+    { open: false, text: '', severity: 'info' }
+  );
   const lastActiveRef = useRef<boolean | null>(null);
 
-  /* ------ สำหรับ NavigationBar: notices ปกติ + notices เร่งด่วน (≤ 5 นาที) ------ */
+  // Notices for NavigationBar
   const [navNotices, setNavNotices] = useState<NavNotice[]>([]);
   const [urgentNotices, setUrgentNotices] = useState<NavNotice[]>([]);
 
+  const isAuthed = useMemo(
+    () => !!(user && userData && !sessionExpired && !sessionValidating),
+    [user, userData, sessionExpired, sessionValidating]
+  );
+
+  const resetGeoState = useCallback(() => {
+    setGeoSupported(true);
+    setGeoLoading(false);
+    setGeoAllowed(false);
+    setGeoError('');
+    setDistanceM(null);
+    setInRadius(false);
+    setUserPos(null);
+  }, []);
+
   /* ============================= Effects — initial ============================= */
-  useEffect(() => { loadInitialData(); /* eslint-disable-next-line */ }, [activityCode]);
+  useEffect(() => {
+    loadInitialData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityCode]);
 
   useEffect(() => {
     if (user && !sessionExpired && !sessionValidating) {
@@ -430,7 +461,12 @@ const RegisterPageContent: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, userData, showProfileDialog, sessionExpired, sessionValidating]);
 
-  // ▶️ Realtime: ฟังเอกสาร activityQRCodes/{id} แล้วอัปเดตสถานะ/แจ้งเตือน
+  // ✅ รีเซ็ต GEO ทุกครั้งที่ “ไม่ผ่าน auth” (logout / session expired / user null)
+  useEffect(() => {
+    if (!isAuthed) resetGeoState();
+  }, [isAuthed, resetGeoState]);
+
+  // Realtime: ฟังเอกสาร activityQRCodes/{id}
   useEffect(() => {
     if (!activityData?.id) return;
     const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityData.id), (docSnap) => {
@@ -458,14 +494,14 @@ const RegisterPageContent: React.FC = () => {
         const prevActive = lastActiveRef.current;
         const nowActive = updated.isActive;
         if (prevActive !== null && prevActive !== nowActive) {
-          // เด้งขึ้นเป็น notice (ไปโชว์ที่ NavigationBar)
-          setNavNotices(prev => [
-            ...prev,
+          setNavNotices((prevNotices) => [
+            ...prevNotices,
             {
               key: `live-${Date.now()}`,
               severity: nowActive ? 'success' : 'warning',
-              message: nowActive ? 'ผู้ดูแลได้เปิดกิจกรรมแล้ว — เริ่มลงทะเบียนได้' :
-                `ผู้ดูแลได้ปิดกิจกรรมแล้ว${updated.closeReason ? ' — ' + updated.closeReason : ''}`,
+              message: nowActive
+                ? 'ผู้ดูแลได้เปิดกิจกรรมแล้ว — เริ่มลงทะเบียนได้'
+                : `ผู้ดูแลได้ปิดกิจกรรมแล้ว${updated.closeReason ? ' — ' + updated.closeReason : ''}`,
               autoHideMs: 4000,
             },
           ]);
@@ -478,10 +514,7 @@ const RegisterPageContent: React.FC = () => {
     return () => unsubscribe();
   }, [activityData?.id]);
 
-  // เมื่อ activity พร้อมให้ตรวจตำแหน่งทันที
-  useEffect(() => { if (activityData) triggerGeoCheck(); /* eslint-disable-next-line */ }, [activityData]);
-
-  // แสดง countdown ≤ 5 นาที (urgent)
+  // countdown ≤ 5 นาที (urgent)
   useEffect(() => {
     if (!activityData?.endDateTime) return;
     let t: any;
@@ -496,8 +529,12 @@ const RegisterPageContent: React.FC = () => {
           {
             key: 'deadline-countdown',
             severity: 'warning',
-            message: <>จะปิดการลงทะเบียนในอีก <b>{m}:{s}</b></>,
-            autoHideMs: 1000, // ขยับทุกวินาที (Snackbar จะรีเฟรช)
+            message: (
+              <>
+                จะปิดการลงทะเบียนในอีก <b>{m}:{s}</b>
+              </>
+            ),
+            autoHideMs: 1000,
           },
         ]);
       } else {
@@ -524,13 +561,12 @@ const RegisterPageContent: React.FC = () => {
 
   const shouldShowMicrosoftLogin = () =>
     (!user || sessionExpired) && !ipBlocked && !isDuplicateRegistration && !singleUserBlocked;
-  const getExistingAuthStatus = (): boolean =>
-    !!(user && userData && !sessionExpired && !sessionValidating);
 
   const loadInitialData = async () => {
     try {
       setLoading(true);
       setError('');
+
       const { getAdminSettings } = await import('../../lib/firebaseUtils');
       const settings = await getAdminSettings();
       if (!settings?.isActive) {
@@ -540,17 +576,16 @@ const RegisterPageContent: React.FC = () => {
         return;
       }
       setAdminSettings(settings);
+
       if (!activityCode) {
         setError('ไม่พบรหัสกิจกรรม กรุณาสแกน QR Code ใหม่');
         setLoading(false);
         return;
       }
-      const qAct = query(
-        collection(db, 'activityQRCodes'),
-        where('activityCode', '==', activityCode),
-        limit(1)
-      );
+
+      const qAct = query(collection(db, 'activityQRCodes'), where('activityCode', '==', activityCode), limit(1));
       const querySnapshot = await getDocs(qAct);
+
       if (querySnapshot.empty) {
         setError('ไม่พบรหัสกิจกรรมนี้ในระบบ กรุณาติดต่อผู้ดูแล');
         setValidActivity(false);
@@ -573,6 +608,7 @@ const RegisterPageContent: React.FC = () => {
           bannerTintColor: docData.bannerTintColor,
           bannerTintOpacity: typeof docData.bannerTintOpacity === 'number' ? docData.bannerTintOpacity : undefined,
         } as ActivityData;
+
         setActivityData(activity);
         const statusInfo = getActivityStatus(activity);
         setValidActivity(statusInfo.status === 'active');
@@ -605,6 +641,7 @@ const RegisterPageContent: React.FC = () => {
       if (actSnap.empty) return;
       const act = actSnap.docs[0].data() as any;
       if (!act.singleUserMode) return;
+
       const regQ = query(collection(db, 'activityRecords'), where('activityCode', '==', activityCode), limit(1));
       const regSnap = await getDocs(regQ);
       if (!regSnap.empty) {
@@ -624,8 +661,10 @@ const RegisterPageContent: React.FC = () => {
   };
 
   /* ============================= GEOLOCATION ============================= */
-  const triggerGeoCheck = () => {
+  const triggerGeoCheck = useCallback(() => {
     if (!activityData) return;
+    if (!isAuthed) return; // ✅ สำคัญ: ซ่อน/หยุด map ก่อน login และกัน state ค้างหลัง logout
+
     if (!('geolocation' in navigator)) {
       setGeoSupported(false);
       setGeoAllowed(false);
@@ -634,13 +673,16 @@ const RegisterPageContent: React.FC = () => {
       setUserPos(null);
       return;
     }
+
     setGeoSupported(true);
     setGeoLoading(true);
     setGeoError('');
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
         setUserPos({ lat: latitude, lng: longitude, accuracy });
+
         const d = haversineMeters(latitude, longitude, activityData.latitude, activityData.longitude);
         setDistanceM(Math.round(d));
         setGeoAllowed(true);
@@ -660,7 +702,12 @@ const RegisterPageContent: React.FC = () => {
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  };
+  }, [activityData, isAuthed]);
+
+  // ✅ เมื่อ activity พร้อมและล็อกอินแล้ว ค่อยตรวจตำแหน่ง (เพื่อให้ map โผล่หลัง login)
+  useEffect(() => {
+    if (activityData && isAuthed) triggerGeoCheck();
+  }, [activityData, isAuthed, triggerGeoCheck]);
 
   /* ============================= Session helpers ============================= */
   const validateInitialSession = async () => {
@@ -677,7 +724,8 @@ const RegisterPageContent: React.FC = () => {
       if (result.remainingTime && result.remainingTime <= 5)
         setSessionWarning(`เซสชันจะหมดอายุในอีก ${result.remainingTime} นาที กรุณาเตรียมตัวเข้าสู่ระบบใหม่`);
       else setSessionWarning('');
-    } catch {} finally {
+    } catch {
+    } finally {
       setSessionValidating(false);
     }
   };
@@ -701,6 +749,7 @@ const RegisterPageContent: React.FC = () => {
 
   /* ============================= Login hooks for MicrosoftAuthSection ============================= */
   const [checkingPreLogin, setCheckingPreLogin] = useState(false);
+
   const handlePreLoginCheck = async (userEmail: string): Promise<boolean> => {
     setCheckingPreLogin(true);
     try {
@@ -749,6 +798,7 @@ const RegisterPageContent: React.FC = () => {
     try {
       if (user?.uid) await SessionManager.destroySession(user.uid);
       await logout();
+
       setError('');
       setSuccessMessage('');
       setIpBlocked(false);
@@ -760,6 +810,11 @@ const RegisterPageContent: React.FC = () => {
       setSessionValidating(false);
       setSingleUserBlocked(false);
       setSingleUserMessage('');
+      setNavNotices([]);
+      setUrgentNotices([]);
+      setSnack({ open: false, text: '', severity: 'info' });
+
+      resetGeoState(); // ✅ สำคัญ: logout แล้ว map + geo หายทันที
     } catch {
       setError('เกิดข้อผิดพลาดในการออกจากระบบ');
     }
@@ -779,7 +834,7 @@ const RegisterPageContent: React.FC = () => {
     try {
       const docRef = doc(db, 'activityQRCodes', activityData.id);
       await updateDoc(docRef, { currentParticipants: increment(1) });
-      setActivityData(prev => (prev ? { ...prev, currentParticipants: prev.currentParticipants + 1 } : prev));
+      setActivityData((prev) => (prev ? { ...prev, currentParticipants: prev.currentParticipants + 1 } : prev));
     } catch {}
   };
 
@@ -819,7 +874,16 @@ const RegisterPageContent: React.FC = () => {
   /* ============================= Render ============================= */
   if (loading || authLoading || sessionValidating) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh', flexDirection: 'column', gap: 2 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '50vh',
+          flexDirection: 'column',
+          gap: 2,
+        }}
+      >
         <CircularProgress size={40} />
         <Typography variant="body1" color="text.secondary">
           {sessionValidating ? 'กำลังตรวจสอบเซสชัน...' : 'กำลังโหลดข้อมูล...'}
@@ -837,7 +901,6 @@ const RegisterPageContent: React.FC = () => {
     !sessionWarning &&
     !singleUserBlocked
   ) {
-    // ยังแสดง error card ได้ (พร้อมปุ่มลองใหม่) — แต่ก็มี toast บน Nav แล้ว
     return (
       <Alert severity="error" sx={{ mt: 2 }}>
         {error}
@@ -862,8 +925,32 @@ const RegisterPageContent: React.FC = () => {
       />
 
       <Box sx={{ position: 'relative', background: 'linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)', minHeight: '100vh', pb: 6 }}>
-        <Box sx={{ position: 'absolute', top: -60, left: -80, width: 260, height: 260, borderRadius: '50%', background: alpha('#7c3aed', 0.12), filter: 'blur(24px)', animation: `${float1} 12s ease-in-out infinite` }} />
-        <Box sx={{ position: 'absolute', bottom: -70, right: -60, width: 320, height: 320, borderRadius: '50%', background: alpha('#2563eb', 0.12), filter: 'blur(28px)', animation: `${float2} 14s ease-in-out infinite` }} />
+        <Box
+          sx={{
+            position: 'absolute',
+            top: -60,
+            left: -80,
+            width: 260,
+            height: 260,
+            borderRadius: '50%',
+            background: alpha('#7c3aed', 0.12),
+            filter: 'blur(24px)',
+            animation: `${float1} 12s ease-in-out infinite`,
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: -70,
+            right: -60,
+            width: 320,
+            height: 320,
+            borderRadius: '50%',
+            background: alpha('#2563eb', 0.12),
+            filter: 'blur(28px)',
+            animation: `${float2} 14s ease-in-out infinite`,
+          }}
+        />
 
         <Container maxWidth="md" sx={{ position: 'relative', zIndex: 1, pt: 2 }}>
           {/* Banner + Status */}
@@ -874,14 +961,22 @@ const RegisterPageContent: React.FC = () => {
           {/* Success */}
           {successMessage && <SuccessAlert message={successMessage} onClose={() => setSuccessMessage('')} />}
 
-          {/* Duplicate / Single-user / Status card — ยังแสดงปกติ (เสริมจาก toast) */}
+          {/* Single-user block */}
           {singleUserBlocked && user && !sessionExpired && (
             <Alert severity="error" sx={{ mb: 2 }} icon={<WarningIcon />}>
-              <Typography variant="body1" fontWeight="medium">ไม่สามารถลงทะเบียนได้</Typography>
-              <Typography variant="body2" color="text.secondary">{singleUserMessage}</Typography>
+              <Typography variant="body1" fontWeight="medium">
+                ไม่สามารถลงทะเบียนได้
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {singleUserMessage}
+              </Typography>
               <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                <Button color="inherit" size="small" onClick={handleLogout} variant="outlined">ออกจากระบบ</Button>
-                <Button color="inherit" size="small" onClick={() => window.close()} variant="outlined">ปิดหน้าต่าง</Button>
+                <Button color="inherit" size="small" onClick={handleLogout} variant="outlined">
+                  ออกจากระบบ
+                </Button>
+                <Button color="inherit" size="small" onClick={() => window.close()} variant="outlined">
+                  ปิดหน้าต่าง
+                </Button>
               </Box>
             </Alert>
           )}
@@ -897,90 +992,117 @@ const RegisterPageContent: React.FC = () => {
             />
           )}
 
-          {/* Map + Details */}
-          {activityData && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !singleUserBlocked && (
-            <>
-              <Box sx={{ mb: 2 }}>
-                <GeofenceMap
-                  center={{ lat: activityData.latitude, lng: activityData.longitude }}
-                  radius={activityData.checkInRadius}
-                  userPos={userPos}
-                  inRadius={inRadius}
-                  onUseCurrentLocation={triggerGeoCheck}
-                  title={activityData.activityName}
-                />
-              </Box>
+          {/* ✅ Map + Details (แสดงหลัง login เท่านั้น) */}
+          {activityData &&
+            statusInfo?.status === 'active' &&
+            isAuthed &&
+            !ipBlocked &&
+            !isDuplicateRegistration &&
+            !singleUserBlocked && (
+              <>
+                <Box sx={{ mb: 2 }}>
+                  <GeofenceMap
+                    center={{ lat: activityData.latitude, lng: activityData.longitude }}
+                    radius={activityData.checkInRadius}
+                    userPos={userPos}
+                    inRadius={inRadius}
+                    onUseCurrentLocation={triggerGeoCheck}
+                    title={activityData.activityName}
+                  />
+                </Box>
 
-              {/* GPS Status Card */}
-              <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 2 }}>
-                <CardContent>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                    <GpsFixedIcon />
-                    <Typography variant="h6" fontWeight={800}>สถานะตำแหน่งของคุณ</Typography>
-                  </Stack>
+                {/* GPS Status Card */}
+                <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+                  <CardContent>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                      <GpsFixedIcon />
+                      <Typography variant="h6" fontWeight={800}>
+                        สถานะตำแหน่งของคุณ
+                      </Typography>
+                    </Stack>
 
-                  <Grid container spacing={2} alignItems="center">
-                    <Grid item xs={12} md={8}>
-                      {geoLoading ? (
-                        <Typography variant="body2" color="text.secondary">กำลังตรวจสอบตำแหน่ง...</Typography>
-                      ) : !geoSupported ? (
-                        <Alert severity="error" icon={<ErrorIcon />} sx={{ borderRadius: 2 }}>
-                          อุปกรณ์ของคุณไม่รองรับการระบุตำแหน่ง
-                        </Alert>
-                      ) : geoError ? (
-                        <Alert severity="warning" icon={<WarningIcon />} sx={{ borderRadius: 2 }}>
-                          {geoError}
-                        </Alert>
-                      ) : (
-                        <Stack direction="row" spacing={2} alignItems="center">
-                          {inRadius ? <CheckIcon color="success" /> : <ErrorIcon color="error" />}
-                          <Typography variant="body2">
-                            {inRadius ? 'คุณอยู่ในพื้นที่ที่กำหนด' : 'คุณอยู่นอกพื้นที่ที่กำหนด'}
-                            {typeof distanceM === 'number' && (
-                              <> — ระยะห่างประมาณ <b>{distanceM}</b> เมตร (กำหนดไม่เกิน <b>{activityData.checkInRadius}</b> เมตร)</>
-                            )}
+                    <Grid container spacing={2} alignItems="center">
+                      {/* ✅ Grid v2: ใช้ size แทน item/xs/md */}
+                      <Grid size={{ xs: 12, md: 8 }}>
+                        {geoLoading ? (
+                          <Typography variant="body2" color="text.secondary">
+                            กำลังตรวจสอบตำแหน่ง...
+                          </Typography>
+                        ) : !geoSupported ? (
+                          <Alert severity="error" icon={<ErrorIcon />} sx={{ borderRadius: 2 }}>
+                            อุปกรณ์ของคุณไม่รองรับการระบุตำแหน่ง
+                          </Alert>
+                        ) : geoError ? (
+                          <Alert severity="warning" icon={<WarningIcon />} sx={{ borderRadius: 2 }}>
+                            {geoError}
+                          </Alert>
+                        ) : (
+                          <Stack direction="row" spacing={2} alignItems="center">
+                            {inRadius ? <CheckIcon color="success" /> : <ErrorIcon color="error" />}
+                            <Typography variant="body2">
+                              {inRadius ? 'คุณอยู่ในพื้นที่ที่กำหนด' : 'คุณอยู่นอกพื้นที่ที่กำหนด'}
+                              {typeof distanceM === 'number' && (
+                                <>
+                                  {' '}
+                                  — ระยะห่างประมาณ <b>{distanceM}</b> เมตร (กำหนดไม่เกิน <b>{activityData.checkInRadius}</b> เมตร)
+                                </>
+                              )}
+                            </Typography>
+                          </Stack>
+                        )}
+                      </Grid>
+
+                      {/* ✅ Grid v2 */}
+                      <Grid size={{ xs: 12, md: 4 }}>
+                        <Stack direction="row" spacing={1} justifyContent={{ xs: 'flex-start', md: 'flex-end' }}>
+                          <Button variant="outlined" onClick={triggerGeoCheck}>
+                            ตรวจสอบตำแหน่งอีกครั้ง
+                          </Button>
+                        </Stack>
+                      </Grid>
+                    </Grid>
+                  </CardContent>
+                </Card>
+
+                {/* รายละเอียดกิจกรรม */}
+                <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+                  <CardContent>
+                    <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
+                      รายละเอียดกิจกรรม
+                    </Typography>
+                    <Divider sx={{ mb: 2 }} />
+
+                    <Grid container spacing={2}>
+                      {/* ✅ Grid v2 */}
+                      <Grid size={{ xs: 12, md: 6 }}>
+                        <Stack spacing={0.5}>
+                          <Typography variant="overline">วันที่เริ่ม</Typography>
+                          <Typography variant="body2">{formatDateTime(activityData.startDateTime)}</Typography>
+                        </Stack>
+                      </Grid>
+
+                      {/* ✅ Grid v2 */}
+                      <Grid size={{ xs: 12, md: 6 }}>
+                        <Stack spacing={0.5}>
+                          <Typography variant="overline">วันที่สิ้นสุด</Typography>
+                          <Typography variant="body2">{formatDateTime(activityData.endDateTime)}</Typography>
+                        </Stack>
+                      </Grid>
+
+                      {/* ✅ Grid v2 */}
+                      <Grid size={{ xs: 12 }}>
+                        <Stack spacing={0.5}>
+                          <Typography variant="overline">คำอธิบาย</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {activityData.description || '-'}
                           </Typography>
                         </Stack>
-                      )}
+                      </Grid>
                     </Grid>
-                    <Grid item xs={12} md={4}>
-                      <Stack direction="row" spacing={1} justifyContent={{ xs: 'flex-start', md: 'flex-end' }}>
-                        <Button variant="outlined" onClick={triggerGeoCheck}>ตรวจสอบตำแหน่งอีกครั้ง</Button>
-                      </Stack>
-                    </Grid>
-                  </Grid>
-                </CardContent>
-              </Card>
-
-              {/* รายละเอียดกิจกรรม */}
-              <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 2 }}>
-                <CardContent>
-                  <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>รายละเอียดกิจกรรม</Typography>
-                  <Divider sx={{ mb: 2 }} />
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={6}>
-                      <Stack spacing={0.5}>
-                        <Typography variant="overline">วันที่เริ่ม</Typography>
-                        <Typography variant="body2">{formatDateTime(activityData.startDateTime)}</Typography>
-                      </Stack>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Stack spacing={0.5}>
-                        <Typography variant="overline">วันที่สิ้นสุด</Typography>
-                        <Typography variant="body2">{formatDateTime(activityData.endDateTime)}</Typography>
-                      </Stack>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Stack spacing={0.5}>
-                        <Typography variant="overline">คำอธิบาย</Typography>
-                        <Typography variant="body2" color="text.secondary">{activityData.description || '-'}</Typography>
-                      </Stack>
-                    </Grid>
-                  </Grid>
-                </CardContent>
-              </Card>
-            </>
-          )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
 
           {/* Microsoft login — แสดงเฉพาะเมื่อกิจกรรม Active */}
           {shouldShowMicrosoftLogin() && activityData && statusInfo?.status === 'active' && (
@@ -994,9 +1116,13 @@ const RegisterPageContent: React.FC = () => {
           )}
 
           {/* Profile setup */}
-          {user && needsProfileSetup && !ipBlocked && !isDuplicateRegistration && !sessionExpired && !sessionValidating && !singleUserBlocked && (
-            <ProfileSetupAlert onEditProfile={() => setShowProfileDialog(true)} />
-          )}
+          {user &&
+            needsProfileSetup &&
+            !ipBlocked &&
+            !isDuplicateRegistration &&
+            !sessionExpired &&
+            !sessionValidating &&
+            !singleUserBlocked && <ProfileSetupAlert onEditProfile={() => setShowProfileDialog(true)} />}
 
           {/* Registration form */}
           {statusInfo?.status === 'active' && adminSettings && activityCode && canProceedToRegistration() && activityData && (
@@ -1004,10 +1130,16 @@ const RegisterPageContent: React.FC = () => {
               activityCode={activityCode}
               activityDocId={activityData.id}
               adminSettings={adminSettings}
-              existingAuthStatus={!!(user && userData && !sessionExpired && !sessionValidating)}
+              existingAuthStatus={isAuthed}
               existingUserProfile={
                 user
-                  ? { id: user.uid, email: user.email || '', displayName: user.displayName || '', givenName: userData?.firstName || '', surname: userData?.lastName || '' }
+                  ? {
+                      id: user.uid,
+                      email: user.email || '',
+                      displayName: user.displayName || '',
+                      givenName: userData?.firstName || '',
+                      surname: userData?.lastName || '',
+                    }
                   : undefined
               }
               onSuccess={handleRegistrationSuccess}
@@ -1027,7 +1159,7 @@ const RegisterPageContent: React.FC = () => {
             onSave={handleSaveProfile}
           />
 
-          {/* (สำรอง) Snackbar เดิมกรณี realtime toggle */}
+          {/* (สำรอง) Snackbar เดิม */}
           <Snackbar
             open={snack.open}
             autoHideDuration={4000}
@@ -1056,9 +1188,20 @@ const RegisterPage: React.FC = () => {
       <Container maxWidth="md" sx={{ py: 0 }}>
         <Suspense
           fallback={
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh', flexDirection: 'column', gap: 2 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                minHeight: '50vh',
+                flexDirection: 'column',
+                gap: 2,
+              }}
+            >
               <CircularProgress size={40} />
-              <Typography variant="body1" color="text.secondary">กำลังโหลดหน้าลงทะเบียน...</Typography>
+              <Typography variant="body1" color="text.secondary">
+                กำลังโหลดหน้าลงทะเบียน...
+              </Typography>
             </Box>
           }
         >

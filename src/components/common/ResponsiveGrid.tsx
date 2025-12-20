@@ -1,52 +1,37 @@
 // components/common/ResponsiveGrid.tsx
+'use client';
+
 import React from 'react';
-import { Grid, SxProps, Theme } from '@mui/material';
+import Grid from '@mui/material/Grid';
+import type { GridProps } from '@mui/material/Grid';
 
-export interface ResponsiveGridProps {
+/**
+ * MUI v7: แยกเป็น Container และ Item เพื่อหลีกเลี่ยง overload/type conflict
+ */
+
+export type ResponsiveGridContainerProps = Omit<GridProps, 'item'> & {
   children: React.ReactNode;
-  container?: boolean;
-  item?: boolean;
-  xs?: boolean | number;
-  sm?: boolean | number;
-  md?: boolean | number;
-  lg?: boolean | number;
-  xl?: boolean | number;
-  spacing?: number;
-  sx?: SxProps<Theme>;
-  direction?: 'row' | 'column' | 'row-reverse' | 'column-reverse';
-  justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'space-around' | 'space-evenly';
-  alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline';
-}
+};
 
-export const ResponsiveGrid: React.FC<ResponsiveGridProps> = ({ 
+export const ResponsiveGridContainer: React.FC<ResponsiveGridContainerProps> = ({
   children,
-  container = false,
-  item = false,
-  xs,
-  sm,
-  md,
-  lg,
-  xl,
-  spacing,
-  sx,
-  direction = 'row',
-  justifyContent,
-  alignItems
-}) => (
-  <Grid
-    container={container}
-    item={item}
-    xs={xs}
-    sm={sm}
-    md={md}
-    lg={lg}
-    xl={xl}
-    spacing={spacing}
-    direction={direction}
-    justifyContent={justifyContent}
-    alignItems={alignItems}
-    sx={sx}
-  >
-    {children}
-  </Grid>
-);
+  ...props
+}) => {
+  return (
+    <Grid container {...props}>
+      {children}
+    </Grid>
+  );
+};
+
+export type ResponsiveGridItemProps = Omit<GridProps, 'container'> & {
+  children: React.ReactNode;
+};
+
+export const ResponsiveGridItem: React.FC<ResponsiveGridItemProps> = ({
+  children,
+  ...props
+}) => {
+  // ไม่ส่ง item prop เพื่อกัน type clash ใน MUI v7
+  return <Grid {...props}>{children}</Grid>;
+};

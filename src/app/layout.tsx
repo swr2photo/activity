@@ -2,7 +2,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import ToastProvider from "@/components/common/ToastProvider"; // ถ้าไม่มี alias ใช้ ../../components/common/ToastProvider
+import ToastProvider from "@/components/common/ToastProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -23,10 +23,13 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html lang="en" className="h-full w-full">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased h-full w-full overflow-x-hidden`}>
         <ToastProvider>
-          {children}
+          {/* wrapper ให้เต็มจอแน่นอน */}
+          <div className="min-h-[100svh] w-full">
+            {children}
+          </div>
         </ToastProvider>
       </body>
     </html>

@@ -1,8 +1,8 @@
 // components/admin/EnhancedQRGenerator.tsx
 import React, { useState, useEffect } from 'react';
+import Grid from '@mui/material/Grid';
 import {
   Box,
-  Grid,
   Typography,
   Button,
   Card,
@@ -64,10 +64,7 @@ const ResponsiveCard: React.FC<{ children: React.ReactNode; sx?: any }> = ({ chi
   </Card>
 );
 
-export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl: string }> = ({
-  currentAdmin,
-  baseUrl,
-}) => {
+export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl: string }> = ({ currentAdmin, baseUrl }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -83,11 +80,8 @@ export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl
     setLoading(true);
     try {
       let raw: any[];
-      if (currentAdmin.department === 'all') {
-        raw = await fetchAllActivities();
-      } else {
-        raw = await fetchActivitiesByDepartment(currentAdmin.department);
-      }
+      if (currentAdmin.department === 'all') raw = await fetchAllActivities();
+      else raw = await fetchActivitiesByDepartment(currentAdmin.department);
       setActivities(raw.map(mapActivityRecord));
     } catch (e) {
       console.error('Error loading activities:', e);
@@ -105,10 +99,8 @@ export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl
     description: record.description,
     bannerUrl: record.bannerUrl,
     location: record.location,
-    startDateTime:
-      record.startDateTime instanceof Date ? record.startDateTime : new Date(record.startDateTime || Date.now()),
-    endDateTime:
-      record.endDateTime instanceof Date ? record.endDateTime : new Date(record.endDateTime || Date.now()),
+    startDateTime: record.startDateTime instanceof Date ? record.startDateTime : new Date(record.startDateTime || Date.now()),
+    endDateTime: record.endDateTime instanceof Date ? record.endDateTime : new Date(record.endDateTime || Date.now()),
     checkInRadius: record.checkInRadius || 50,
     maxParticipants: record.maxParticipants || 0,
     currentParticipants: record.currentParticipants || 0,
@@ -219,7 +211,12 @@ export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl
                           <Typography
                             variant="caption"
                             color="text.secondary"
-                            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: { xs: 'center', sm: 'flex-start' } }}
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                              justifyContent: { xs: 'center', sm: 'flex-start' },
+                            }}
                           >
                             <LocationIcon fontSize="small" />
                             {activity.location}
@@ -233,7 +230,7 @@ export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl
 
                   <AccordionDetails sx={{ bgcolor: 'background.paper' }}>
                     <Grid container spacing={3}>
-                      <Grid item xs={12} md={8}>
+                      <Grid size={{ xs: 12, md: 8 }}>
                         {activity.bannerUrl && (
                           <CardMedia
                             component="img"
@@ -253,25 +250,25 @@ export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl
                           </Typography>
 
                           <Grid container spacing={2}>
-                            <Grid item xs={12} sm={6}>
+                            <Grid size={{ xs: 12, sm: 6 }}>
                               <Typography variant="subtitle2" color="text.secondary">
                                 เริ่มกิจกรรม
                               </Typography>
                               <Typography variant="body2">{activity.startDateTime?.toLocaleString('th-TH')}</Typography>
                             </Grid>
-                            <Grid item xs={12} sm={6}>
+                            <Grid size={{ xs: 12, sm: 6 }}>
                               <Typography variant="subtitle2" color="text.secondary">
                                 สิ้นสุดกิจกรรม
                               </Typography>
                               <Typography variant="body2">{activity.endDateTime?.toLocaleString('th-TH')}</Typography>
                             </Grid>
-                            <Grid item xs={12} sm={6}>
+                            <Grid size={{ xs: 12, sm: 6 }}>
                               <Typography variant="subtitle2" color="text.secondary">
                                 รัศมีเช็คอิน
                               </Typography>
                               <Typography variant="body2">{activity.checkInRadius} เมตร</Typography>
                             </Grid>
-                            <Grid item xs={12} sm={6}>
+                            <Grid size={{ xs: 12, sm: 6 }}>
                               <Typography variant="subtitle2" color="text.secondary">
                                 ผู้เข้าร่วม
                               </Typography>
@@ -284,7 +281,7 @@ export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl
                         </Box>
                       </Grid>
 
-                      <Grid item xs={12} md={4}>
+                      <Grid size={{ xs: 12, md: 4 }}>
                         <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.50' }}>
                           <Typography variant="h6" gutterBottom>
                             QR Code
@@ -305,8 +302,8 @@ export const EnhancedQRGenerator: React.FC<{ currentAdmin: AdminProfile; baseUrl
                                   checked={activity.isActive}
                                   onChange={async (_e, v) => {
                                     try {
-                                      await toggleActivityLive(activity.id, v, currentAdmin); // ✅ realtime + version bump
-                                      await loadActivities(); // อัปเดตฝั่งแอดมิน
+                                      await toggleActivityLive(activity.id, v, currentAdmin);
+                                      await loadActivities();
                                     } catch (e) {
                                       console.error(e);
                                     }
