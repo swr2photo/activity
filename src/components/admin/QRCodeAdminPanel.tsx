@@ -10,12 +10,8 @@ import {
   Typography,
   Button,
   Chip,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   IconButton,
   Paper,
-  Avatar,
   Tooltip,
   Container,
   Dialog,
@@ -49,7 +45,6 @@ import {
 } from '@mui/material';
 
 import {
-  ExpandMore as ExpandMoreIcon,
   QrCode2 as QrCodeIcon,
   Add as AddIcon,
   Edit as EditIcon,
@@ -67,6 +62,7 @@ import {
   GridView as GridIcon,
   TableRows as TableIcon,
   MyLocation as MyLocationIcon,
+  Badge as BadgeIcon,
 } from '@mui/icons-material';
 
 import dayjs, { Dayjs } from 'dayjs';
@@ -113,10 +109,7 @@ const clean = <T extends Record<string, any>>(obj: T): T => {
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 // อ่าน baseUrl จาก ENV (fallback เป็น window.location.origin)
-const envBase =
-  (process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_BASE_URL ||
-    '').toString();
+const envBase = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || '').toString();
 
 const getBaseUrl = () => {
   if (envBase) return envBase.replace(/\/$/, '');
@@ -125,12 +118,10 @@ const getBaseUrl = () => {
 };
 
 // สร้าง URL ที่จะ encode ลง QR (สั้น เพื่อไม่ให้ข้อมูลเยอะเกิน)
-const makeShortUrl = (code: string) =>
-  `${getBaseUrl()}/r/${encodeURIComponent(code.trim().toUpperCase())}`;
+const makeShortUrl = (code: string) => `${getBaseUrl()}/r/${encodeURIComponent(code.trim().toUpperCase())}`;
 
 // URL หน้าลงทะเบียน (ไว้แสดง/เปิดดูหน้า)
-const makeRegisterUrl = (code: string) =>
-  `${getBaseUrl()}/register?activity=${encodeURIComponent(code.trim().toUpperCase())}`;
+const makeRegisterUrl = (code: string) => `${getBaseUrl()}/register?activity=${encodeURIComponent(code.trim().toUpperCase())}`;
 
 const pathFromStorageUrl = (url?: string | null): string | null => {
   if (!url) return null;
@@ -167,11 +158,24 @@ const downloadCanvas = (canvas: HTMLCanvasElement, filename: string) => {
 const deptLabelOf = (dept: string | undefined | null) =>
   (DEPARTMENT_LABELS as Record<string, string>)[String(dept ?? '')] ?? String(dept ?? '');
 
+/* ===================== Registration Code Series helpers ===================== */
+const padNum = (n: number, digits: number) => String(Math.max(0, n)).padStart(digits, '0');
+const formatRegCode = (prefix: string, seq: number, digits: number) =>
+  `${String(prefix || '').toUpperCase()}${padNum(seq, digits)}`;
+const isValidPrefix = (v: string) => /^[A-Z]{1,6}$/.test(String(v || '').toUpperCase().trim());
+const regRangeText = (prefix: string, start: number, total: number, digits: number) => {
+  const p = String(prefix || '').toUpperCase().trim();
+  const s = Math.max(1, Number(start || 1));
+  const t = Math.max(0, Number(total || 0));
+  const d = clamp(Number(digits || 2), 1, 6);
+  if (!p || !isValidPrefix(p) || t <= 0) return '-';
+  return `${formatRegCode(p, s, d)} - ${formatRegCode(p, s + t - 1, d)}`;
+};
+
 /* ===================== QR helpers ===================== */
 // PNG DataURL
 const generateQrPng = async (text: string, size = 600) => {
   const QR = await import('qrcode');
-  // ใช้ errorCorrectionLevel 'M' ให้สแกนง่ายและไม่หนักเกินไป
   return QR.toDataURL(text, { margin: 1, width: size, errorCorrectionLevel: 'M' });
 };
 
@@ -179,7 +183,6 @@ const generateQrPng = async (text: string, size = 600) => {
 const INVALID_DJ = dayjs(new Date(NaN)); // invalid instance (หลบ TS ไม่มี dayjs.invalid())
 const toDay = (v: any | undefined) => {
   if (v == null) return INVALID_DJ;
-  // รองรับ Firestore Timestamp (มีเมธอด toDate)
   const d = typeof v?.toDate === 'function' ? v.toDate() : v;
   return dayjs(d);
 };
@@ -276,6 +279,15 @@ type CreateForm = {
   bannerColor?: string;
   bannerTintColor?: string;
   bannerTintOpacity: number; // 0..1
+
+  // ✅ Registration code series (เช่น CS01 - CS92)
+  regCodeEnabled: boolean;
+  regCodePrefix: string;
+  regCodeDigits: number; // 1..6
+  regCodeStart: number; // >= 1
+  regCodeTotal: number; // >= 0
+  regCodeNext: number; // internal tracking (read-only for admin)
+  regCodeAssigned: number; // internal tracking (read-only for admin)
 };
 
 const defaultForm: CreateForm = {
@@ -303,6 +315,15 @@ const defaultForm: CreateForm = {
   bannerColor: '#0ea5e9',
   bannerTintColor: '#0ea5e9',
   bannerTintOpacity: 0.42,
+
+  // ✅ defaults (แก้ตามต้องการ)
+  regCodeEnabled: false,
+  regCodePrefix: 'CS',
+  regCodeDigits: 2,
+  regCodeStart: 1,
+  regCodeTotal: 92,
+  regCodeNext: 1,
+  regCodeAssigned: 0,
 };
 
 interface Props {
@@ -310,136 +331,6 @@ interface Props {
 }
 
 /* ===================== Poster (Canvas) ===================== */
-/**
- * สร้างโปสเตอร์ (Canvas) แบบสวยงาม
- * - ใช้ short URL ใน QR (ป้องกันข้อมูลเยอะเกิน)
- * - วางหัวเรื่อง / เวลา / สถานที่ / QR / โค้ด
- */
-const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square') => {
-  const shortUrl = makeShortUrl(a.activityCode);
-  const qrData = await generateQrPng(shortUrl, 1024);
-
-  // ขนาด
-  const size =
-    variant === 'a4'
-      ? { w: 1240, h: 1754 } // A4 ~150dpi
-      : { w: 1080, h: 1350 }; // สี่เหลี่ยมแนวตั้ง
-
-  const canvas = document.createElement('canvas');
-  canvas.width = size.w;
-  canvas.height = size.h;
-  const ctx = canvas.getContext('2d')!;
-
-  // พื้นหลังไล่เฉดนุ่ม ๆ
-  const grd = ctx.createLinearGradient(0, 0, 0, size.h);
-  grd.addColorStop(0, '#e6efff');
-  grd.addColorStop(1, '#dff4ff');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, size.w, size.h);
-
-  // หัวโปสเตอร์ (รูปหรือสี)
-  const bannerColor = (a as any).bannerColor as string | undefined;
-  const tintColor = (a as any).bannerTintColor as string | undefined;
-  const tintOpacity =
-    typeof (a as any).bannerTintOpacity === 'number' ? Number((a as any).bannerTintOpacity) : 0.42;
-
-  const headerH = Math.round(size.h * 0.2);
-  let drewImage = false;
-  const bannerUrl = (a as any).bannerUrl as string | undefined;
-  if (bannerUrl) {
-    const img = await loadImageSafe(bannerUrl);
-    if (img) {
-      drawCover(ctx, img, 0, 0, size.w, headerH);
-      drewImage = true;
-      if (tintColor && tintOpacity > 0) {
-        ctx.fillStyle = tintColor;
-        ctx.globalAlpha = clamp(tintOpacity, 0, 1);
-        ctx.fillRect(0, 0, size.w, headerH);
-        ctx.globalAlpha = 1;
-      }
-    }
-  }
-  if (!drewImage) {
-    const bg = (bannerColor || '').startsWith('linear-gradient')
-      ? '#4f46e5'
-      : bannerColor || '#c7d2fe';
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, size.w, headerH);
-  }
-
-  // ข้อความหัว
-  const pad = Math.round(size.w * 0.04);
-  ctx.fillStyle = '#0b1220';
-  ctx.font = `600 ${Math.round(size.w * 0.04)}px Inter, "Noto Sans Thai", system-ui`;
-  ctx.fillText(deptLabelOf((a as any).department), pad, pad + Math.round(size.w * 0.04));
-
-  ctx.fillStyle = '#111827';
-  ctx.font = `800 ${Math.round(size.w * 0.065)}px Inter, "Noto Sans Thai", system-ui`;
-  const titleY = pad + Math.round(size.w * 0.04) + Math.round(size.w * 0.065) + 8;
-  wrapText(ctx, a.activityName || '-', pad, titleY, size.w - pad * 2, Math.round(size.w * 0.075));
-
-  ctx.fillStyle = '#334155';
-  ctx.font = `500 ${Math.round(size.w * 0.038)}px Inter, "Noto Sans Thai", system-ui`;
-  ctx.fillText(`${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`, pad, Math.round(headerH - pad * 0.8));
-
-  // โซน QR กล่องขาวมุมโค้ง
-  const panelY = headerH + Math.round(size.h * 0.02);
-  const panelH = size.h - panelY - Math.round(size.h * 0.05);
-  const panelR = Math.round(size.w * 0.02);
-  ctx.fillStyle = '#ffffff';
-  const rr = new Path2D();
-  rr.moveTo(pad + panelR, panelY);
-  rr.arcTo(size.w - pad, panelY, size.w - pad, panelY + panelR, panelR);
-  rr.arcTo(size.w - pad, panelY + panelH, size.w - pad - panelR, panelY + panelH, panelR);
-  rr.arcTo(pad, panelY + panelH, pad, panelY + panelH - panelR, panelR);
-  rr.arcTo(pad, panelY, pad + panelR, panelY, panelR);
-  ctx.fill(rr);
-
-  // QR
-  const qrImg = await loadImageSafe(qrData);
-  const qrSize = Math.min(Math.round(panelH * 0.7), Math.round(size.w * 0.75));
-  const qrX = Math.round((size.w - qrSize) / 2);
-  const qrY = Math.round(panelY + panelH * 0.08);
-  if (qrImg) {
-    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-  } else {
-    ctx.fillStyle = '#f1f5f9';
-    ctx.fillRect(qrX, qrY, qrSize, qrSize);
-    ctx.fillStyle = '#64748b';
-    ctx.font = `600 ${Math.round(size.w * 0.035)}px Inter, system-ui`;
-    ctx.fillText('QR โหลดไม่สำเร็จ', qrX + 16, qrY + Math.round(qrSize / 2));
-  }
-
-  // รหัสกิจกรรม
-  ctx.fillStyle = '#111827';
-  ctx.font = `800 ${Math.round(size.w * 0.045)}px Inter, "Noto Sans Thai", system-ui`;
-  const codeText = `รหัสกิจกรรม: ${a.activityCode}`;
-  const codeY = qrY + qrSize + Math.round(size.w * 0.08);
-  ctx.fillText(codeText, pad, codeY);
-
-  // สถานที่
-  if ((a as any).location) {
-    ctx.fillStyle = '#334155';
-    ctx.font = `600 ${Math.round(size.w * 0.036)}px Inter, "Noto Sans Thai", system-ui`;
-    wrapText(
-      ctx,
-      (a as any).location,
-      pad,
-      codeY + Math.round(size.w * 0.06),
-      size.w - pad * 2,
-      Math.round(size.w * 0.05)
-    );
-  }
-
-  // footer เล็ก ๆ
-  ctx.fillStyle = '#64748b';
-  ctx.font = `400 ${Math.round(size.w * 0.028)}px Inter, system-ui`;
-  const u = new URL(shortUrl);
-  ctx.fillText(`สร้างด้วย ระบบลงทะเบียนกิจกรรม • ${u.host}${u.pathname}`, pad, size.h - Math.round(size.w * 0.02));
-
-  return canvas;
-};
-
 const wrapText = (
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -465,6 +356,118 @@ const wrapText = (
   }
   ctx.fillText(line, x, yy);
   return yy;
+};
+
+/**
+ * สร้างโปสเตอร์ (Canvas) แบบสวยงาม
+ * - ใช้ short URL ใน QR (ป้องกันข้อมูลเยอะเกิน)
+ * - วางหัวเรื่อง / เวลา / สถานที่ / QR / โค้ด
+ */
+const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square') => {
+  const shortUrl = makeShortUrl(a.activityCode);
+  const qrData = await generateQrPng(shortUrl, 1024);
+
+  const size =
+    variant === 'a4'
+      ? { w: 1240, h: 1754 } // A4 ~150dpi
+      : { w: 1080, h: 1350 }; // สี่เหลี่ยมแนวตั้ง
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size.w;
+  canvas.height = size.h;
+  const ctx = canvas.getContext('2d')!;
+
+  const grd = ctx.createLinearGradient(0, 0, 0, size.h);
+  grd.addColorStop(0, '#e6efff');
+  grd.addColorStop(1, '#dff4ff');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, size.w, size.h);
+
+  const bannerColor = (a as any).bannerColor as string | undefined;
+  const tintColor = (a as any).bannerTintColor as string | undefined;
+  const tintOpacity =
+    typeof (a as any).bannerTintOpacity === 'number' ? Number((a as any).bannerTintOpacity) : 0.42;
+
+  const headerH = Math.round(size.h * 0.2);
+  let drewImage = false;
+  const bannerUrl = (a as any).bannerUrl as string | undefined;
+  if (bannerUrl) {
+    const img = await loadImageSafe(bannerUrl);
+    if (img) {
+      drawCover(ctx, img, 0, 0, size.w, headerH);
+      drewImage = true;
+      if (tintColor && tintOpacity > 0) {
+        ctx.fillStyle = tintColor;
+        ctx.globalAlpha = clamp(tintOpacity, 0, 1);
+        ctx.fillRect(0, 0, size.w, headerH);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  if (!drewImage) {
+    const bg = (bannerColor || '').startsWith('linear-gradient') ? '#4f46e5' : bannerColor || '#c7d2fe';
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, size.w, headerH);
+  }
+
+  const pad = Math.round(size.w * 0.04);
+  ctx.fillStyle = '#0b1220';
+  ctx.font = `600 ${Math.round(size.w * 0.04)}px Inter, "Noto Sans Thai", system-ui`;
+  ctx.fillText(deptLabelOf((a as any).department), pad, pad + Math.round(size.w * 0.04));
+
+  ctx.fillStyle = '#111827';
+  ctx.font = `800 ${Math.round(size.w * 0.065)}px Inter, "Noto Sans Thai", system-ui`;
+  const titleY = pad + Math.round(size.w * 0.04) + Math.round(size.w * 0.065) + 8;
+  wrapText(ctx, a.activityName || '-', pad, titleY, size.w - pad * 2, Math.round(size.w * 0.075));
+
+  ctx.fillStyle = '#334155';
+  ctx.font = `500 ${Math.round(size.w * 0.038)}px Inter, "Noto Sans Thai", system-ui`;
+  ctx.fillText(`${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`, pad, Math.round(headerH - pad * 0.8));
+
+  const panelY = headerH + Math.round(size.h * 0.02);
+  const panelH = size.h - panelY - Math.round(size.h * 0.05);
+  const panelR = Math.round(size.w * 0.02);
+  ctx.fillStyle = '#ffffff';
+  const rr = new Path2D();
+  rr.moveTo(pad + panelR, panelY);
+  rr.arcTo(size.w - pad, panelY, size.w - pad, panelY + panelR, panelR);
+  rr.arcTo(size.w - pad, panelY + panelH, size.w - pad - panelR, panelY + panelH, panelR);
+  rr.arcTo(pad, panelY + panelH, pad, panelY + panelH - panelR, panelR);
+  rr.arcTo(pad, panelY, pad + panelR, panelY, panelR);
+  ctx.fill(rr);
+
+  const qrImg = await loadImageSafe(qrData);
+  const qrSize = Math.min(Math.round(panelH * 0.7), Math.round(size.w * 0.75));
+  const qrX = Math.round((size.w - qrSize) / 2);
+  const qrY = Math.round(panelY + panelH * 0.08);
+  if (qrImg) {
+    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+  } else {
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillRect(qrX, qrY, qrSize, qrSize);
+    ctx.fillStyle = '#64748b';
+    ctx.font = `600 ${Math.round(size.w * 0.035)}px Inter, system-ui`;
+    ctx.fillText('QR โหลดไม่สำเร็จ', qrX + 16, qrY + Math.round(qrSize / 2));
+  }
+
+  ctx.fillStyle = '#111827';
+  ctx.font = `800 ${Math.round(size.w * 0.045)}px Inter, "Noto Sans Thai", system-ui`;
+  const codeText = `รหัสกิจกรรม: ${a.activityCode}`;
+  const codeY = qrY + qrSize + Math.round(size.w * 0.08);
+  ctx.fillText(codeText, pad, codeY);
+
+  if ((a as any).location) {
+    ctx.fillStyle = '#334155';
+    ctx.font = `600 ${Math.round(size.w * 0.036)}px Inter, "Noto Sans Thai", system-ui`;
+    wrapText(ctx, (a as any).location, pad, codeY + Math.round(size.w * 0.06), size.w - pad * 2, Math.round(size.w * 0.05));
+  }
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = `400 ${Math.round(size.w * 0.028)}px Inter, system-ui`;
+  const u = new URL(shortUrl);
+  ctx.fillText(`สร้างด้วย ระบบลงทะเบียนกิจกรรม • ${u.host}${u.pathname}`, pad, size.h - Math.round(size.w * 0.02));
+
+  return canvas;
 };
 
 /* ===================== Main ===================== */
@@ -524,6 +527,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       setLoading(false);
     }
   };
+
   useEffect(() => {
     load();
     // eslint-disable-next-line
@@ -533,6 +537,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
   const handleOpenCreate = () => {
     setErrMsg('');
     const ac = randomActivityCode();
+    const start = defaultForm.regCodeStart || 1;
     setForm({
       ...defaultForm,
       activityCode: ac,
@@ -540,9 +545,14 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       startDateTime: dayjs().startOf('minute'),
       endDateTime: dayjs().add(2, 'hour').startOf('minute'),
       targetUrl: makeRegisterUrl(ac),
+
+      // series counters
+      regCodeNext: start,
+      regCodeAssigned: 0,
     });
     setOpenCreate(true);
   };
+
   const handleCloseCreate = () => {
     if (!saving) setOpenCreate(false);
   };
@@ -550,10 +560,18 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
   const updateForm = <K extends keyof CreateForm>(key: K, value: CreateForm[K]) => {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
+
       if (key === 'activityCode') {
         const code = String(value || '').toUpperCase();
         next.targetUrl = code ? makeRegisterUrl(code) : '';
       }
+
+      // sync regCodeNext if start changes (only when 아직ไม่แจก)
+      if (key === 'regCodeStart') {
+        const start = Math.max(1, Number(value || 1));
+        if ((prev.regCodeAssigned || 0) <= 0) next.regCodeNext = start;
+      }
+
       return next;
     });
   };
@@ -565,8 +583,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        updateForm('latitude', pos.coords.latitude);
-        updateForm('longitude', pos.coords.longitude);
+        updateForm('latitude', pos.coords.latitude as any);
+        updateForm('longitude', pos.coords.longitude as any);
         setErrMsg('');
       },
       () => setErrMsg('ไม่สามารถอ่านตำแหน่งได้ กรุณาลองใหม่'),
@@ -623,8 +641,20 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         bannerColor = (form.bannerColor || '').trim() || undefined;
       }
 
+      // reg code series
+      const regEnabled = !!form.regCodeEnabled;
+      const regPrefix = String(form.regCodePrefix || '').toUpperCase().trim();
+      const regDigits = clamp(Number(form.regCodeDigits || 2), 1, 6);
+      const regStart = Math.max(1, Number(form.regCodeStart || 1));
+      const regTotal = clamp(Number(form.regCodeTotal || 0), 0, 1_000_000);
+      const shouldSaveReg = regEnabled && regPrefix && isValidPrefix(regPrefix) && regTotal > 0;
+      if (regEnabled && !shouldSaveReg) {
+        return setErrMsg('ตั้งค่ารหัสลงทะเบียนไม่ถูกต้อง (Prefix ต้องเป็น A-Z 1-6 ตัว และจำนวนรวมต้องมากกว่า 0)');
+      }
+
       const userCode = (form.userCode || '').trim();
       const targetUrl = makeRegisterUrl(code);
+
       // QR ใช้ short URL เสมอ (กันข้อมูลเยอะเกิน)
       const qrDataUrl = await generateQrPng(makeShortUrl(code), 600);
 
@@ -655,9 +685,20 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         qrUrl: qrDataUrl,
         targetUrl,
         department: currentAdmin.department,
+
+        // ✅ Registration Code Series fields
+        registrationCodeEnabled: shouldSaveReg ? true : false,
+        registrationCodePrefix: shouldSaveReg ? regPrefix : undefined,
+        registrationCodeDigits: shouldSaveReg ? regDigits : undefined,
+        registrationCodeStart: shouldSaveReg ? regStart : undefined,
+        registrationCodeTotal: shouldSaveReg ? regTotal : undefined,
+        registrationCodeNext: shouldSaveReg ? regStart : undefined,
+        registrationCodeAssigned: shouldSaveReg ? 0 : undefined,
+
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+
       await addDoc(collection(db, 'activityQRCodes'), qrPayload);
 
       // legacy (optional)
@@ -678,10 +719,27 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         bannerColor,
         bannerTintColor: form.bannerTintColor,
         bannerTintOpacity: form.bannerTintOpacity,
+
+        // ✅ Registration Code Series (legacy mirror)
+        registrationCodeEnabled: shouldSaveReg ? true : false,
+        registrationCodePrefix: shouldSaveReg ? regPrefix : undefined,
+        registrationCodeDigits: shouldSaveReg ? regDigits : undefined,
+        registrationCodeStart: shouldSaveReg ? regStart : undefined,
+        registrationCodeTotal: shouldSaveReg ? regTotal : undefined,
       });
+
       await createActivity(legacy);
 
-      setForm((p) => ({ ...p, targetUrl, qrDataUrl, bannerUrl, bannerColor }));
+      setForm((p) => ({
+        ...p,
+        targetUrl,
+        qrDataUrl,
+        bannerUrl,
+        bannerColor,
+        regCodeNext: shouldSaveReg ? regStart : p.regCodeNext,
+        regCodeAssigned: shouldSaveReg ? 0 : p.regCodeAssigned,
+      }));
+
       setOpenCreate(false);
       await load();
     } catch (e: any) {
@@ -713,6 +771,14 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         qr = d.data();
       }
       setQrDocId(qrId);
+
+      const regEnabled = Boolean(qr?.registrationCodeEnabled);
+      const regPrefix = String(qr?.registrationCodePrefix || 'CS').toUpperCase();
+      const regDigits = typeof qr?.registrationCodeDigits === 'number' ? qr.registrationCodeDigits : 2;
+      const regStart = typeof qr?.registrationCodeStart === 'number' ? qr.registrationCodeStart : 1;
+      const regTotal = typeof qr?.registrationCodeTotal === 'number' ? qr.registrationCodeTotal : 0;
+      const regNext = typeof qr?.registrationCodeNext === 'number' ? qr.registrationCodeNext : regStart;
+      const regAssigned = typeof qr?.registrationCodeAssigned === 'number' ? qr.registrationCodeAssigned : 0;
 
       setForm({
         activityName: a.activityName || qr?.activityName || '',
@@ -747,7 +813,17 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         bannerColor: qr?.bannerColor || '#0ea5e9',
         bannerTintColor: qr?.bannerTintColor || '#0ea5e9',
         bannerTintOpacity: typeof qr?.bannerTintOpacity === 'number' ? qr.bannerTintOpacity : 0.42,
+
+        // ✅ registration code series
+        regCodeEnabled: regEnabled,
+        regCodePrefix: regPrefix,
+        regCodeDigits: regDigits,
+        regCodeStart: regStart,
+        regCodeTotal: regTotal,
+        regCodeNext: regNext,
+        regCodeAssigned: regAssigned,
       });
+
       setOpenEdit(true);
     } catch (e: any) {
       setErrMsg(e?.message || 'ไม่สามารถเปิดหน้าต่างแก้ไขได้');
@@ -771,8 +847,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       const lng = typeof form.longitude === 'number' ? form.longitude : undefined;
 
       let newBannerUrl = form.bannerUrl;
-      let bannerColor: string | undefined =
-        form.bannerMode === 'color' ? (form.bannerColor || '').trim() || undefined : undefined;
+      let bannerColor: string | undefined = form.bannerMode === 'color' ? (form.bannerColor || '').trim() || undefined : undefined;
 
       if (form.bannerMode === 'image' && form.bannerFile) {
         if (form.bannerUrl) await deleteBannerIfOwned(form.bannerUrl);
@@ -782,6 +857,22 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         if (form.bannerUrl) await deleteBannerIfOwned(form.bannerUrl);
         newBannerUrl = undefined;
       }
+
+      // reg series
+      const regEnabled = !!form.regCodeEnabled;
+      const regPrefix = String(form.regCodePrefix || '').toUpperCase().trim();
+      const regDigits = clamp(Number(form.regCodeDigits || 2), 1, 6);
+      const regStart = Math.max(1, Number(form.regCodeStart || 1));
+      const regTotal = clamp(Number(form.regCodeTotal || 0), 0, 1_000_000);
+      const shouldSaveReg = regEnabled && regPrefix && isValidPrefix(regPrefix) && regTotal > 0;
+      if (regEnabled && !shouldSaveReg) {
+        setEditing(false);
+        return setErrMsg('ตั้งค่ารหัสลงทะเบียนไม่ถูกต้อง (Prefix ต้องเป็น A-Z 1-6 ตัว และจำนวนรวมต้องมากกว่า 0)');
+      }
+
+      // preserve counters (ไม่รีเซ็ตอัตโนมัติ)
+      const regNext = Math.max(regStart, Number(form.regCodeNext || regStart));
+      const regAssigned = Math.max(0, Number(form.regCodeAssigned || 0));
 
       // legacy
       try {
@@ -801,6 +892,14 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
             bannerColor: bannerColor || undefined,
             bannerTintColor: form.bannerTintColor || undefined,
             bannerTintOpacity: form.bannerTintOpacity,
+
+            // ✅ mirror reg series
+            registrationCodeEnabled: shouldSaveReg ? true : false,
+            registrationCodePrefix: shouldSaveReg ? regPrefix : undefined,
+            registrationCodeDigits: shouldSaveReg ? regDigits : undefined,
+            registrationCodeStart: shouldSaveReg ? regStart : undefined,
+            registrationCodeTotal: shouldSaveReg ? regTotal : undefined,
+
             updatedAt: serverTimestamp(),
           })
         );
@@ -827,6 +926,18 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           bannerColor: bannerColor || undefined,
           bannerTintColor: form.bannerTintColor || undefined,
           bannerTintOpacity: form.bannerTintOpacity,
+
+          // ✅ reg series config
+          registrationCodeEnabled: shouldSaveReg ? true : false,
+          registrationCodePrefix: shouldSaveReg ? regPrefix : undefined,
+          registrationCodeDigits: shouldSaveReg ? regDigits : undefined,
+          registrationCodeStart: shouldSaveReg ? regStart : undefined,
+          registrationCodeTotal: shouldSaveReg ? regTotal : undefined,
+
+          // keep counters if enabled
+          registrationCodeNext: shouldSaveReg ? regNext : undefined,
+          registrationCodeAssigned: shouldSaveReg ? regAssigned : undefined,
+
           updatedAt: serverTimestamp(),
           stateVersion: Date.now(),
         });
@@ -835,6 +946,16 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           updates.description = deleteField();
         } else {
           updates.description = form.description.trim();
+        }
+
+        if (!shouldSaveReg) {
+          updates.registrationCodeEnabled = false;
+          updates.registrationCodePrefix = deleteField();
+          updates.registrationCodeDigits = deleteField();
+          updates.registrationCodeStart = deleteField();
+          updates.registrationCodeTotal = deleteField();
+          updates.registrationCodeNext = deleteField();
+          updates.registrationCodeAssigned = deleteField();
         }
 
         await updateDoc(doc(db, 'activityQRCodes', qrDocId), updates);
@@ -980,11 +1101,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 position: 'relative',
               }}
             >
-              {qr ? (
-                <img src={qr} alt="QR" style={{ width: 200, height: 200 }} />
-              ) : (
-                <Box sx={{ width: 200, height: 200, bgcolor: 'grey.100' }} />
-              )}
+              {qr ? <img src={qr} alt="QR" style={{ width: 200, height: 200 }} /> : <Box sx={{ width: 200, height: 200, bgcolor: 'grey.100' }} />}
               {!scanEnabled && (
                 <Box
                   sx={{
@@ -1004,6 +1121,131 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           </Stack>
         </Box>
       </Paper>
+    );
+  };
+
+  const RegistrationSeriesSection: React.FC = () => {
+    const enabled = !!form.regCodeEnabled;
+    const invalidPrefix = enabled && !!form.regCodePrefix && !isValidPrefix(form.regCodePrefix);
+    const invalidTotal = enabled && Number(form.regCodeTotal || 0) <= 0;
+
+    const remaining =
+      enabled && Number(form.regCodeTotal || 0) > 0
+        ? Math.max(0, Number(form.regCodeTotal) - Number(form.regCodeAssigned || 0))
+        : 0;
+
+    return (
+      <Grid size={{ xs: 12 }}>
+        <Divider sx={{ my: 1 }} />
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          รหัสลงทะเบียน (เช่น CS01 - CS92)
+        </Typography>
+
+        <Stack spacing={1.25}>
+          <FormControlLabel
+            control={<Switch checked={enabled} onChange={(e) => updateForm('regCodeEnabled', e.target.checked as any)} />}
+            label="เปิดใช้รหัสลงทะเบียนแบบ Prefix + เลขรัน"
+          />
+
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="Prefix (ตัวอักษร)"
+                fullWidth
+                value={form.regCodePrefix}
+                onChange={(e) => updateForm('regCodePrefix', e.target.value.toUpperCase() as any)}
+                disabled={!enabled}
+                helperText="A-Z 1-6 ตัว เช่น CS"
+                error={!!invalidPrefix}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <BadgeIcon />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="จำนวนหลักของเลข"
+                fullWidth
+                type="number"
+                value={form.regCodeDigits}
+                onChange={(e) => updateForm('regCodeDigits', Number(e.target.value) as any)}
+                disabled={!enabled}
+                helperText="เช่น 2 -> 01"
+                inputProps={{ min: 1, max: 6 }}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="เริ่มที่เลข"
+                fullWidth
+                type="number"
+                value={form.regCodeStart}
+                onChange={(e) => updateForm('regCodeStart', Number(e.target.value) as any)}
+                disabled={!enabled}
+                helperText="เช่น 1 -> CS01"
+                inputProps={{ min: 1, max: 1_000_000 }}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                label="จำนวนรหัสทั้งหมด"
+                fullWidth
+                type="number"
+                value={form.regCodeTotal}
+                onChange={(e) => updateForm('regCodeTotal', Number(e.target.value) as any)}
+                disabled={!enabled}
+                helperText="เช่น 92 -> CS01..CS92"
+                error={!!invalidTotal}
+                inputProps={{ min: 0, max: 1_000_000 }}
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <Card variant="outlined" sx={{ height: '100%' }}>
+                <CardContent>
+                  <Typography variant="body2" color="text.secondary">
+                    ช่วงรหัสที่จะเปิดให้แจก
+                  </Typography>
+                  <Typography variant="h6" fontWeight={800} sx={{ mt: 0.5 }}>
+                    {enabled
+                      ? regRangeText(form.regCodePrefix, form.regCodeStart, form.regCodeTotal, form.regCodeDigits)
+                      : '-'}
+                  </Typography>
+
+                  <Divider sx={{ my: 1 }} />
+
+                  <Typography variant="body2" color="text.secondary">
+                    สถานะการแจก (ระบบจะอัปเดตเมื่อมีการลงทะเบียนจริง)
+                  </Typography>
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 0.75 }}>
+                    <Chip size="small" label={`แจกแล้ว: ${Number(form.regCodeAssigned || 0)}`} />
+                    <Chip size="small" label={`คงเหลือ: ${remaining}`} />
+                    <Chip
+                      size="small"
+                      label={
+                        enabled && isValidPrefix(form.regCodePrefix) && Number(form.regCodeTotal || 0) > 0
+                          ? `ถัดไป: ${formatRegCode(form.regCodePrefix, Number(form.regCodeNext || form.regCodeStart || 1), clamp(Number(form.regCodeDigits || 2), 1, 6))}`
+                          : 'ถัดไป: -'
+                      }
+                    />
+                  </Stack>
+
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                    หมายเหตุ: การแจกเลขต้องทำใน flow ลงทะเบียน (แนะนำให้ใช้ Firestore transaction เพื่อกันเลขซ้ำ)
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </Stack>
+      </Grid>
     );
   };
 
@@ -1301,7 +1543,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   label="ชื่อกิจกรรม *"
                   fullWidth
                   value={form.activityName}
-                  onChange={(e) => updateForm('activityName', e.target.value)}
+                  onChange={(e) => updateForm('activityName', e.target.value as any)}
                 />
               </Grid>
 
@@ -1311,11 +1553,11 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                     label="รหัสกิจกรรม *"
                     fullWidth
                     value={form.activityCode}
-                    onChange={(e) => updateForm('activityCode', e.target.value.toUpperCase())}
+                    onChange={(e) => updateForm('activityCode', e.target.value.toUpperCase() as any)}
                     inputProps={{ maxLength: 64 }}
                   />
                   <Tooltip title="สุ่ม">
-                    <IconButton onClick={() => updateForm('activityCode', randomActivityCode())}>
+                    <IconButton onClick={() => updateForm('activityCode', randomActivityCode() as any)}>
                       <ShuffleIcon />
                     </IconButton>
                   </Tooltip>
@@ -1340,11 +1582,11 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                     label="รหัสผู้ใช้ (userCode)"
                     fullWidth
                     value={form.userCode}
-                    onChange={(e) => updateForm('userCode', e.target.value)}
+                    onChange={(e) => updateForm('userCode', e.target.value as any)}
                     placeholder="ว่างได้ / กดสุ่ม"
                   />
                   <Tooltip title="สุ่ม">
-                    <IconButton onClick={() => updateForm('userCode', randomUserCode())}>
+                    <IconButton onClick={() => updateForm('userCode', randomUserCode() as any)}>
                       <ShuffleIcon />
                     </IconButton>
                   </Tooltip>
@@ -1368,7 +1610,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   label="ส่วนหัว (จะแสดงบนหน้าลงทะเบียน)"
                   fullWidth
                   value={form.headerTitle}
-                  onChange={(e) => updateForm('headerTitle', e.target.value)}
+                  onChange={(e) => updateForm('headerTitle', e.target.value as any)}
                   placeholder="เช่น ลงทะเบียนกิจกรรม Orientation"
                 />
               </Grid>
@@ -1380,7 +1622,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   <Select
                     label="โหมดแบนเนอร์"
                     value={form.bannerMode}
-                    onChange={(e) => updateForm('bannerMode', e.target.value as BannerMode)}
+                    onChange={(e) => updateForm('bannerMode', e.target.value as any)}
                   >
                     <MenuItem value="none">ไม่ใช้ (แสดงเป็นสี)</MenuItem>
                     <MenuItem value="image">รูปภาพ</MenuItem>
@@ -1401,8 +1643,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                         accept="image/*"
                         onChange={(e) => {
                           const file = e.target.files?.[0] || null;
-                          updateForm('bannerFile', file);
-                          if (file) updateForm('bannerUrl', URL.createObjectURL(file));
+                          updateForm('bannerFile', file as any);
+                          if (file) updateForm('bannerUrl', URL.createObjectURL(file) as any);
                         }}
                       />
                     </Button>
@@ -1413,8 +1655,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                         <IconButton
                           color="error"
                           onClick={() => {
-                            updateForm('bannerUrl', undefined);
-                            updateForm('bannerFile', null);
+                            updateForm('bannerUrl', undefined as any);
+                            updateForm('bannerFile', null as any);
                           }}
                         >
                           <ClearIcon />
@@ -1432,9 +1674,15 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                       label="สี/Gradient (CSS)"
                       fullWidth
                       value={form.bannerColor}
-                      onChange={(e) => updateForm('bannerColor', e.target.value)}
+                      onChange={(e) => updateForm('bannerColor', e.target.value as any)}
                       placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
-                      InputProps={{ startAdornment: (<InputAdornment position="start"><ColorIcon /></InputAdornment>) }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <ColorIcon />
+                          </InputAdornment>
+                        ),
+                      }}
                     />
                     <Box
                       sx={{
@@ -1455,9 +1703,15 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   label="สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก"
                   fullWidth
                   value={form.bannerTintColor}
-                  onChange={(e) => updateForm('bannerTintColor', e.target.value)}
+                  onChange={(e) => updateForm('bannerTintColor', e.target.value as any)}
                   placeholder="#0ea5e9 หรือ rgba(14,165,233,1)"
-                  InputProps={{ startAdornment: (<InputAdornment position="start"><ColorIcon /></InputAdornment>) }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <ColorIcon />
+                      </InputAdornment>
+                    ),
+                  }}
                 />
               </Grid>
 
@@ -1470,7 +1724,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                     value={Math.round(form.bannerTintOpacity * 100)}
                     onChange={(_, v) => {
                       const pct = Array.isArray(v) ? v[0] : v;
-                      updateForm('bannerTintOpacity', Math.max(0, Math.min(100, Number(pct))) / 100);
+                      updateForm('bannerTintOpacity', (Math.max(0, Math.min(100, Number(pct))) / 100) as any);
                     }}
                     step={1}
                     min={0}
@@ -1488,7 +1742,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   multiline
                   minRows={2}
                   value={form.description}
-                  onChange={(e) => updateForm('description', e.target.value)}
+                  onChange={(e) => updateForm('description', e.target.value as any)}
                 />
               </Grid>
 
@@ -1497,7 +1751,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   label="สถานที่"
                   fullWidth
                   value={form.location}
-                  onChange={(e) => updateForm('location', e.target.value)}
+                  onChange={(e) => updateForm('location', e.target.value as any)}
                 />
               </Grid>
 
@@ -1512,8 +1766,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   title="กำหนดจุดกิจกรรม"
                   editable
                   onCenterChange={(pos) => {
-                    updateForm('latitude', pos.lat);
-                    updateForm('longitude', pos.lng);
+                    updateForm('latitude', pos.lat as any);
+                    updateForm('longitude', pos.lng as any);
                   }}
                   onUseCurrentLocation={useCurrentLocation}
                 />
@@ -1532,7 +1786,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 </Typography>
                 <Slider
                   value={form.checkInRadius}
-                  onChange={(_, v) => updateForm('checkInRadius', Array.isArray(v) ? v[0] : Number(v))}
+                  onChange={(_, v) => updateForm('checkInRadius', (Array.isArray(v) ? v[0] : Number(v)) as any)}
                   valueLabelDisplay="auto"
                   step={10}
                   min={10}
@@ -1545,7 +1799,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <DateTimePicker
                   label="เริ่มต้น"
                   value={form.startDateTime}
-                  onChange={(value: any) => updateForm('startDateTime', value as Dayjs | null)}
+                  onChange={(value: any) => updateForm('startDateTime', value as any)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
@@ -1554,7 +1808,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <DateTimePicker
                   label="สิ้นสุด"
                   value={form.endDateTime}
-                  onChange={(value: any) => updateForm('endDateTime', value as Dayjs | null)}
+                  onChange={(value: any) => updateForm('endDateTime', value as any)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
@@ -1565,9 +1819,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)"
                   fullWidth
                   value={form.maxParticipants ?? ''}
-                  onChange={(e) =>
-                    updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))
-                  }
+                  onChange={(e) => updateForm('maxParticipants', (e.target.value === '' ? undefined : Math.max(0, Number(e.target.value))) as any)}
                   placeholder="เช่น 300"
                 />
               </Grid>
@@ -1581,28 +1833,31 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   sx={{ height: '100%' }}
                 >
                   <FormControlLabel
-                    control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked)} />}
+                    control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked as any)} />}
                     label="เปิดใช้งาน"
                   />
                   <FormControlLabel
-                    control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked)} />}
+                    control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked as any)} />}
                     label="เปิดให้สแกน QR"
                   />
                   <FormControlLabel
                     control={
                       <Switch
                         checked={form.requiresUniversityLogin}
-                        onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked)}
+                        onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked as any)}
                       />
                     }
                     label="ต้องลงชื่อเข้าใช้มหาวิทยาลัย"
                   />
                   <FormControlLabel
-                    control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked)} />}
+                    control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked as any)} />}
                     label="Single-user mode"
                   />
                 </Stack>
               </Grid>
+
+              {/* ✅ Registration code series */}
+              <RegistrationSeriesSection />
 
               {/* พรีวิว QR */}
               <Grid size={{ xs: 12 }}>
@@ -1645,12 +1900,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
             <Button onClick={handleCloseCreate} disabled={saving} sx={{ mr: 1 }}>
               ยกเลิก
             </Button>
-            <Button
-              onClick={handleCreateSubmit}
-              variant="contained"
-              disabled={saving}
-              startIcon={saving ? <CircularProgress size={18} /> : <AddIcon />}
-            >
+            <Button onClick={handleCreateSubmit} variant="contained" disabled={saving} startIcon={saving ? <CircularProgress size={18} /> : <AddIcon />}>
               บันทึก & สร้าง QR
             </Button>
           </Box>
@@ -1776,7 +2026,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   label="ชื่อกิจกรรม *"
                   fullWidth
                   value={form.activityName}
-                  onChange={(e) => updateForm('activityName', e.target.value)}
+                  onChange={(e) => updateForm('activityName', e.target.value as any)}
                 />
               </Grid>
 
@@ -1791,10 +2041,10 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                     label="รหัสผู้ใช้ (userCode)"
                     fullWidth
                     value={form.userCode}
-                    onChange={(e) => updateForm('userCode', e.target.value)}
+                    onChange={(e) => updateForm('userCode', e.target.value as any)}
                   />
                   <Tooltip title="สุ่ม">
-                    <IconButton onClick={() => updateForm('userCode', randomUserCode())}>
+                    <IconButton onClick={() => updateForm('userCode', randomUserCode() as any)}>
                       <ShuffleIcon />
                     </IconButton>
                   </Tooltip>
@@ -1814,23 +2064,14 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
 
               {/* ส่วนหัว */}
               <Grid size={{ xs: 12, md: 8 }}>
-                <TextField
-                  label="ส่วนหัว"
-                  fullWidth
-                  value={form.headerTitle}
-                  onChange={(e) => updateForm('headerTitle', e.target.value)}
-                />
+                <TextField label="ส่วนหัว" fullWidth value={form.headerTitle} onChange={(e) => updateForm('headerTitle', e.target.value as any)} />
               </Grid>
 
               {/* แบนเนอร์ */}
               <Grid size={{ xs: 12, md: 4 }}>
                 <FormControl fullWidth>
                   <InputLabel>โหมดแบนเนอร์</InputLabel>
-                  <Select
-                    label="โหมดแบนเนอร์"
-                    value={form.bannerMode}
-                    onChange={(e) => updateForm('bannerMode', e.target.value as BannerMode)}
-                  >
+                  <Select label="โหมดแบนเนอร์" value={form.bannerMode} onChange={(e) => updateForm('bannerMode', e.target.value as any)}>
                     <MenuItem value="none">ไม่ใช้ (แสดงเป็นสี)</MenuItem>
                     <MenuItem value="image">รูปภาพ</MenuItem>
                     <MenuItem value="color">สี/Gradient</MenuItem>
@@ -1849,8 +2090,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                         accept="image/*"
                         onChange={(e) => {
                           const file = e.target.files?.[0] || null;
-                          updateForm('bannerFile', file);
-                          if (file) updateForm('bannerUrl', URL.createObjectURL(file));
+                          updateForm('bannerFile', file as any);
+                          if (file) updateForm('bannerUrl', URL.createObjectURL(file) as any);
                         }}
                       />
                     </Button>
@@ -1863,8 +2104,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                           startIcon={<ClearIcon />}
                           onClick={async () => {
                             await deleteBannerIfOwned(form.bannerUrl);
-                            updateForm('bannerUrl', undefined);
-                            updateForm('bannerFile', null);
+                            updateForm('bannerUrl', undefined as any);
+                            updateForm('bannerFile', null as any);
                           }}
                         >
                           ลบรูป
@@ -1886,9 +2127,15 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                       label="สี/Gradient (CSS)"
                       fullWidth
                       value={form.bannerColor}
-                      onChange={(e) => updateForm('bannerColor', e.target.value)}
+                      onChange={(e) => updateForm('bannerColor', e.target.value as any)}
                       placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
-                      InputProps={{ startAdornment: (<InputAdornment position="start"><ColorIcon /></InputAdornment>) }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <ColorIcon />
+                          </InputAdornment>
+                        ),
+                      }}
                     />
                     <Box
                       sx={{
@@ -1909,9 +2156,15 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   label="สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก"
                   fullWidth
                   value={form.bannerTintColor}
-                  onChange={(e) => updateForm('bannerTintColor', e.target.value)}
+                  onChange={(e) => updateForm('bannerTintColor', e.target.value as any)}
                   placeholder="#0ea5e9 หรือ rgba(14,165,233,1)"
-                  InputProps={{ startAdornment: (<InputAdornment position="start"><ColorIcon /></InputAdornment>) }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <ColorIcon />
+                      </InputAdornment>
+                    ),
+                  }}
                 />
               </Grid>
 
@@ -1924,7 +2177,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                     value={Math.round(form.bannerTintOpacity * 100)}
                     onChange={(_, v) => {
                       const pct = Array.isArray(v) ? v[0] : v;
-                      updateForm('bannerTintOpacity', Math.max(0, Math.min(100, Number(pct))) / 100);
+                      updateForm('bannerTintOpacity', (Math.max(0, Math.min(100, Number(pct))) / 100) as any);
                     }}
                     step={1}
                     min={0}
@@ -1942,17 +2195,12 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   multiline
                   minRows={2}
                   value={form.description}
-                  onChange={(e) => updateForm('description', e.target.value)}
+                  onChange={(e) => updateForm('description', e.target.value as any)}
                 />
               </Grid>
 
               <Grid size={{ xs: 12 }}>
-                <TextField
-                  label="สถานที่"
-                  fullWidth
-                  value={form.location}
-                  onChange={(e) => updateForm('location', e.target.value)}
-                />
+                <TextField label="สถานที่" fullWidth value={form.location} onChange={(e) => updateForm('location', e.target.value as any)} />
               </Grid>
 
               {/* แผนที่ */}
@@ -1966,8 +2214,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   title="ปรับตำแหน่งกิจกรรม"
                   editable
                   onCenterChange={(pos) => {
-                    updateForm('latitude', pos.lat);
-                    updateForm('longitude', pos.lng);
+                    updateForm('latitude', pos.lat as any);
+                    updateForm('longitude', pos.lng as any);
                   }}
                   onUseCurrentLocation={useCurrentLocation}
                 />
@@ -1980,7 +2228,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 </Typography>
                 <Slider
                   value={form.checkInRadius}
-                  onChange={(_, v) => updateForm('checkInRadius', Array.isArray(v) ? v[0] : Number(v))}
+                  onChange={(_, v) => updateForm('checkInRadius', (Array.isArray(v) ? v[0] : Number(v)) as any)}
                   valueLabelDisplay="auto"
                   step={10}
                   min={10}
@@ -1993,7 +2241,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <DateTimePicker
                   label="เริ่มต้น"
                   value={form.startDateTime}
-                  onChange={(value: any) => updateForm('startDateTime', value as Dayjs | null)}
+                  onChange={(value: any) => updateForm('startDateTime', value as any)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
@@ -2002,7 +2250,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <DateTimePicker
                   label="สิ้นสุด"
                   value={form.endDateTime}
-                  onChange={(value: any) => updateForm('endDateTime', value as Dayjs | null)}
+                  onChange={(value: any) => updateForm('endDateTime', value as any)}
                   slotProps={{ textField: { fullWidth: true } }}
                 />
               </Grid>
@@ -2013,9 +2261,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)"
                   fullWidth
                   value={form.maxParticipants ?? ''}
-                  onChange={(e) =>
-                    updateForm('maxParticipants', e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)))
-                  }
+                  onChange={(e) => updateForm('maxParticipants', (e.target.value === '' ? undefined : Math.max(0, Number(e.target.value))) as any)}
                 />
               </Grid>
 
@@ -2028,28 +2274,28 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                   sx={{ height: '100%' }}
                 >
                   <FormControlLabel
-                    control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked)} />}
+                    control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked as any)} />}
                     label="เปิดใช้งาน"
                   />
                   <FormControlLabel
-                    control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked)} />}
+                    control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked as any)} />}
                     label="เปิดให้สแกน QR"
                   />
                   <FormControlLabel
                     control={
-                      <Switch
-                        checked={form.requiresUniversityLogin}
-                        onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked)}
-                      />
+                      <Switch checked={form.requiresUniversityLogin} onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked as any)} />
                     }
                     label="ต้องลงชื่อเข้าใช้มหาวิทยาลัย"
                   />
                   <FormControlLabel
-                    control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked)} />}
+                    control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked as any)} />}
                     label="Single-user mode"
                   />
                 </Stack>
               </Grid>
+
+              {/* ✅ Registration code series */}
+              <RegistrationSeriesSection />
             </Grid>
           </LocalizationProvider>
         </DialogContent>
@@ -2058,12 +2304,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           <Button onClick={handleCloseEdit} disabled={editing}>
             ยกเลิก
           </Button>
-          <Button
-            onClick={handleEditSubmit}
-            variant="contained"
-            disabled={editing}
-            startIcon={editing ? <CircularProgress size={18} /> : <EditIcon />}
-          >
+          <Button onClick={handleEditSubmit} variant="contained" disabled={editing} startIcon={editing ? <CircularProgress size={18} /> : <EditIcon />}>
             บันทึกการแก้ไข
           </Button>
         </DialogActions>

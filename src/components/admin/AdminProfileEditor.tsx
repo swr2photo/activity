@@ -1,7 +1,7 @@
 // src/components/admin/AdminProfileEditor.tsx
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Box,
   Paper,
@@ -22,6 +22,9 @@ import {
   Slider,
   useMediaQuery,
   useTheme,
+  Avatar,
+  Divider,
+  CircularProgress, // ✅ เพิ่ม Import นี้
 } from '@mui/material';
 import {
   Upload as UploadIcon,
@@ -32,16 +35,17 @@ import {
   RestartAlt as ResetIcon,
   OpenWith as DragIcon,
   CenterFocusStrong as CenterIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
+
+import { useSnackbar } from 'notistack';
+import { updateProfile } from 'firebase/auth';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
 import type { AdminProfile } from '../../types/admin';
 import { updateAdminUser, logAdminEvent } from '../../lib/adminFirebase';
 import { auth, storage } from '../../lib/firebase';
-import { updateProfile } from 'firebase/auth';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { useSnackbar } from 'notistack';
 
-/** พิกัดของรูปสำหรับแสดงแบบ 1:1 ด้วย background-position เป็น % */
 type ImagePos = { x: number; y: number };
 
 type Props = {
@@ -51,455 +55,395 @@ type Props = {
 export default function AdminProfileEditor({ currentAdmin }: Props) {
   const { enqueueSnackbar } = useSnackbar();
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // <= 600px
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  // ====== state หลัก ======
+  // State
   const [displayName, setDisplayName] = useState(currentAdmin.displayName || '');
   const [firstName, setFirstName] = useState(currentAdmin.firstName || '');
   const [lastName, setLastName] = useState(currentAdmin.lastName || '');
-
   const [photoURL, setPhotoURL] = useState(currentAdmin.profileImage || '');
-
-  // โหลดตำแหน่งเดิม ไม่งั้น default 50/50 (กึ่งกลาง)
+  
   const [imgPos, setImgPos] = useState<ImagePos>({
-    x: (currentAdmin as any)?.profileImagePosX ?? 50,
-    y: (currentAdmin as any)?.profileImagePosY ?? 50,
+    x: currentAdmin.profileImagePosX ?? 50,
+    y: currentAdmin.profileImagePosY ?? 50,
   });
 
   const [saving, setSaving] = useState(false);
-
-  // แท็บเลือกระหว่าง “ลิงก์” กับ “อัปโหลดไฟล์”
-  const [photoMode, setPhotoMode] = useState<'link' | 'upload'>('upload');
-
-  // สถานะอัปโหลด
+  const [photoMode, setPhotoMode] = useState<'upload' | 'link'>('upload');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // ข้อมูลล็อก/แสดง
-  const email = useMemo(() => currentAdmin.email || '', [currentAdmin.email]);
-  const department = useMemo(() => currentAdmin.department || 'all', [currentAdmin.department]);
-
-  const hasImage = Boolean(photoURL);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [dragging, setDragging] = useState(false);
 
-  // ขนาดพรีวิวตามอุปกรณ์
   const previewSize = isMobile ? 160 : 220;
+  const hasImage = Boolean(photoURL);
 
-  // ====== helpers ======
+  // --- Handlers ---
+
   const resetChanges = () => {
     setDisplayName(currentAdmin.displayName || '');
     setFirstName(currentAdmin.firstName || '');
     setLastName(currentAdmin.lastName || '');
     setPhotoURL(currentAdmin.profileImage || '');
     setImgPos({
-      x: (currentAdmin as any)?.profileImagePosX ?? 50,
-      y: (currentAdmin as any)?.profileImagePosY ?? 50,
+      x: currentAdmin.profileImagePosX ?? 50,
+      y: currentAdmin.profileImagePosY ?? 50,
     });
     setPhotoMode('upload');
-    enqueueSnackbar('รีเซ็ตข้อมูลกลับเป็นค่าปัจจุบันแล้ว', { variant: 'info' });
+    enqueueSnackbar('รีเซ็ตข้อมูลแล้ว', { variant: 'info' });
   };
 
   const clearPhoto = () => {
     setPhotoURL('');
-    enqueueSnackbar('ลบรูปโปรไฟล์จากฟอร์มแล้ว (ยังไม่บันทึก)', { variant: 'info' });
+    setImgPos({ x: 50, y: 50 });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    enqueueSnackbar('ลบรูปภาพแล้ว (กดบันทึกเพื่อยืนยัน)', { variant: 'warning' });
   };
 
-  // ====== upload handler ======
-  const onPickFile = () => fileInputRef.current?.click();
-
-  const onFileSelected: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Validate File
     if (!file.type.startsWith('image/')) {
-      enqueueSnackbar('กรุณาเลือกไฟล์รูปภาพเท่านั้น', { variant: 'error' });
+      enqueueSnackbar('กรุณาเลือกไฟล์รูปภาพเท่านั้น (JPG, PNG)', { variant: 'error' });
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      enqueueSnackbar('ขนาดไฟล์เกิน 5MB', { variant: 'error' });
+    if (file.size > 2 * 1024 * 1024) { // Limit 2MB
+      enqueueSnackbar('ขนาดไฟล์เกิน 2MB กรุณาลดขนาดไฟล์', { variant: 'error' });
       return;
     }
 
     try {
       setUploading(true);
       setUploadProgress(10);
-      const path = `adminProfiles/${currentAdmin.uid}/${Date.now()}-${file.name}`;
-      const storageRef = ref(storage, path);
-      const snap = await uploadBytes(storageRef, file);
-      setUploadProgress(80);
 
-      const url = await getDownloadURL(snap.ref);
-      setPhotoURL(url);
+      // Upload to Firebase Storage
+      const storagePath = `admin-profiles/${currentAdmin.uid}/${Date.now()}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      
+      const snapshot = await uploadBytes(storageRef, file);
+      setUploadProgress(70);
+      
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      setPhotoURL(downloadURL);
       setUploadProgress(100);
-      enqueueSnackbar('อัปโหลดรูปเรียบร้อย', { variant: 'success' });
-      // รีเซ็นเตอร์ทุกครั้งที่เปลี่ยนรูป
-      setImgPos({ x: 50, y: 50 });
-    } catch (err: any) {
-      console.error('upload error:', err);
-      enqueueSnackbar(err?.message || 'อัปโหลดล้มเหลว', { variant: 'error' });
+      
+      enqueueSnackbar('อัปโหลดรูปสำเร็จ', { variant: 'success' });
+      setImgPos({ x: 50, y: 50 }); // Reset position for new image
+
+    } catch (error: any) {
+      console.error('Upload failed:', error);
+      enqueueSnackbar(`อัปโหลดล้มเหลว: ${error.message}`, { variant: 'error' });
     } finally {
       setUploading(false);
-      setTimeout(() => setUploadProgress(null), 800);
+      setTimeout(() => setUploadProgress(null), 1000);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // ====== drag/touch to reposition ======
-  const [dragging, setDragging] = useState(false);
+  const handleSave = async () => {
+    if (!displayName.trim()) {
+      enqueueSnackbar('กรุณาระบุชื่อที่แสดง (Display Name)', { variant: 'warning' });
+      return;
+    }
 
-  // เมาส์
-  const startDrag: React.MouseEventHandler<HTMLDivElement> = () => {
-    if (!hasImage) return;
-    setDragging(true);
-  };
-  const stopDrag = () => setDragging(false);
-
-  const onDrag: React.MouseEventHandler<HTMLDivElement> = (e) => {
-    if (!dragging || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const relX = ((e.clientX - rect.left) / rect.width) * 100;
-    const relY = ((e.clientY - rect.top) / rect.height) * 100;
-    const x = Math.max(0, Math.min(100, relX));
-    const y = Math.max(0, Math.min(100, relY));
-    setImgPos({ x, y });
-  };
-
-  // ทัช (มือถือ/แท็บเล็ต)
-  const onTouchStart: React.TouchEventHandler<HTMLDivElement> = () => {
-    if (!hasImage) return;
-    setDragging(true);
-  };
-  const onTouchMove: React.TouchEventHandler<HTMLDivElement> = (e) => {
-    if (!dragging || !containerRef.current) return;
-    const t = e.touches[0];
-    const rect = containerRef.current.getBoundingClientRect();
-    const relX = ((t.clientX - rect.left) / rect.width) * 100;
-    const relY = ((t.clientY - rect.top) / rect.height) * 100;
-    const x = Math.max(0, Math.min(100, relX));
-    const y = Math.max(0, Math.min(100, relY));
-    setImgPos({ x, y });
-  };
-  const onTouchEnd: React.TouchEventHandler<HTMLDivElement> = () => setDragging(false);
-
-  const centerImage = () => setImgPos({ x: 50, y: 50 });
-
-  // ====== save ======
-  const onSave = async () => {
     try {
       setSaving(true);
 
-      await updateAdminUser(currentAdmin.uid, {
+      const updates: Partial<AdminProfile> = {
         displayName: displayName.trim(),
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         profileImage: photoURL || undefined,
         profileImagePosX: photoURL ? Math.round(imgPos.x) : undefined,
         profileImagePosY: photoURL ? Math.round(imgPos.y) : undefined,
-      } as any);
+      };
 
-      // อัปเดต Firebase Auth (best effort)
-      try {
-        if (auth.currentUser) {
-          await updateProfile(auth.currentUser, {
-            displayName: displayName.trim(),
-            photoURL: photoURL || undefined,
-          });
-        }
-      } catch {}
+      // 1. Update Firestore
+      await updateAdminUser(currentAdmin.uid, updates);
 
+      // 2. Update Auth Profile (if current user)
+      if (auth.currentUser && auth.currentUser.uid === currentAdmin.uid) {
+        await updateProfile(auth.currentUser, {
+          displayName: updates.displayName,
+          photoURL: updates.profileImage,
+        });
+      }
+
+      // 3. Log Audit
       await logAdminEvent(
         'ADMIN_PROFILE_UPDATED',
-        {
-          fields: ['displayName', 'firstName', 'lastName', 'profileImage', 'profileImagePosX', 'profileImagePosY'],
-          source: 'AdminProfileEditor',
-        },
+        { changes: Object.keys(updates) },
         { uid: currentAdmin.uid, email: currentAdmin.email }
       );
 
-      enqueueSnackbar('บันทึกโปรไฟล์เรียบร้อย', { variant: 'success' });
-      // ✅ ไม่รีเซ็ต state เพื่อให้ “ข้อมูล/รูปคงอยู่”
-    } catch (e: any) {
-      enqueueSnackbar(e?.message || 'บันทึกล้มเหลว', { variant: 'error' });
+      enqueueSnackbar('บันทึกข้อมูลเรียบร้อยแล้ว', { variant: 'success' });
+
+    } catch (error: any) {
+      console.error('Save failed:', error);
+      enqueueSnackbar(`บันทึกไม่สำเร็จ: ${error.message}`, { variant: 'error' });
     } finally {
       setSaving(false);
     }
   };
 
-  // ป้องกันลากแล้วปล่อยเมาส์/นิ้วนอกกรอบ
-  useEffect(() => {
-    const up = () => setDragging(false);
-    window.addEventListener('mouseup', up);
-    window.addEventListener('touchend', up);
-    return () => {
-      window.removeEventListener('mouseup', up);
-      window.removeEventListener('touchend', up);
-    };
-  }, []);
+  // --- Image Drag Logic ---
+  const handleDragStart = () => hasImage && setDragging(true);
+  const handleDragEnd = () => setDragging(false);
+  
+  const handleDragMove = (clientX: number, clientY: number) => {
+    if (!dragging || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+    setImgPos({ x, y });
+  };
 
   return (
-    <Paper sx={{ p: { xs: 2, sm: 3 } }}>
-      <Stack spacing={3}>
-        <Typography variant="h4" fontWeight={700}>
-          แก้ไขโปรไฟล์แอดมิน
-        </Typography>
+    <Paper sx={{ p: { xs: 2, md: 4 }, maxWidth: 900, mx: 'auto' }}>
+      <Stack spacing={4}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}>
+            <PersonIcon fontSize="large" />
+          </Avatar>
+          <Typography variant="h4" fontWeight="bold">แก้ไขโปรไฟล์</Typography>
+        </Box>
 
-        {/* Header: Avatar + actions */}
-        <Card elevation={1} sx={{ borderRadius: 3 }}>
-          <CardContent>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={{ xs: 2.5, md: 3 }}
-              alignItems={{ md: 'flex-start' }}
+        <Divider />
+
+        <GridContainer>
+          {/* Left: Image Preview */}
+          <Box>
+            <Typography variant="subtitle2" gutterBottom color="text.secondary">รูปโปรไฟล์ (1:1)</Typography>
+            
+            <Box
+              ref={containerRef}
+              onMouseDown={handleDragStart}
+              onMouseUp={handleDragEnd}
+              onMouseLeave={handleDragEnd}
+              onMouseMove={(e) => handleDragMove(e.clientX, e.clientY)}
+              onTouchStart={handleDragStart}
+              onTouchEnd={handleDragEnd}
+              onTouchMove={(e) => handleDragMove(e.touches[0].clientX, e.touches[0].clientY)}
+              sx={{
+                width: previewSize,
+                height: previewSize,
+                borderRadius: 4,
+                bgcolor: 'grey.100',
+                border: '1px solid',
+                borderColor: 'divider',
+                overflow: 'hidden',
+                position: 'relative',
+                backgroundImage: hasImage ? `url("${photoURL}")` : 'none',
+                backgroundSize: 'cover',
+                backgroundPosition: `${imgPos.x}% ${imgPos.y}%`,
+                cursor: hasImage ? (dragging ? 'grabbing' : 'grab') : 'default',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: dragging ? 'none' : 'background-position 0.2s',
+                touchAction: 'none'
+              }}
             >
-              {/* Square preview 1:1 พร้อมลากปรับตำแหน่ง */}
-              <Box sx={{ minWidth: { xs: previewSize, md: previewSize } }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                  พรีวิว (สัดส่วน 1:1)
-                </Typography>
-
+              {!hasImage && (
+                <Stack alignItems="center" color="text.disabled" spacing={1}>
+                  <ImageIcon fontSize="large" />
+                  <Typography variant="caption">ไม่มีรูปภาพ</Typography>
+                </Stack>
+              )}
+              
+              {hasImage && !dragging && (
                 <Box
-                  ref={containerRef}
-                  onMouseDown={startDrag}
-                  onMouseMove={onDrag}
-                  onMouseUp={stopDrag}
-                  onTouchStart={onTouchStart}
-                  onTouchMove={onTouchMove}
-                  onTouchEnd={onTouchEnd}
-                  role="img"
-                  aria-label="ตัวอย่างรูปโปรไฟล์แบบสี่เหลี่ยมจัตุรัส"
                   sx={{
-                    width: previewSize,
-                    aspectRatio: '1 / 1', // ✅ คง 1:1 เสมอ
-                    borderRadius: 3,
-                    overflow: 'hidden',
-                    bgcolor: 'grey.200',
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    backgroundImage: hasImage ? `url("${photoURL}")` : 'none',
-                    backgroundSize: 'cover',
-                    backgroundPosition: `${imgPos.x}% ${imgPos.y}%`,
-                    position: 'relative',
-                    cursor: hasImage ? (dragging ? 'grabbing' : 'grab') : 'default',
+                    position: 'absolute',
+                    bottom: 8,
+                    bgcolor: 'rgba(0,0,0,0.6)',
+                    color: 'white',
+                    px: 1.5,
+                    py: 0.5,
+                    borderRadius: 10,
+                    fontSize: 12,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    touchAction: 'none', // ป้องกันการ scroll ขณะลากบนมือถือ
+                    gap: 0.5,
+                    pointerEvents: 'none'
                   }}
                 >
-                  {!hasImage && (
-                    <Stack spacing={1} alignItems="center" color="text.disabled">
-                      <ImageIcon />
-                      <Typography variant="caption">ยังไม่มีรูปภาพ</Typography>
-                    </Stack>
-                  )}
-
-                  {/* ไอคอนช่วยสื่อว่าลากได้ */}
-                  {hasImage && (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        bottom: 8,
-                        right: 8,
-                        bgcolor: 'rgba(0,0,0,.45)',
-                        borderRadius: 2,
-                        px: 1,
-                        py: 0.5,
-                        color: '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.5,
-                        fontSize: 12,
-                      }}
-                    >
-                      <DragIcon fontSize="inherit" />
-                      ลากเพื่อปรับตำแหน่ง
-                    </Box>
-                  )}
+                  <DragIcon sx={{ fontSize: 14 }} /> ลากเพื่อจัดตำแหน่ง
                 </Box>
+              )}
+            </Box>
 
-                {/* ปุ่มรีเซ็นเตอร์ + แถบเลื่อนปรับตำแหน่ง */}
-                <Stack spacing={1.5} sx={{ mt: 2 }}>
-                  <Stack direction="row" alignItems="center" spacing={1}>
-                    <CenterIcon fontSize="small" color="action" />
-                    <Typography variant="body2" color="text.secondary">
-                      ตำแหน่ง (X / Y)
-                    </Typography>
-                  </Stack>
-                  <Stack spacing={1.5}>
-                    <Slider
-                      size="small"
-                      value={imgPos.x}
-                      onChange={(_, v) => setImgPos((p) => ({ ...p, x: Number(v) }))}
-                      min={0}
-                      max={100}
-                      valueLabelDisplay="auto"
-                      aria-label="ตำแหน่งแนวนอน (X)"
-                    />
-                    <Slider
-                      size="small"
-                      value={imgPos.y}
-                      onChange={(_, v) => setImgPos((p) => ({ ...p, y: Number(v) }))}
-                      min={0}
-                      max={100}
-                      valueLabelDisplay="auto"
-                      aria-label="ตำแหน่งแนวตั้ง (Y)"
+            {/* Position Sliders */}
+            {hasImage && (
+              <Box sx={{ mt: 2, width: previewSize }}>
+                <Stack spacing={1}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="caption" sx={{ width: 20 }}>X</Typography>
+                    <Slider 
+                      size="small" 
+                      value={imgPos.x} 
+                      onChange={(_, v) => setImgPos(p => ({ ...p, x: v as number }))} 
                     />
                   </Stack>
-                  <Button onClick={centerImage} size="small" variant="outlined" startIcon={<CenterIcon />}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="caption" sx={{ width: 20 }}>Y</Typography>
+                    <Slider 
+                      size="small" 
+                      value={imgPos.y} 
+                      onChange={(_, v) => setImgPos(p => ({ ...p, y: v as number }))} 
+                    />
+                  </Stack>
+                  <Button 
+                    size="small" 
+                    variant="outlined" 
+                    startIcon={<CenterIcon />} 
+                    onClick={() => setImgPos({ x: 50, y: 50 })}
+                    fullWidth
+                  >
                     จัดกึ่งกลาง
                   </Button>
                 </Stack>
               </Box>
+            )}
+          </Box>
 
-              {/* Controls ฝั่งขวา */}
-              <Stack spacing={1} flex={1} sx={{ width: '100%' }}>
-                <Typography variant="subtitle1" color="text.secondary">
-                  รูปโปรไฟล์
-                </Typography>
+          {/* Right: Form & Actions */}
+          <Box sx={{ flex: 1 }}>
+            <Card variant="outlined">
+              <CardContent>
+                <Stack spacing={3}>
+                  {/* Photo Selection */}
+                  <Box>
+                    <Tabs value={photoMode} onChange={(_, v) => setPhotoMode(v)} sx={{ mb: 2, minHeight: 36 }}>
+                      <Tab label="อัปโหลดไฟล์" value="upload" icon={<UploadIcon fontSize="small" />} iconPosition="start" sx={{ minHeight: 36 }} />
+                      <Tab label="ใช้ลิงก์ URL" value="link" icon={<LinkIcon fontSize="small" />} iconPosition="start" sx={{ minHeight: 36 }} />
+                    </Tabs>
 
-                <Tabs
-                  value={photoMode}
-                  onChange={(_, v) => setPhotoMode(v)}
-                  sx={{
-                    minHeight: 36,
-                    '& .MuiTab-root': { minHeight: 36, textTransform: 'none' },
-                    '& .MuiTabs-flexContainer': { flexWrap: 'wrap' }, // กันล้นบนมือถือ
-                  }}
-                >
-                  <Tab icon={<UploadIcon fontSize="small" />} iconPosition="start" value="upload" label="อัปโหลดไฟล์" />
-                  <Tab icon={<LinkIcon fontSize="small" />} iconPosition="start" value="link" label="ใช้ลิงก์รูปภาพ" />
-                </Tabs>
-
-                {photoMode === 'upload' ? (
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      hidden
-                      onChange={onFileSelected}
-                    />
-                    <Button
-                      variant="outlined"
-                      startIcon={<UploadIcon />}
-                      onClick={onPickFile}
-                      disabled={uploading}
-                      fullWidth={isMobile}
-                    >
-                      เลือกรูปภาพ…
-                    </Button>
-
-                    {photoURL && (
-                      <Tooltip title="ลบรูปออกจากฟอร์ม (ยังไม่บันทึก)">
-                        <IconButton onClick={clearPhoto} color="error" size="small">
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
+                    {photoMode === 'upload' ? (
+                      <Stack direction="row" spacing={2} alignItems="center">
+                        <Button
+                          component="label"
+                          variant="outlined"
+                          startIcon={<UploadIcon />}
+                          disabled={uploading}
+                        >
+                          เลือกรูปภาพ...
+                          <input type="file" hidden accept="image/*" ref={fileInputRef} onChange={handleFileSelect} />
+                        </Button>
+                        {uploading && <CircularProgress size={24} />}
+                        {hasImage && !uploading && (
+                          <IconButton color="error" onClick={clearPhoto} size="small">
+                            <DeleteIcon />
+                          </IconButton>
+                        )}
+                      </Stack>
+                    ) : (
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label="วางลิงก์รูปภาพ (URL)"
+                        value={photoURL}
+                        onChange={(e) => setPhotoURL(e.target.value)}
+                        placeholder="https://example.com/image.jpg"
+                        InputProps={{
+                          endAdornment: hasImage && (
+                            <InputAdornment position="end">
+                              <IconButton onClick={clearPhoto} edge="end" size="small"><DeleteIcon /></IconButton>
+                            </InputAdornment>
+                          )
+                        }}
+                      />
                     )}
-                  </Stack>
-                ) : (
-                  <TextField
-                    label="ลิงก์รูปภาพ (URL)"
-                    value={photoURL}
-                    onChange={(e) => {
-                      setPhotoURL(e.target.value);
-                      setImgPos({ x: 50, y: 50 });
-                    }}
-                    placeholder="https://example.com/avatar.jpg"
-                    fullWidth
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <LinkIcon fontSize="small" />
-                        </InputAdornment>
-                      ),
-                      endAdornment: photoURL ? (
-                        <InputAdornment position="end">
-                          <Tooltip title="ลบลิงก์">
-                            <IconButton size="small" onClick={clearPhoto}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </InputAdornment>
-                      ) : undefined,
-                    }}
-                  />
-                )}
-
-                {uploading && (
-                  <Box sx={{ pt: 1 }}>
-                    <LinearProgress
-                      variant={uploadProgress != null ? 'determinate' : 'indeterminate'}
-                      value={uploadProgress ?? undefined}
-                    />
-                    <Typography variant="caption" color="text.secondary">
-                      {uploadProgress != null ? `กำลังอัปโหลด… ${uploadProgress}%` : 'กำลังอัปโหลด…'}
-                    </Typography>
+                    
+                    {uploading && (
+                        <Box sx={{ mt: 1 }}>
+                            <LinearProgress variant="determinate" value={uploadProgress || 0} />
+                            <Typography variant="caption" color="text.secondary" align="right" display="block">
+                                กำลังอัปโหลด... {uploadProgress}%
+                            </Typography>
+                        </Box>
+                    )}
                   </Box>
-                )}
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
 
-        {/* Info fields */}
-        <Card elevation={1} sx={{ borderRadius: 3 }}>
-          <CardHeader title="ข้อมูลบัญชี" />
-          <CardContent>
-            <Stack spacing={2}>
-              <TextField label="อีเมล (ล็อกไว้)" value={email} fullWidth disabled />
-              <TextField label="สังกัด/แผนก (ล็อกไว้)" value={String(department)} fullWidth disabled />
+                  <Divider />
 
-              <TextField
-                label="ชื่อที่แสดง (displayName)"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                fullWidth
-              />
+                  {/* Text Fields */}
+                  <Stack spacing={2}>
+                    <TextField
+                      label="อีเมล (Email)"
+                      value={currentAdmin.email}
+                      disabled
+                      fullWidth
+                      helperText="ไม่สามารถเปลี่ยนอีเมลได้"
+                    />
+                    
+                    <TextField
+                      label="ชื่อที่แสดง (Display Name)"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      fullWidth
+                      required
+                      error={!displayName.trim()}
+                      helperText={!displayName.trim() ? "กรุณาระบุชื่อ" : "ชื่อที่แสดงในระบบ"}
+                    />
 
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField
-                  label="ชื่อจริง (firstName)"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  fullWidth
-                />
-                <TextField
-                  label="นามสกุล (lastName)"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  fullWidth
-                />
-              </Stack>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                      <TextField
+                        label="ชื่อจริง"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        fullWidth
+                      />
+                      <TextField
+                        label="นามสกุล"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        fullWidth
+                      />
+                    </Stack>
+                  </Stack>
 
-              <Alert severity="info" sx={{ borderRadius: 2 }}>
-                • ไม่สามารถแก้ “สังกัด” และ “อีเมล” ได้จากหน้านี้<br />
-                • หากต้องการเปลี่ยนสังกัดหรืออีเมล โปรดติดต่อผู้ดูแลระบบระดับสูงกว่า
-              </Alert>
+                  {/* Actions */}
+                  <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ pt: 2 }}>
+                    <Button 
+                        startIcon={<ResetIcon />} 
+                        onClick={resetChanges} 
+                        disabled={saving || uploading}
+                    >
+                        คืนค่าเดิม
+                    </Button>
+                    <Button 
+                        variant="contained" 
+                        startIcon={<SaveIcon />} 
+                        onClick={handleSave} 
+                        disabled={saving || uploading || !displayName.trim()}
+                    >
+                        {saving ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง'}
+                    </Button>
+                  </Stack>
 
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="flex-end">
-                <Button
-                  variant="outlined"
-                  startIcon={<ResetIcon />}
-                  onClick={resetChanges}
-                  disabled={saving || uploading}
-                >
-                  รีเซ็ต
-                </Button>
-                <Button
-                  variant="contained"
-                  startIcon={<SaveIcon />}
-                  onClick={onSave}
-                  disabled={saving || uploading}
-                >
-                  {saving ? 'กำลังบันทึก…' : 'บันทึกโปรไฟล์'}
-                </Button>
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Box>
+        </GridContainer>
       </Stack>
     </Paper>
   );
 }
+
+// Helper Component for Layout
+const GridContainer = ({ children }: { children: React.ReactNode }) => (
+  <Box sx={{ 
+    display: 'grid', 
+    gridTemplateColumns: { xs: '1fr', md: 'auto 1fr' }, 
+    gap: 4,
+    alignItems: 'start'
+  }}>
+    {children}
+  </Box>
+);

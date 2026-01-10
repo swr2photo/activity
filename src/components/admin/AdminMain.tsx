@@ -3,6 +3,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { Box, CircularProgress, Alert } from '@mui/material';
+// import { getAuth, onAuthStateChanged } from 'firebase/auth'; // ❌ เอาออกได้ถ้าไม่ใช้เช็ค Token
+
 import { AdminLayout } from './AdminLayout';
 import { DepartmentDashboard } from './DepartmentDashboard';
 import { AdminManagement } from './AdminManagement';
@@ -53,6 +55,23 @@ export const AdminMain: React.FC<AdminMainProps> = ({
   useEffect(() => {
     if (initialSection) setActiveSection(initialSection);
   }, [initialSection]);
+
+  // 🟢 ลบส่วนตรวจสอบ Role (Debug Mode) ที่แสดง Alert ออก 🟢
+  // หรือถ้าอยากเก็บไว้ Debug ให้เปลี่ยนเป็น console.log อย่างเดียว
+  /*
+  useEffect(() => {
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        user.getIdTokenResult(true).then((idTokenResult) => {
+            const role = idTokenResult.claims.role;
+            console.log("🔑 Token Role:", role); // Log เงียบๆ แทน
+        }).catch(console.error);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+  */
 
   // เมื่อเปลี่ยนหน้า ให้บันทึกลง localStorage
   const handleSectionChange = (section: string) => {

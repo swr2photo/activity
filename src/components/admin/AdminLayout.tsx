@@ -15,11 +15,12 @@ import {
 } from '@mui/icons-material';
 
 import { signOut } from 'firebase/auth';
-import { auth, db } from '../../lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 
-import type { AdminProfile, AdminPermission } from '../../types/admin';
-import { DEPARTMENT_LABELS, ROLE_LABELS, ROLE_PERMISSIONS } from '../../types/admin';
+// ✅ ใช้ Absolute Imports
+import { auth, db } from '@/lib/firebase';
+import type { AdminProfile, AdminPermission } from '@/types/admin';
+import { DEPARTMENT_LABELS, ROLE_LABELS, ROLE_PERMISSIONS } from '@/types/admin';
 
 const DRAWER_WIDTH = 280;
 
@@ -69,23 +70,31 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
   // sync ครั้งแรก + subscribe realtime
   useEffect(() => {
+    // ✅ FIX: ป้องกัน Error ถ้า currentAdmin หรือ uid ยังไม่พร้อม
+    if (!currentAdmin?.uid) return;
+
     setLiveAdmin(currentAdmin);
-    const ref = doc(db, 'adminUsers', currentAdmin.uid);
-    const unsub = onSnapshot(ref, (snap) => {
-      if (!snap.exists()) return;
-      const d = snap.data() as Partial<AdminProfile>;
-      // merge โดยคงค่าเดิมไว้ถ้าไม่มีในเอกสาร
-      setLiveAdmin((prev) => ({
-        ...prev,
-        ...d,
-        // กัน permissions undefined
-        permissions: Array.isArray(d.permissions) ? (d.permissions as AdminPermission[]) : (prev.permissions ?? ROLE_PERMISSIONS[prev.role] ?? []),
-        // กันค่ารูป undefined (ไม่เขียนทับด้วย undefined)
-        profileImage: d.profileImage !== undefined ? d.profileImage : prev.profileImage,
-      }));
-    });
-    return () => unsub();
-  }, [currentAdmin.uid]);
+    
+    try {
+      const ref = doc(db, 'adminUsers', currentAdmin.uid);
+      const unsub = onSnapshot(ref, (snap) => {
+        if (!snap.exists()) return;
+        const d = snap.data() as Partial<AdminProfile>;
+        // merge โดยคงค่าเดิมไว้ถ้าไม่มีในเอกสาร
+        setLiveAdmin((prev) => ({
+          ...prev,
+          ...d,
+          // กัน permissions undefined
+          permissions: Array.isArray(d.permissions) ? (d.permissions as AdminPermission[]) : (prev.permissions ?? ROLE_PERMISSIONS[prev.role] ?? []),
+          // กันค่ารูป undefined (ไม่เขียนทับด้วย undefined)
+          profileImage: d.profileImage !== undefined ? d.profileImage : prev.profileImage,
+        }));
+      });
+      return () => unsub();
+    } catch (e) {
+      console.error("Error subscribing to admin profile:", e);
+    }
+  }, [currentAdmin?.uid]); // ✅ ใช้ Optional chaining ใน dependency array
 
   // -------------------
   // Drawer / Navbar state
@@ -395,7 +404,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       <Dialog open={logoutDialog} onClose={handleLogoutCancel} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ textAlign: 'center', pb: 1, bgcolor: 'warning.light', color: 'warning.dark' }}>
           <WarningIcon sx={{ fontSize: 40, mb: 1, color: 'warning.main' }} />
-          <Typography variant="h6" fontWeight="bold">ยืนยันการออกจากระบบ</Typography>
+          {/* ✅ แก้ไข: เพิ่ม component="div" เพื่อแก้ปัญหา Nesting Error (h6 inside h2) */}
+          <Typography variant="h6" component="div" fontWeight="bold">ยืนยันการออกจากระบบ</Typography>
         </DialogTitle>
         <DialogContent sx={{ p: 3, textAlign: 'center' }}>
           {logoutError && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{logoutError}</Alert>}

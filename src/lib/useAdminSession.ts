@@ -18,11 +18,8 @@ export type UseAdminSessionOpts = {
 };
 
 export type UseAdminSessionReturn = {
-  /** เวลาคงเหลือ (ms) ถ้าไม่เปิดใช้งานจะเป็น null */
   remainingMs: number | null;
-  /** ต่ออายุ (เริ่มนับใหม่ตาม minutes เดิม) */
   renew: () => void;
-  /** จบเซสชัน (ลบ localStorage และหยุดตัวจับเวลา) */
   end: () => void;
 };
 
@@ -57,13 +54,20 @@ function writeSession(minutes: number): SessionPayload {
   return payload;
 }
 
+/** * ✅ เริ่ม/ต่ออายุเซสชันทันที (สำหรับเรียกหลังล็อกอิน)
+ * - minutes คืออายุเซสชัน (เช่น 30)
+ */
+export function startSession(_unusedUid: string | number, minutes?: number) {
+  const mins = typeof minutes === 'number' ? minutes : 30;
+  writeSession(mins);
+}
+
 /* ------------- main hook ------------- */
 export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSessionReturn {
   const { minutes, enabled, onExpire } = opts;
 
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
 
-  // เก็บ id ของ interval/timeout แบบ number (หลีกเลี่ยง NodeJS.Timer type)
   const tickId = useRef<number | null>(null);
   const expireId = useRef<number | null>(null);
 
@@ -91,7 +95,6 @@ export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSess
       const left2 = s ? Math.max(0, s.expiresAt - now2) : 0;
       setRemainingMs(s ? left2 : 0);
       if (!s || left2 <= 0) {
-        // จบเอง (กัน race condition)
         clearTimers();
         endSession();
         setRemainingMs(0);
@@ -126,33 +129,27 @@ export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSess
       return;
     }
 
-    // มีเซสชันเดิมอยู่ไหม
     const existing = getSession();
     if (existing && existing.expiresAt > Date.now()) {
-      // ใช้ของเดิมต่อ (นับเวลาที่เหลือ)
       schedule(existing);
     } else {
-      // สร้างใหม่
       const s = writeSession(minutes);
       schedule(s);
     }
 
-    // cleanup
-    return () => {
-      clearTimers();
-    };
+    return () => clearTimers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, minutes]);
 
-  // ต่ออายุเมื่อผู้ใช้กลับมาหน้าเว็บ (ตัวเลือก: ถ้าไม่ต้องการ auto-extend ให้คอมเมนต์ส่วนนี้)
+  // ต่ออายุเมื่อผู้ใช้กลับมาหน้าเว็บ (Auto-extend)
   useEffect(() => {
     const onVis = () => {
       if (!enabled) return;
       const s = getSession();
       if (!s) return;
-      // ถ้าเหลือน้อยกว่า 60 วิ ให้ต่ออายุให้
       const left = s.expiresAt - Date.now();
-      if (left <= 60_000) {
+      // ถ้าเหลือน้อยกว่า 1 นาที ให้ต่ออายุอัตโนมัติ
+      if (left <= 60_000 && left > 0) {
         renew();
       }
     };
@@ -162,29 +159,7 @@ export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSess
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
     };
-  }, [enabled]); // minutes ไม่ต้อง เพราะเราเช็คจาก session ปัจจุบัน
+  }, [enabled]);
 
   return useMemo(() => ({ remainingMs, renew, end }), [remainingMs]);
-}
-
-// --- ใส่เพิ่มใน src/lib/useAdminSession.ts ---
-
-/** เริ่ม/ต่ออายุเซสชันทันที (สำหรับเรียกหลังล็อกอิน)
- *  - พารามิเตอร์แรกจะถูกมองข้าม (เผื่อคุณอยากส่ง uid)
- *  - minutes คืออายุเซสชัน (เช่น 30)
- *  - ตัว hook จะเป็นคนตั้ง timer เองเมื่อ enabled=true
- */
-export function startSession(_: string | number, minutes?: number) {
-  const mins = typeof minutes === 'number' ? minutes : 30;
-  // ใช้ตัวช่วยเดิมในไฟล์เพื่อเขียนค่า session ลง localStorage
-  // โดยไม่ตั้ง timer ที่นี่ (ให้ hook เป็นคนจัดการ)
-  const now = Date.now();
-  const payload = {
-    startedAt: now,
-    expiresAt: now + mins * 60 * 1000,
-    minutes: mins,
-  };
-  try {
-    localStorage.setItem('adminSession', JSON.stringify(payload));
-  } catch {}
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Typography } from '@mui/material';
+import { Alert, Typography, Box } from '@mui/material';
 import type { AdminProfile, AdminPermission, AdminRole, AdminDepartment } from '../../types/admin';
 
 interface AdminRoleGuardProps {
@@ -19,26 +19,29 @@ export const AdminRoleGuard: React.FC<AdminRoleGuardProps> = ({
   children,
   fallback
 }) => {
+  // 1. เช็คว่ามี Admin Profile หรือไม่
   if (!currentAdmin) {
     return (
-      <Alert severity="error">
-        <Typography>ไม่มีสิทธิ์เข้าถึง กรุณาเข้าสู่ระบบใหม่</Typography>
-      </Alert>
+      <Box p={2}>
+        <Alert severity="error">
+          <Typography>ไม่มีสิทธิ์เข้าถึง: ไม่พบข้อมูลผู้ดูแลระบบ กรุณาเข้าสู่ระบบใหม่</Typography>
+        </Alert>
+      </Box>
     );
   }
 
-  // permission
+  // 2. เช็ค Permission (ถ้ามีการระบุ)
   if (requiredPermission && !currentAdmin.permissions.includes(requiredPermission)) {
     return (
-      fallback || (
-        <Alert severity="warning">
-          <Typography>คุณไม่มีสิทธิ์ในการดำเนินการนี้</Typography>
+      <>{fallback || (
+        <Alert severity="warning" sx={{ my: 2 }}>
+          <Typography>คุณไม่มีสิทธิ์ในการดำเนินการนี้ (Missing: {requiredPermission})</Typography>
         </Alert>
-      )
+      )}</>
     );
   }
 
-  // role hierarchy
+  // 3. เช็ค Role Hierarchy (ถ้ามีการระบุ)
   if (requiredRole) {
     const roleHierarchy: AdminRole[] = ['viewer', 'moderator', 'department_admin', 'super_admin'];
     const currentRoleIndex = roleHierarchy.indexOf(currentAdmin.role);
@@ -46,25 +49,30 @@ export const AdminRoleGuard: React.FC<AdminRoleGuardProps> = ({
 
     if (currentRoleIndex < requiredRoleIndex) {
       return (
-        fallback || (
-          <Alert severity="warning">
-            <Typography>คุณไม่มีสิทธิ์ในระดับที่เพียงพอ</Typography>
+        <>{fallback || (
+          <Alert severity="warning" sx={{ my: 2 }}>
+            <Typography>ระดับสิทธิ์ของคุณไม่เพียงพอ (Required: {requiredRole})</Typography>
           </Alert>
-        )
+        )}</>
       );
     }
   }
 
-  // department scope
-  if (allowedDepartments && currentAdmin.department !== 'all' && !allowedDepartments.includes(currentAdmin.department)) {
+  // 4. เช็ค Department Scope (ถ้ามีการระบุ และ Admin ไม่ใช่ 'all')
+  if (
+    allowedDepartments && 
+    currentAdmin.department !== 'all' && 
+    !allowedDepartments.includes(currentAdmin.department)
+  ) {
     return (
-      fallback || (
-        <Alert severity="warning">
-          <Typography>คุณไม่มีสิทธิ์เข้าถึงข้อมูลแผนกนี้</Typography>
+      <>{fallback || (
+        <Alert severity="warning" sx={{ my: 2 }}>
+          <Typography>คุณไม่มีสิทธิ์เข้าถึงข้อมูลของแผนกนี้</Typography>
         </Alert>
-      )
+      )}</>
     );
   }
 
+  // ผ่านทุกด่าน
   return <>{children}</>;
 };

@@ -13,10 +13,11 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  useMediaQuery,
   Card,
   CardContent,
   Chip,
+  InputAdornment,
+  Fade,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
@@ -24,8 +25,9 @@ import { db } from "../lib/firebase";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ActivityCard from "@/components/ActivityCard";
-import { Refresh } from "@mui/icons-material";
+import { Refresh, Search, EventAvailable, AccessTime, InfoOutlined, FilterList } from "@mui/icons-material";
 
+// --- Types (เหมือนเดิม) ---
 type ActivityListItem = {
   id: string;
   activityCode: string;
@@ -38,8 +40,6 @@ type ActivityListItem = {
   currentParticipants?: number;
   bannerUrl?: string;
   bannerColor?: string;
-  bannerTintColor?: string;
-  bannerTintOpacity?: number;
   bannerAspect?: string;
   closeReason?: string;
 };
@@ -53,13 +53,12 @@ const getStatus = (a: ActivityListItem): { key: StatusKey; label: string; tone: 
   const now = new Date();
   const start = a.startDateTime ? toDate(a.startDateTime) : null;
   const end = a.endDateTime ? toDate(a.endDateTime) : null;
-
-  if (a.isActive === false) return { key: "inactive", label: a.closeReason || "ปิดใช้งาน", tone: "default" };
+  if (a.isActive === false) return { key: "inactive", label: a.closeReason || "ปิดรับ", tone: "default" };
   if (start && now < start) return { key: "upcoming", label: "กำลังจะเปิด", tone: "info" };
-  if (end && now > end) return { key: "ended", label: "สิ้นสุดแล้ว", tone: "default" };
+  if (end && now > end) return { key: "ended", label: "สิ้นสุดแล้ว", tone: "error" };
   if ((a.maxParticipants || 0) > 0 && (a.currentParticipants || 0) >= (a.maxParticipants || 0))
     return { key: "full", label: "เต็มแล้ว", tone: "warning" };
-  return { key: "active", label: "กำลังจัด", tone: "success" };
+  return { key: "active", label: "เปิดรับสมัคร", tone: "success" };
 };
 
 const isSoon = (a: ActivityListItem, hours = 24) => {
@@ -72,7 +71,6 @@ const isSoon = (a: ActivityListItem, hours = 24) => {
 
 const HomePage: React.FC = () => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState<ActivityListItem[]>([]);
   const [error, setError] = useState("");
@@ -83,247 +81,174 @@ const HomePage: React.FC = () => {
     try {
       setLoading(true);
       setError("");
-
       const qRef = query(
         collection(db, "activityQRCodes"),
         where("activityCode", "!=", ""),
         orderBy("activityCode", "asc"),
-        limit(250)
+        limit(100)
       );
-
       const snap = await getDocs(qRef);
-      const list: ActivityListItem[] = snap.docs.map((d) => {
-        const data: any = d.data();
-        return {
-          id: d.id,
-          activityCode: (data.activityCode || "").toString().trim(),
-          activityName: (data.activityName || "กิจกรรม").toString(),
-          location: data.location || "",
-          startDateTime: data.startDateTime,
-          endDateTime: data.endDateTime,
-          isActive: data.isActive !== undefined ? !!data.isActive : true,
-          maxParticipants: Number(data.maxParticipants || 0),
-          currentParticipants: Number(data.currentParticipants || 0),
-          bannerUrl: data.bannerUrl,
-          bannerColor: data.bannerColor,
-          bannerTintColor: data.bannerTintColor,
-          bannerTintOpacity: typeof data.bannerTintOpacity === "number" ? data.bannerTintOpacity : undefined,
-          bannerAspect: data.bannerAspect,
-          closeReason: data.closeReason || "",
-        };
-      });
-
+      const list: ActivityListItem[] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
       setActivities(list.filter((x) => !!x.activityCode));
-    } catch {
+    } catch (e) {
       setError("ไม่สามารถโหลดรายการกิจกรรมได้");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchActivities();
-  }, []);
+  useEffect(() => { fetchActivities(); }, []);
 
   const counts = useMemo(() => {
-    const c = { all: activities.length, active: 0, ended: 0, upcoming: 0, soon: 0 };
-    for (const a of activities) {
+    const c = { all: activities.length, active: 0, soon: 0 };
+    activities.forEach(a => {
       const s = getStatus(a).key;
-      if (s === "active") c.active += 1;
-      if (s === "ended") c.ended += 1;
-      if (s === "upcoming") c.upcoming += 1;
-      if (isSoon(a, 24) && s === "upcoming") c.soon += 1;
-    }
+      if (s === "active") c.active++;
+      if (s === "upcoming" && isSoon(a, 24)) c.soon++;
+    });
     return c;
   }, [activities]);
 
-  const searched = useMemo(() => {
+  const filteredAndSorted = useMemo(() => {
     const t = qText.trim().toLowerCase();
-    if (!t) return activities;
-    return activities.filter((a) => {
-      const code = (a.activityCode || "").toLowerCase();
-      const name = (a.activityName || "").toLowerCase();
-      const loc = (a.location || "").toLowerCase();
-      return code.includes(t) || name.includes(t) || loc.includes(t);
+    let result = activities.filter(a => {
+      const matchSearch = !t || a.activityCode.toLowerCase().includes(t) || a.activityName.toLowerCase().includes(t) || (a.location || "").toLowerCase().includes(t);
+      const s = getStatus(a).key;
+      const matchFilter = filter === "all" || (filter === "active" && s === "active") || (filter === "ended" && s === "ended") || (filter === "upcoming" && s === "upcoming") || (filter === "soon" && s === "upcoming" && isSoon(a, 24));
+      return matchSearch && matchFilter;
     });
-  }, [activities, qText]);
-
-  const filtered = useMemo(() => {
-    if (filter === "all") return searched;
-    if (filter === "active") return searched.filter((a) => getStatus(a).key === "active");
-    if (filter === "ended") return searched.filter((a) => getStatus(a).key === "ended");
-    if (filter === "upcoming") return searched.filter((a) => getStatus(a).key === "upcoming");
-    if (filter === "soon") return searched.filter((a) => getStatus(a).key === "upcoming" && isSoon(a, 24));
-    return searched;
-  }, [searched, filter]);
-
-  const sorted = useMemo(() => {
     const rank = (s: StatusKey) => (s === "active" ? 0 : s === "upcoming" ? 1 : s === "full" ? 2 : 3);
-    const copy = [...filtered];
-    copy.sort((a, b) => {
-      const sa = getStatus(a).key;
-      const sb = getStatus(b).key;
-      const r = rank(sa) - rank(sb);
-      if (r !== 0) return r;
-
-      const da = a.startDateTime ? toDate(a.startDateTime).getTime() : 0;
-      const db = b.startDateTime ? toDate(b.startDateTime).getTime() : 0;
-      return da - db;
-    });
-    return copy;
-  }, [filtered]);
+    return result.sort((a, b) => rank(getStatus(a).key) - rank(getStatus(b).key));
+  }, [activities, qText, filter]);
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#f8fafc" }}>
       <Navbar />
 
-      {/* Main Content */}
-      <Box
-        sx={{
-          flex: 1,
-          pt: { xs: 3, md: 5 },
-          pb: { xs: 4, md: 6 },
-          background: `
-            radial-gradient(1200px 600px at 100% -40%, ${alpha(theme.palette.primary.main, 0.08)}, transparent 60%),
-            radial-gradient(900px 500px at -10% -20%, ${alpha(theme.palette.secondary.main, 0.06)}, transparent 60%),
-            linear-gradient(180deg, ${theme.palette.background.default}, ${theme.palette.background.paper})
-          `,
-        }}
-      >
-        <Container maxWidth="lg">
-          {/* Hero Section */}
-          <Box sx={{ mb: 4 }}>
-            <Typography
-              variant="h3"
-              fontWeight={950}
-              sx={{
-                background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                mb: 1,
-              }}
-            >
-              ลงทะเบียนกิจกรรมชุมนุม
-            </Typography>
-            <Typography variant="h6" color="text.secondary" sx={{ fontWeight: 500 }}>
-              เลือกกิจกรรมที่คุณสนใจเพื่อเข้าร่วมการจัดการลงทะเบียน
-            </Typography>
-          </Box>
+      {/* Hero Header */}
+      <Box sx={{ 
+        bgcolor: 'primary.main', 
+        color: 'white', 
+        pt: { xs: 8, md: 12 }, 
+        pb: { xs: 15, md: 20 },
+        textAlign: 'center',
+        position: 'relative',
+        overflow: 'hidden',
+        background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 100%)`
+      }}>
+        <Box sx={{ 
+          position: 'absolute', top: '-10%', left: '-5%', width: '40%', height: '80%', 
+          borderRadius: '50%', background: alpha('#fff', 0.1), filter: 'blur(80px)' 
+        }} />
+        
+        <Container maxWidth="md">
+          <Fade in timeout={800}>
+            <Box>
+              <Typography variant="h2" fontWeight={900} sx={{ fontSize: { xs: '2.5rem', md: '4rem' }, mb: 2, letterSpacing: -1 }}>
+                ค้นพบกิจกรรมที่คุณชอบ
+              </Typography>
+              <Typography variant="h6" sx={{ opacity: 0.9, fontWeight: 400, mb: 4, px: 2 }}>
+                ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ. สะดวก รวดเร็ว และแม่นยำ
+              </Typography>
+            </Box>
+          </Fade>
+        </Container>
+      </Box>
 
-          {/* Search & Filter Section */}
-          <Stack spacing={2} sx={{ mb: 3.5 }}>
-            {/* Search */}
-            <TextField
-              value={qText}
-              onChange={(e) => setQText(e.target.value)}
-              placeholder="ค้นหา: รหัส / ชื่อกิจกรรม / สถานที่"
-              fullWidth
-              size="medium"
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: 2,
-                  background: alpha("#ffffff", 0.7),
-                  backdropFilter: "blur(10px)",
-                  fontSize: "0.95rem",
-                  "&:hover, &.Mui-focused": {
-                    background: alpha("#ffffff", 0.85),
-                  },
-                },
-              }}
-            />
+      <Container maxWidth="lg" sx={{ mt: -10, mb: 10, position: 'relative', zIndex: 2 }}>
+        {/* Floating Search & Filter Bar */}
+        <Card sx={{ 
+          p: { xs: 2, md: 3 }, 
+          borderRadius: 6, 
+          boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+          border: '1px solid',
+          borderColor: alpha(theme.palette.divider, 0.1),
+          backdropFilter: 'blur(20px)',
+          bgcolor: alpha('#fff', 0.95)
+        }}>
+          <Stack spacing={3}>
+            <Grid container spacing={2} alignItems="center">
+              <Grid size={{ xs: 12, md: 8 }}>
+                <TextField
+                  fullWidth
+                  placeholder="ค้นหาชื่อกิจกรรม รหัส หรือสถานที่..."
+                  value={qText}
+                  onChange={(e) => setQText(e.target.value)}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start"><Search color="primary" /></InputAdornment>,
+                    sx: { borderRadius: 4, bgcolor: '#f1f5f9', border: 'none', '& fieldset': { border: 'none' } }
+                  }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                   {/* แก้ไข Chip Soft Variant เป็นการใช้ Filled + Alpha แทน */}
+                  <Chip 
+                    icon={<EventAvailable sx={{ fontSize: '1.2rem !important' }} />} 
+                    label={`เปิดรับ ${counts.active}`} 
+                    sx={{ bgcolor: alpha(theme.palette.success.main, 0.1), color: 'success.dark', fontWeight: 700, borderRadius: 2 }} 
+                  />
+                  <Button variant="contained" onClick={fetchActivities} sx={{ borderRadius: 4, px: 3, boxShadow: theme.shadows[4] }}>
+                    <Refresh />
+                  </Button>
+                </Stack>
+              </Grid>
+            </Grid>
 
-            {/* Stats */}
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
-              <Chip label={`ทั้งหมด ${counts.all}`} color="default" variant="outlined" sx={{ fontWeight: 950 }} />
-              <Chip label={`กำลังจัด ${counts.active}`} color="success" variant="outlined" sx={{ fontWeight: 950 }} />
-              <Chip label={`เร็วๆนี้ ${counts.soon}`} color="warning" variant="outlined" sx={{ fontWeight: 950 }} />
-              <Box sx={{ flex: 1 }} />
-              <Button startIcon={<Refresh />} onClick={fetchActivities} size="small" variant="outlined" sx={{ borderRadius: 999 }}>
-                รีเฟรช
-              </Button>
+            <Stack direction="row" alignItems="center" spacing={2} sx={{ overflowX: 'auto', pb: 1, '&::-webkit-scrollbar': { display: 'none' } }}>
+              <FilterList color="action" />
+              <ToggleButtonGroup
+                exclusive
+                value={filter}
+                onChange={(_, v) => v && setFilter(v)}
+                sx={{ 
+                  gap: 1, 
+                  '& .MuiToggleButton-root': { 
+                    border: 'none !important', borderRadius: '12px !important', 
+                    px: 3, py: 0.8, whiteSpace: 'nowrap',
+                    color: 'text.secondary', fontWeight: 600,
+                    '&.Mui-selected': { bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }
+                  } 
+                }}
+              >
+                <ToggleButton value="all">ทั้งหมด ({activities.length})</ToggleButton>
+                <ToggleButton value="active">กำลังเปิดรับ</ToggleButton>
+                <ToggleButton value="soon">เร็วๆ นี้</ToggleButton>
+                <ToggleButton value="ended">สิ้นสุดแล้ว</ToggleButton>
+              </ToggleButtonGroup>
             </Stack>
-
-            {/* Filter Buttons */}
-            <ToggleButtonGroup
-              exclusive
-              value={filter}
-              onChange={(_, v) => v && setFilter(v)}
-              fullWidth={isMobile}
-              sx={{
-                display: "flex",
-                gap: 1,
-                flexWrap: "wrap",
-                "& .MuiToggleButton-root": {
-                  border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-                  borderRadius: 2,
-                  textTransform: "none",
-                  fontWeight: 900,
-                  flex: isMobile ? 1 : "auto",
-                  transition: "all .2s",
-                  "&.Mui-selected": {
-                    background: alpha(theme.palette.primary.main, 0.12),
-                    borderColor: theme.palette.primary.main,
-                  },
-                },
-              }}
-            >
-              <ToggleButton value="all">ทั้งหมด</ToggleButton>
-              <ToggleButton value="active">กำลังจัด</ToggleButton>
-              <ToggleButton value="soon">เร็วๆนี้</ToggleButton>
-              <ToggleButton value="upcoming">กำลังจะเปิด</ToggleButton>
-              <ToggleButton value="ended">สิ้นสุด</ToggleButton>
-            </ToggleButtonGroup>
           </Stack>
+        </Card>
 
-          {/* Error Message */}
-          {error && (
-            <Card sx={{ mb: 3, background: alpha("#d32f2f", 0.08) }}>
-              <CardContent>
-                <Typography color="error" fontWeight={700}>
-                  ⚠️ {error}
-                </Typography>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Activities Grid */}
+        {/* Content Section */}
+        <Box sx={{ mt: 6 }}>
           {loading ? (
-            <Grid container spacing={2.5}>
-              {Array.from({ length: 6 }).map((_, i) => (
+            <Grid container spacing={3}>
+              {[1, 2, 3, 4, 5, 6].map(i => (
                 <Grid key={i} size={{ xs: 12, sm: 6, lg: 4 }}>
-                  <Card sx={{ height: 420 }}>
-                    <Skeleton variant="rectangular" height={180} />
-                    <CardContent>
-                      <Skeleton height={30} sx={{ mb: 1 }} />
-                      <Skeleton height={20} width="60%" sx={{ mb: 2 }} />
-                      {Array.from({ length: 3 }).map((_, j) => (
-                        <Skeleton key={j} height={16} sx={{ mb: 1 }} />
-                      ))}
-                    </CardContent>
-                  </Card>
+                  <Skeleton variant="rectangular" height={240} sx={{ borderRadius: 5, mb: 2 }} />
+                  <Skeleton width="60%" height={30} />
+                  <Skeleton width="40%" />
                 </Grid>
               ))}
             </Grid>
-          ) : sorted.length === 0 ? (
-            <Card sx={{ textAlign: "center", py: 5 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight={950} gutterBottom>
-                  ไม่พบกิจกรรม
-                </Typography>
-                <Typography color="text.secondary">ลองค้นหาด้วยคำอื่น หรือเปลี่ยนตัวกรอง</Typography>
-              </CardContent>
-            </Card>
+          ) : filteredAndSorted.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 10 }}>
+              <InfoOutlined sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
+              <Typography variant="h5" fontWeight={700} color="text.secondary">ไม่พบกิจกรรมที่คุณมองหา</Typography>
+              <Button sx={{ mt: 2 }} onClick={() => setQText("")}>ล้างการค้นหา</Button>
+            </Box>
           ) : (
-            <Grid container spacing={2.5}>
-              {sorted.map((a) => (
+            <Grid container spacing={4}>
+              {filteredAndSorted.map((a) => (
                 <Grid key={a.id} size={{ xs: 12, sm: 6, lg: 4 }}>
                   <ActivityCard {...a} status={getStatus(a)} canOpen={getStatus(a).key === "active"} />
                 </Grid>
               ))}
             </Grid>
           )}
-        </Container>
-      </Box>
+        </Box>
+      </Container>
 
       <Footer />
     </Box>

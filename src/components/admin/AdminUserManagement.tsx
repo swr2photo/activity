@@ -2,7 +2,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import Grid from '@mui/material/Grid';
+
+
 import {
   Box,
   Typography,
@@ -25,7 +26,7 @@ import {
   CardContent,
   Container,
   MenuItem,
-  Stack,
+  Stack, 
   Alert,
 } from '@mui/material';
 import {
@@ -228,13 +229,21 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     setPromoteErr('');
     setPromoteUser(u);
     setChosenRole(currentAdmin.role === 'super_admin' ? 'department_admin' : 'moderator');
+    
+    // Safety check for department type
+    let userDept = String(u.department || 'student_union');
+    if (!Object.keys(DEPARTMENT_LABELS).includes(userDept)) {
+        userDept = 'student_union';
+    }
+
     setChosenDept(
       (currentAdmin.department === 'all'
-        ? (String(u.department || 'student_union') as AdminDepartment)
+        ? (userDept as AdminDepartment)
         : currentAdmin.department) as AdminDepartment
     );
     setPromoteOpen(true);
 
+    // Check if already admin
     const ref = doc(db, 'adminUsers', u.uid);
     const snap = await getDoc(ref);
     setAlreadyAdmin(snap.exists());
@@ -259,6 +268,9 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       const dept: AdminDepartment =
         (currentAdmin.department === 'all' ? chosenDept : currentAdmin.department) as AdminDepartment;
 
+      // ใช้ photoURL หรือ profileImage (ถ้ามี)
+      const userImage = promoteUser.photoURL || (promoteUser as any).profileImage || '';
+
       await createAdminUser({
         uid: promoteUser.uid,
         email: promoteUser.email || '',
@@ -272,7 +284,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
         isActive: true,
         createdBy: currentAdmin.uid,
         lastLoginAt: null,
-        profileImage: promoteUser.photoURL || '',
+        profileImage: userImage,
       });
 
       await logAdminEvent(
@@ -282,6 +294,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       );
 
       setPromoteOpen(false);
+      alert('ตั้งค่าผู้ดูแลสำเร็จ! ผู้ใช้จะได้รับสิทธิ์เมื่อล็อกอินครั้งถัดไป');
     } catch (e: any) {
       setPromoteErr(e?.message || 'ไม่สามารถตั้งผู้ใช้เป็นแอดมินได้');
     } finally {
@@ -298,56 +311,59 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
         </Typography>
       </Box>
 
-      {/* Stats */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card>
-            <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar sx={{ bgcolor: 'primary.main' }}><PersonIcon /></Avatar>
-              <Box>
-                <Typography variant="h5">{allUsers.length.toLocaleString()}</Typography>
-                <Typography>ผู้ใช้ทั้งหมด</Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+      {/* ✅ REFACTOR 1: ใช้ Box + CSS Grid แทน Grid Component 
+        - xs (มือถือ): 1 คอลัมน์
+        - sm (แท็บเล็ต): 2 คอลัมน์
+        - md (จอใหญ่): 4 คอลัมน์
+      */}
+      <Box 
+        sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, 
+          gap: 3, 
+          mb: 3 
+        }}
+      >
+        <Card>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={{ bgcolor: 'primary.main' }}><PersonIcon /></Avatar>
+            <Box>
+              <Typography variant="h5">{allUsers.length.toLocaleString()}</Typography>
+              <Typography>ผู้ใช้ทั้งหมด</Typography>
+            </Box>
+          </CardContent>
+        </Card>
 
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card>
-            <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar sx={{ bgcolor: 'warning.main' }}><PersonIcon /></Avatar>
-              <Box>
-                <Typography variant="h5">{pendingUsers.length.toLocaleString()}</Typography>
-                <Typography>รออนุมัติ</Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+        <Card>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={{ bgcolor: 'warning.main' }}><PersonIcon /></Avatar>
+            <Box>
+              <Typography variant="h5">{pendingUsers.length.toLocaleString()}</Typography>
+              <Typography>รออนุมัติ</Typography>
+            </Box>
+          </CardContent>
+        </Card>
 
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card>
-            <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar sx={{ bgcolor: 'success.main' }}><PersonIcon /></Avatar>
-              <Box>
-                <Typography variant="h5">{allUsers.filter((u) => u.isVerified).length.toLocaleString()}</Typography>
-                <Typography>อนุมัติแล้ว</Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+        <Card>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={{ bgcolor: 'success.main' }}><PersonIcon /></Avatar>
+            <Box>
+              <Typography variant="h5">{allUsers.filter((u) => u.isVerified).length.toLocaleString()}</Typography>
+              <Typography>อนุมัติแล้ว</Typography>
+            </Box>
+          </CardContent>
+        </Card>
 
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card>
-            <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar sx={{ bgcolor: 'error.main' }}><PersonIcon /></Avatar>
-              <Box>
-                <Typography variant="h5">{allUsers.filter((u) => !u.isActive).length.toLocaleString()}</Typography>
-                <Typography>ถูกระงับ</Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        <Card>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={{ bgcolor: 'error.main' }}><PersonIcon /></Avatar>
+            <Box>
+              <Typography variant="h5">{allUsers.filter((u) => !u.isActive).length.toLocaleString()}</Typography>
+              <Typography>ถูกระงับ</Typography>
+            </Box>
+          </CardContent>
+        </Card>
+      </Box>
 
       {/* Controls */}
       <Card sx={{ mb: 2 }}>
@@ -378,7 +394,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
         </CardContent>
       </Card>
 
-      {/* Tabs */}
+      {/* Tabs & List */}
       <Card>
         <CardContent>
           <Tabs value={tab} onChange={(_, v) => setTab(v)}>
@@ -392,91 +408,90 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                 {tab === 0 ? 'ไม่มีผู้ใช้ที่รออนุมัติ' : 'ไม่มีผู้ใช้ในระบบ'}
               </Typography>
             ) : (
-              <Grid container spacing={1}>
+              // ✅ REFACTOR 2: ใช้ Stack แทน Grid สำหรับรายการแนวตั้ง (Vertical List)
+              <Stack spacing={1}>
                 {filtered.map((u) => (
-                  <Grid key={u.uid} size={{ xs: 12 }}>
-                    <Card variant="outlined">
-                      <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                        <Avatar src={u.photoURL}>{(u.firstName || u.displayName || 'U').charAt(0)}</Avatar>
+                  <Card key={u.uid} variant="outlined">
+                    <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                      <Avatar src={u.photoURL}>{(u.firstName || u.displayName || 'U').charAt(0)}</Avatar>
 
-                        <Box sx={{ minWidth: 220 }}>
-                          <Typography fontWeight={600}>{u.firstName} {u.lastName}</Typography>
-                          <Typography variant="caption" color="text.secondary">{u.email}</Typography>
-                        </Box>
+                      <Box sx={{ minWidth: 220 }}>
+                        <Typography fontWeight={600}>{u.firstName} {u.lastName}</Typography>
+                        <Typography variant="caption" color="text.secondary">{u.email}</Typography>
+                      </Box>
 
-                        <Box sx={{ minWidth: 180 }}>
-                          <Typography variant="body2">
-                            รหัส: <b>{u.studentId || '-'}</b>
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {u.faculty} • {String(u.department || '')}
-                          </Typography>
-                        </Box>
+                      <Box sx={{ minWidth: 180 }}>
+                        <Typography variant="body2">
+                          รหัส: <b>{u.studentId || '-'}</b>
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {u.faculty} • {String(u.department || '')}
+                        </Typography>
+                      </Box>
 
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <Chip size="small" label={u.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'} color={u.isVerified ? 'success' : 'warning'} />
-                          <Chip size="small" label={u.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} color={u.isActive ? 'success' : 'error'} />
-                        </Box>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <Chip size="small" label={u.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'} color={u.isVerified ? 'success' : 'warning'} />
+                        <Chip size="small" label={u.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} color={u.isActive ? 'success' : 'error'} />
+                      </Box>
 
-                        <Box sx={{ flex: 1 }} />
+                      <Box sx={{ flex: 1 }} />
 
-                        {/* view */}
-                        <Tooltip title="ดูรายละเอียด">
+                      {/* view */}
+                      <Tooltip title="ดูรายละเอียด">
+                        <IconButton
+                          color="info"
+                          onClick={async () => {
+                            setSel(u);
+                            setOpen(true);
+                            await logAdminEvent('VIEW_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
+                          }}
+                        >
+                          <ViewIcon />
+                        </IconButton>
+                      </Tooltip>
+
+                      {/* approve */}
+                      {!u.isVerified && (
+                        <Tooltip title="อนุมัติ">
                           <IconButton
-                            color="info"
+                            color="success"
                             onClick={async () => {
-                              setSel(u);
-                              setOpen(true);
-                              await logAdminEvent('VIEW_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
+                              await approveUser(u.uid);
+                              await logAdminEvent('APPROVE_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
+                              await load();
                             }}
                           >
-                            <ViewIcon />
+                            <ApproveIcon />
                           </IconButton>
                         </Tooltip>
+                      )}
 
-                        {/* approve */}
-                        {!u.isVerified && (
-                          <Tooltip title="อนุมัติ">
-                            <IconButton
-                              color="success"
-                              onClick={async () => {
-                                await approveUser(u.uid);
-                                await logAdminEvent('APPROVE_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
-                                await load();
-                              }}
-                            >
-                              <ApproveIcon />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-
-                        {/* suspend */}
-                        {u.isActive && (
-                          <Tooltip title="ระงับการใช้งาน">
-                            <IconButton
-                              color="error"
-                              onClick={async () => {
-                                await suspendUser(u.uid);
-                                await logAdminEvent('SUSPEND_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
-                                await load();
-                              }}
-                            >
-                              <SuspendIcon />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-
-                        {/* promote to admin */}
-                        <Tooltip title="ตั้งเป็นแอดมิน">
-                          <IconButton color="primary" onClick={() => openPromote(u)}>
-                            <MakeAdminIcon />
+                      {/* suspend */}
+                      {u.isActive && (
+                        <Tooltip title="ระงับการใช้งาน">
+                          <IconButton
+                            color="error"
+                            onClick={async () => {
+                              await suspendUser(u.uid);
+                              await logAdminEvent('SUSPEND_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
+                              await load();
+                            }}
+                          >
+                            <SuspendIcon />
                           </IconButton>
                         </Tooltip>
-                      </CardContent>
-                    </Card>
-                  </Grid>
+                      )}
+
+                      {/* promote to admin */}
+                      <Tooltip title="ตั้งเป็นแอดมิน">
+                        <IconButton color="primary" onClick={() => openPromote(u)}>
+                          <MakeAdminIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </CardContent>
+                  </Card>
                 ))}
-              </Grid>
+              </Stack>
             )}
           </Box>
         </CardContent>
@@ -492,32 +507,33 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
             </DialogTitle>
 
             <DialogContent>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 6 }}>
+              {/* ✅ REFACTOR 3: ใช้ Box + CSS Grid สำหรับเนื้อหาใน Dialog */}
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, pt: 1 }}>
+                <Box>
                   <Typography variant="caption" color="text.secondary">อีเมล</Typography>
                   <Typography>{sel.email}</Typography>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
+                </Box>
+                <Box>
                   <Typography variant="caption" color="text.secondary">รหัสนักศึกษา</Typography>
                   <Typography>{sel.studentId || '-'}</Typography>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
+                </Box>
+                <Box>
                   <Typography variant="caption" color="text.secondary">คณะ</Typography>
                   <Typography>{sel.faculty || '-'}</Typography>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
+                </Box>
+                <Box>
                   <Typography variant="caption" color="text.secondary">สาขา</Typography>
                   <Typography>{String(sel.department || '-')}</Typography>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
+                </Box>
+                <Box>
                   <Typography variant="caption" color="text.secondary">ระดับปริญญา</Typography>
                   <Typography>{sel.degreeLevel || '-'}</Typography>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
+                </Box>
+                <Box>
                   <Typography variant="caption" color="text.secondary">สร้างเมื่อ</Typography>
                   <Typography>{sel.createdAt ? new Date(sel.createdAt).toLocaleDateString('th-TH') : '-'}</Typography>
-                </Grid>
-              </Grid>
+                </Box>
+              </Box>
             </DialogContent>
 
             <DialogActions>

@@ -6,8 +6,10 @@ import { ThemeProvider, createTheme, CssBaseline, Box, CircularProgress } from '
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
+// ✅ ตรวจสอบ path ให้ถูกต้อง (ถ้าไฟล์ AdminLogin อยู่ใน components/admin ให้แก้ path ตามจริง)
+// import AdminLogin from '../../components/admin/AdminLogin'; 
+import AdminLogin from '../../components/AdminLogin'; 
 import AdminMain from '../../components/admin/AdminMain';
-import AdminLogin from '../../components/AdminLogin';
 
 import { onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { auth, db } from '../../lib/firebase';
@@ -20,7 +22,7 @@ import { useSnackbar } from 'notistack';
 
 const theme = createTheme();
 
-// ✅ รายการหน้าที่อนุญาต และชนิด literal union ให้ตรงกับ ActiveSection ของ AdminMain
+// ✅ รายการหน้าที่อนุญาต
 const VALID_SECTIONS = [
   'dashboard',
   'activity-list',
@@ -54,7 +56,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // ✅ อ่าน last section จาก localStorage และ "แคบชนิด" ให้เป็น InitialSection | undefined
+  // ✅ อ่าน last section จาก localStorage
   const initialSection = useMemo<InitialSection | undefined>(() => {
     if (typeof window === 'undefined') return undefined;
     try {
@@ -105,8 +107,10 @@ function App() {
     const d = snap.data() as any;
     if (d.isActive === false) return;
 
+    // Map role เก่าถ้ามี (เผื่อไว้)
     const roleMap = { super_admin: 'super_admin', admin: 'department_admin' } as const;
-    const mappedRole = roleMap[d.role as 'admin' | 'super_admin'] as AdminRole;
+    const rawRole = d.role as string;
+    const mappedRole = (rawRole === 'admin' ? 'department_admin' : rawRole) as AdminRole;
 
     const profile: AdminProfile = {
       uid: user.uid,
@@ -137,10 +141,10 @@ function App() {
 
       setCurrentAdmin((prev) => {
         if (!prev) return prev;
-        const mappedRole =
-          (d.role === 'super_admin' || d.role === 'admin')
-            ? (d.role === 'super_admin' ? 'super_admin' : 'department_admin')
-            : prev.role;
+        
+        // Map role เก่า
+        const rawRole = d.role as string;
+        const mappedRole = (rawRole === 'admin' ? 'department_admin' : rawRole) as AdminRole;
 
         const merged: AdminProfile = normalizeAdmin({
           ...prev,
@@ -149,7 +153,7 @@ function App() {
           firstName: d.firstName ?? prev.firstName,
           lastName: d.lastName ?? prev.lastName,
           department: normalizeDepartment(d.department ?? prev.department),
-          role: mappedRole as AdminRole,
+          role: mappedRole,
           permissions: Array.isArray(d.permissions) ? d.permissions : prev.permissions,
           profileImage: d.profileImage ?? prev.profileImage,
           profileImagePosX: clamp(d.profileImagePosX) ?? prev.profileImagePosX,
@@ -162,33 +166,10 @@ function App() {
     });
   };
 
-  const handleLoginSuccess = (adminUser: {
-    id: string; email: string; displayName: string;
-    role: 'admin' | 'super_admin'; isActive: boolean;
-    lastLogin: Date; createdAt: Date;
-  }) => {
-    const roleMap = { super_admin: 'super_admin', admin: 'department_admin' } as const;
-    const mappedRole = roleMap[adminUser.role] as AdminRole;
-
-    const profile: AdminProfile = normalizeAdmin({
-      uid: adminUser.id,
-      email: adminUser.email,
-      displayName: adminUser.displayName,
-      firstName: adminUser.displayName?.split(' ')[0] || 'Admin',
-      lastName: adminUser.displayName?.split(' ')[1] || 'User',
-      department: 'all' as AdminDepartment,
-      role: mappedRole,
-      isActive: adminUser.isActive,
-      lastLoginAt: adminUser.lastLogin,
-      createdAt: adminUser.createdAt,
-      permissions: ROLE_PERMISSIONS[mappedRole] ?? [],
-      updatedAt: new Date(),
-      profileImage: undefined,
-      profileImagePosX: 50,
-      profileImagePosY: 50,
-    } as AdminProfile);
-
-    setCurrentAdmin(profile);
+  // ✅ FIX: เปลี่ยน Type ให้รับ AdminProfile โดยตรง (ไม่ต้องแปลงซ้ำ)
+  const handleLoginSuccess = (profile: AdminProfile) => {
+    // AdminLogin ส่ง profile ที่สมบูรณ์มาแล้ว ใช้ได้เลย
+    setCurrentAdmin(normalizeAdmin(profile));
   };
 
   const handleLogout = async () => {
@@ -221,7 +202,6 @@ function App() {
       <CssBaseline />
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         {currentAdmin ? (
-          // ✅ ส่งค่า initialSection ที่ผ่านการแคบชนิดแล้วเท่านั้น
           <AdminMain currentAdmin={currentAdmin} onLogout={handleLogout} initialSection={initialSection} />
         ) : (
           <AdminLogin onLoginSuccess={handleLoginSuccess} />

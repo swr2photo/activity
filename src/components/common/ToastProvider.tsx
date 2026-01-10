@@ -2,16 +2,32 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { SnackbarProvider, useSnackbar } from 'notistack';
-import type { SnackbarKey } from 'notistack';
-import { IconButton, Slide, useMediaQuery, useTheme, Box } from '@mui/material';
+import { SnackbarProvider, useSnackbar, SnackbarKey, MaterialDesignContent } from 'notistack';
+import { IconButton, Slide, useMediaQuery, useTheme, styled } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
-/**
- * Slide direction:
- * - Mobile: bottom -> up (เหมาะกับ gesture bar)
- * - Desktop: top -> down
- */
+// Custom Styled Component
+const StyledMaterialDesignContent = styled(MaterialDesignContent)(({ theme }) => ({
+  '&.notistack-MuiContent': {
+    // ✅ FIX: Cast เป็น number เพื่อแก้ Error: The left-hand side of an arithmetic operation...
+    borderRadius: (theme.shape.borderRadius as number) * 1.5,
+    boxShadow: theme.shadows[4],
+    fontWeight: 500,
+  },
+  '&.notistack-MuiContent-success': {
+    backgroundColor: theme.palette.success.main,
+  },
+  '&.notistack-MuiContent-error': {
+    backgroundColor: theme.palette.error.main,
+  },
+  '&.notistack-MuiContent-info': {
+    backgroundColor: theme.palette.info.main,
+  },
+  '&.notistack-MuiContent-warning': {
+    backgroundColor: theme.palette.warning.main,
+  },
+}));
+
 function SlideDown(props: any) {
   return <Slide {...props} direction="down" />;
 }
@@ -19,7 +35,6 @@ function SlideUp(props: any) {
   return <Slide {...props} direction="up" />;
 }
 
-/** Close action (safe typing) */
 const CloseAction: React.FC<{ id: SnackbarKey }> = ({ id }) => {
   const { closeSnackbar } = useSnackbar();
   return (
@@ -27,11 +42,7 @@ const CloseAction: React.FC<{ id: SnackbarKey }> = ({ id }) => {
       aria-label="close"
       size="small"
       onClick={() => closeSnackbar(id)}
-      sx={{
-        color: 'inherit',
-        opacity: 0.9,
-        '&:hover': { opacity: 1 },
-      }}
+      sx={{ color: 'inherit', opacity: 0.85, '&:hover': { opacity: 1 } }}
     >
       <CloseIcon fontSize="small" />
     </IconButton>
@@ -59,33 +70,20 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
       anchorOrigin={anchorOrigin}
       TransitionComponent={isMobile ? SlideUp : SlideDown}
       action={(key) => <CloseAction id={key} />}
-      // Liquid-glass styling (MUI Snackbar/Notistack renders as inline styles)
-      // NOTE: Notistack container uses this `style`; for per-snackbar styling, set variants elsewhere.
+      Components={{
+        success: StyledMaterialDesignContent,
+        error: StyledMaterialDesignContent,
+        warning: StyledMaterialDesignContent,
+        info: StyledMaterialDesignContent,
+      }}
       style={{
-        paddingTop: 'max(env(safe-area-inset-top), 10px)',
-        paddingBottom: 'max(env(safe-area-inset-bottom), 10px)',
-        paddingLeft: '12px',
-        paddingRight: '12px',
-        // Helps avoid overlap with top nav on desktop / with bottom bar on mobile
-        pointerEvents: 'none', // container ignores pointer; actual snackbar still clickable
-      }}
-      // Notistack exposes className for the container; we can attach a wrapper to restore pointerEvents for snackbars.
-      // Some versions ignore container pointer events. We add a wrapper as a safe fallback.
-      classes={{
-        containerRoot: 'toast-container-root',
-      }}
+        pointerEvents: 'none', 
+        '& .notistack-MuiContent': {
+            pointerEvents: 'all'
+        }
+      } as React.CSSProperties}
     >
-      {/* restore pointer events for children snackbars via CSS scope */}
-      <Box
-        sx={{
-          '& .toast-container-root': { pointerEvents: 'none' },
-          '& .toast-container-root .SnackbarItem-variantSuccess, & .toast-container-root .SnackbarItem-variantError, & .toast-container-root .SnackbarItem-variantWarning, & .toast-container-root .SnackbarItem-variantInfo, & .toast-container-root .SnackbarItem-variantDefault': {
-            pointerEvents: 'auto',
-          },
-        }}
-      >
-        {children}
-      </Box>
+      {children}
     </SnackbarProvider>
   );
 }

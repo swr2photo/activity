@@ -1,4 +1,5 @@
 // src/lib/adminFirebase.ts
+
 import {
   collection,
   getDocs,
@@ -17,9 +18,11 @@ import {
   onSnapshot,
   limit as qLimit,
   deleteField,
+  Timestamp,
 } from 'firebase/firestore';
 
-import { db, auth } from './firebase';
+// ✅ ใช้ Absolute Import เพื่อป้องกัน Path Error
+import { db, auth } from '@/lib/firebase';
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -32,8 +35,8 @@ import type {
   AdminProfile,
   AdminRole,
   AdminPermission,
-} from '../types/admin';
-import { ROLE_PERMISSIONS } from '../types/admin';
+} from '@/types/admin';
+import { ROLE_PERMISSIONS } from '@/types/admin';
 
 /* =========================
  * Constants & Utils
@@ -42,6 +45,7 @@ const PRIMARY_ACTIVITY_COLLECTION = 'activityQRCodes';
 const LEGACY_ACTIVITY_COLLECTION  = 'activities';
 
 const toDateSafe = (v: any): Date | undefined => {
+  if (!v) return undefined;
   if (v?.toDate) return v.toDate();
   if (v instanceof Date) return v;
   if (typeof v === 'number' || typeof v === 'string') {
@@ -51,7 +55,7 @@ const toDateSafe = (v: any): Date | undefined => {
   return undefined;
 };
 
-// ตัด key undefined ออกก่อนส่งเข้า Firestore
+// ตัด key undefined ออกก่อนส่งเข้า Firestore (ป้องกัน Error)
 const stripUndefined = (obj: Record<string, any>) => {
   const out: Record<string, any> = {};
   Object.keys(obj).forEach((k) => {
@@ -67,6 +71,7 @@ const clampPercent = (v?: number) =>
 // สิทธิ์: เฉพาะ super_admin เท่านั้น
 export const requireSuperAdmin = (admin?: { role?: AdminRole }) => admin?.role === 'super_admin';
 
+// Helper: พยายามอัปเดตข้อมูลไปยัง Collection เก่า (Legacy) เพื่อความเข้ากันได้
 async function mirrorLegacyActivityByCode(
   activityCode: string,
   patch: Record<string, any>
@@ -107,7 +112,6 @@ export const getAllAdmins = async (): Promise<AdminProfile[]> => {
       createdBy: data.createdBy,
       lastLoginAt: toDateSafe(data.lastLoginAt),
       profileImage: data.profileImage,
-      // ✅ รองรับฟิลด์ตำแหน่งรูป
       profileImagePosX: typeof data.profileImagePosX === 'number' ? clampPercent(data.profileImagePosX) : undefined,
       profileImagePosY: typeof data.profileImagePosY === 'number' ? clampPercent(data.profileImagePosY) : undefined,
     } as AdminProfile;
@@ -140,7 +144,6 @@ export const getAdminsByDepartment = async (
       createdBy: data.createdBy,
       lastLoginAt: toDateSafe(data.lastLoginAt),
       profileImage: data.profileImage,
-      // ✅ รองรับฟิลด์ตำแหน่งรูป
       profileImagePosX: typeof data.profileImagePosX === 'number' ? clampPercent(data.profileImagePosX) : undefined,
       profileImagePosY: typeof data.profileImagePosY === 'number' ? clampPercent(data.profileImagePosY) : undefined,
     } as AdminProfile;
@@ -154,9 +157,7 @@ export const createAdminUser = async (
   const ref = doc(db, 'adminUsers', profile.uid);
   const payload = stripUndefined({
     ...profile,
-    // ป้องกัน permissions เป็น null/undefined
     permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
-    // clamp พิกัด ถ้ามี
     profileImagePosX: clampPercent((profile as any).profileImagePosX),
     profileImagePosY: clampPercent((profile as any).profileImagePosY),
     createdAt: serverTimestamp(),
@@ -165,12 +166,11 @@ export const createAdminUser = async (
   await setDoc(ref, payload, { merge: false });
 };
 
-// แก้ไขแอดมิน — กัน undefined / ลบฟิลด์รูปว่าง / clamp พิกัด
+// แก้ไขแอดมิน
 export const updateAdminUser = async (uid: string, data: Partial<AdminProfile>) => {
   const ref = doc(db, 'adminUsers', uid);
   const payload: Record<string, any> = {
     ...data,
-    // ✅ clamp พิกัดตำแหน่งรูป (ถ้าส่งมา)
     profileImagePosX: clampPercent((data as any).profileImagePosX),
     profileImagePosY: clampPercent((data as any).profileImagePosY),
     updatedAt: serverTimestamp(),
@@ -333,11 +333,6 @@ export const getActivitiesByDepartment = async (
   });
 };
 
-/** เดิม: toggle ธรรมดา (คงไว้เพื่อ backward compatibility) */
-export const toggleActivityStatus = async (activityId: string, currentStatus: boolean) => {
-  await updateDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId), { isActive: !currentStatus });
-};
-
 /** ใหม่: Toggle แบบ Transaction + version bump + เหตุผลปิด + ผู้แก้ไข */
 export const toggleActivityLive = async (
   activityId: string,
@@ -379,7 +374,7 @@ export const toggleActivityLive = async (
   });
 };
 
-// Create/Update/Delete Activities (เขียนที่ PRIMARY_ACTIVITY_COLLECTION)
+// Create/Update/Delete Activities
 export type CreateActivityInput = {
   activityName: string;
   activityCode: string;
@@ -427,7 +422,7 @@ export const updateActivity = async (activityId: string, patch: UpdateActivityIn
 
   await updateDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId), cleaned);
 
-  // mirror legacy ตาม activityCode ถ้ามีใน patch (best-effort)
+  // mirror legacy ตาม activityCode
   try {
     const cur = await getDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId));
     const code = cur.data()?.activityCode as string | undefined;
@@ -444,7 +439,6 @@ export const updateActivity = async (activityId: string, patch: UpdateActivityIn
 
 export const deleteActivity = async (activityId: string) => {
   await deleteDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId));
-  // ไม่บังคับลบ legacy
 };
 
 /* =========================
@@ -497,7 +491,7 @@ export const deleteActivityRecord = async (recordId: string): Promise<void> => {
   await deleteDoc(doc(db, 'activityRecords', recordId));
 };
 
-// ปรับจำนวนผู้เข้าร่วมจาก activityCode — อัปเดตที่ PRIMARY เป็นหลัก (fallback legacy)
+// ปรับจำนวนผู้เข้าร่วมจาก activityCode
 export const adjustParticipantsByActivityCode = async (
   activityCode: string,
   delta: number
@@ -653,7 +647,7 @@ export const logAdminEvent = async (
 ) => {
   try {
     await addDoc(collection(db, 'logs'), {
-      action,               // e.g. 'LOGIN', 'LOGOUT', 'ADMIN_PROMOTE', 'APPROVE_USER', 'EXPORT_USERS', ...
+      action,               // e.g. 'LOGIN', 'LOGOUT', 'ADMIN_PROMOTE'
       meta,                 // payload เพิ่มเติม
       actorUid: actor?.uid ?? null,
       actorEmail: actor?.email ?? null,
@@ -693,11 +687,6 @@ export async function getAdminLogs(max: number = 100): Promise<AdminLogEntry[]> 
   });
 }
 
-/**
- * subscribeAdminLogs – สำหรับหน้า Admin Logs
- * @param cb callback ได้รายการเรียงเวลาล่าสุด
- * @param max จำนวนสูงสุด
- */
 export function subscribeAdminLogs(cb: (rows: AdminLogEntry[]) => void, max: number = 100) {
   const qy = query(collection(db, 'logs'), orderBy('at', 'desc'), qLimit(max));
   return onSnapshot(qy, (snap) => {
@@ -741,7 +730,6 @@ export interface AdminInvite {
 const genToken = () =>
   Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
 
-// สร้างคำเชิญ (return token สำหรับแนบลิงก์)
 export const createAdminInvite = async (payload: {
   email: string;
   role: AdminRole;
@@ -756,14 +744,12 @@ export const createAdminInvite = async (payload: {
     status: 'pending' as InviteStatus,
     token,
     createdAt: serverTimestamp(),
-    // อายุคำเชิญ 14 วัน
-    expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+    expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
   };
   await addDoc(collection(db, 'adminInvites'), data);
   return token;
 };
 
-// ดึงคำเชิญตามสังกัด (หรือ 'all' สำหรับ super admin)
 export const getAdminInvitesByDepartment = async (
   dept: AdminDepartment | 'all'
 ): Promise<AdminInvite[]> => {
@@ -786,15 +772,14 @@ export const getAdminInvitesByDepartment = async (
       invitedByEmail: v.invitedByEmail,
       status: (v.status || 'pending') as InviteStatus,
       token: v.token,
-      createdAt: v.createdAt?.toDate?.() ?? (v.createdAt instanceof Date ? v.createdAt : undefined),
-      expiresAt: v.expiresAt?.toDate?.() ?? (v.expiresAt instanceof Date ? v.expiresAt : undefined),
-      acceptedAt: v.acceptedAt?.toDate?.() ?? (v.acceptedAt instanceof Date ? v.acceptedAt : undefined),
+      createdAt: toDateSafe(v.createdAt),
+      expiresAt: toDateSafe(v.expiresAt),
+      acceptedAt: toDateSafe(v.acceptedAt),
       acceptedByUid: v.acceptedByUid,
     } as AdminInvite;
   });
 };
 
-// ยกเลิกคำเชิญ
 export const cancelAdminInvite = async (inviteId: string): Promise<void> => {
   await updateDoc(doc(db, 'adminInvites', inviteId), {
     status: 'cancelled',
@@ -802,7 +787,6 @@ export const cancelAdminInvite = async (inviteId: string): Promise<void> => {
   });
 };
 
-// รับคำเชิญด้วย token
 export const acceptAdminInviteByToken = async (
   token: string,
   uid: string
@@ -833,15 +817,15 @@ export const acceptAdminInviteByToken = async (
     invitedByEmail: v.invitedByEmail,
     status: 'accepted',
     token: v.token,
-    createdAt: v.createdAt?.toDate?.(),
-    expiresAt: v.expiresAt?.toDate?.(),
+    createdAt: toDateSafe(v.createdAt),
+    expiresAt: toDateSafe(v.expiresAt),
     acceptedAt: new Date(),
     acceptedByUid: uid,
   } as AdminInvite;
 };
 
 /* =========================
- * Auth helpers (for useAdminAuth)
+ * Auth helpers
  * ========================= */
 const ADMIN_COLLECTIONS = ['adminUsers', 'admins'] as const;
 
@@ -866,7 +850,6 @@ const toAdminProfileFrom = (user: User, raw: RawAdminDoc): AdminProfile => ({
   createdBy: raw.createdBy,
   lastLoginAt: raw.lastLoginAt ?? null,
   profileImage: raw.profileImage,
-  // ✅ map ค่าพิกัดจากเอกสาร (ถ้าไม่มี = undefined)
   profileImagePosX: typeof (raw as any).profileImagePosX === 'number'
     ? clampPercent((raw as any).profileImagePosX)
     : undefined,
@@ -940,15 +923,15 @@ export async function signOutAdmin(): Promise<void> {
 }
 
 /* =========================
- * System Settings (Maintenance + Banner Standard)
+ * System Settings
  * ========================= */
 export interface SystemSettings {
   maintenanceEnabled: boolean;
   maintenanceMessage?: string;
-  maintenanceWhitelist?: string[]; // รายการอีเมล/uid ที่ยังเข้าได้ตอนปิดปรับปรุง
-  bannerStandardWidth?: number;    // ขนาดมาตรฐานของแบนเนอร์
-  bannerStandardHeight?: number;   // ขนาดมาตรฐานของแบนเนอร์
-  bannerFit?: 'cover' | 'contain'; // วิธีแสดงผล
+  maintenanceWhitelist?: string[];
+  bannerStandardWidth?: number;
+  bannerStandardHeight?: number;
+  bannerFit?: 'cover' | 'contain';
   updatedAt?: Date;
 }
 
@@ -975,7 +958,6 @@ export async function updateSystemSettings(patch: Partial<SystemSettings>): Prom
       updatedAt: serverTimestamp(),
     }));
   } catch (e: any) {
-    // ถ้า doc ยังไม่เคยมี ให้ set ครั้งแรก
     if (e?.code === 'not-found') {
       await setDoc(SYSTEM_SETTINGS_DOC, stripUndefined({
         maintenanceEnabled: false,

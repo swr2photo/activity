@@ -14,10 +14,10 @@ import {
   Typography,
   LinearProgress,
   useTheme,
-  useMediaQuery,
+  Skeleton,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { AccessTime, People, LocationOn } from '@mui/icons-material';
+import { AccessTime, People, LocationOn, QrCode } from '@mui/icons-material';
 
 type ActivityCardProps = {
   id: string;
@@ -30,22 +30,24 @@ type ActivityCardProps = {
   currentParticipants?: number;
   bannerUrl?: string;
   bannerColor?: string;
-  bannerTintColor?: string;
-  bannerTintOpacity?: number;
-  bannerAspect?: string;
   status: { key: string; label: string; tone: string };
   canOpen: boolean;
+  bannerAspect?: string;
 };
 
-const toDate = (d: any): Date => d?.toDate?.() ?? (d instanceof Date ? d : new Date(d));
-
 const formatDateTime = (d: any) => {
+  if (!d) return '-';
   const dd: Date = d?.toDate?.() ?? (d instanceof Date ? d : new Date(d));
-  return dd.toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' });
+  return dd.toLocaleString('th-TH', { 
+    year: '2-digit', 
+    month: 'short', 
+    day: 'numeric', 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
 };
 
 const ActivityCard: React.FC<ActivityCardProps> = ({
-  id,
   activityCode,
   activityName,
   location,
@@ -55,29 +57,29 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
   currentParticipants,
   bannerUrl,
   bannerColor,
-  bannerTintColor,
-  bannerTintOpacity,
-  bannerAspect,
   status,
   canOpen,
+  bannerAspect = 'cover'
 }) => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const isMedium = useMediaQuery(theme.breakpoints.down('md'));
   const [imageLoaded, setImageLoaded] = useState(false);
 
-  const startText = startDateTime ? formatDateTime(startDateTime) : '-';
-  const endText = endDateTime ? formatDateTime(endDateTime) : '-';
-  const capacityText = (maxParticipants || 0) > 0 ? currentParticipants || 0 : null;
-  const capacityMax = (maxParticipants || 0) > 0 ? maxParticipants || 0 : null;
-  const capacityPercent = capacityMax ? Math.round((capacityText! / capacityMax) * 100) : 0;
+  const startText = formatDateTime(startDateTime);
+  const endText = formatDateTime(endDateTime);
+  
+  const cur = currentParticipants || 0;
+  const max = maxParticipants || 0;
+  const hasCapacity = max > 0;
+  const percent = hasCapacity ? Math.min(100, Math.round((cur / max) * 100)) : 0;
 
-  const statusColorMap: any = {
-    active: 'success',
-    upcoming: 'info',
-    full: 'warning',
-    ended: 'default',
-    inactive: 'default',
+  const getStatusColor = (key: string) => {
+    switch (key) {
+      case 'active': return 'success';
+      case 'upcoming': return 'info';
+      case 'full': return 'warning';
+      case 'ended': return 'error';
+      default: return 'default';
+    }
   };
 
   return (
@@ -87,291 +89,150 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        borderRadius: { xs: 1.5, sm: 2.5, md: 3 },
-        border: `1px solid ${alpha(theme.palette.mode === 'dark' ? '#ffffff' : '#000000', 0.08)}`,
-        overflow: 'hidden',
-        // ✨ Apple Liquid Glass Effect
-        background:
-          theme.palette.mode === 'dark'
-            ? `linear-gradient(135deg, ${alpha('#ffffff', 0.03)}, ${alpha('#ffffff', 0.01)})`
-            : `linear-gradient(135deg, ${alpha('#ffffff', 0.95)}, ${alpha('#ffffff', 0.85)})`,
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        transition: 'all .3s cubic-bezier(0.4, 0.0, 0.2, 1)',
+        borderRadius: { xs: 2.5, md: 3.5 },
+        border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
+        bgcolor: 'background.paper',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         '&:hover': {
-          transform: isMobile ? 'translateY(-4px)' : 'translateY(-8px)',
-          boxShadow:
-            theme.palette.mode === 'dark'
-              ? `0 24px 48px ${alpha('#000000', 0.3)}`
-              : `0 24px 48px ${alpha(theme.palette.primary.main, 0.12)}`,
+          transform: 'translateY(-6px)',
+          boxShadow: `0 20px 40px ${alpha(theme.palette.primary.main, 0.12)}`,
           borderColor: alpha(theme.palette.primary.main, 0.3),
-          background:
-            theme.palette.mode === 'dark'
-              ? `linear-gradient(135deg, ${alpha('#ffffff', 0.05)}, ${alpha('#ffffff', 0.02)})`
-              : `linear-gradient(135deg, ${alpha('#ffffff', 0.97)}, ${alpha('#ffffff', 0.88)})`,
         },
       }}
     >
-      {/* Banner Section - Mobile Optimized */}
-      <Box
-        sx={{
-          position: 'relative',
-          height: { xs: 120, sm: 140, md: 180 },
-          overflow: 'hidden',
-          flex: 'shrink',
-        }}
-      >
-        {bannerUrl && (
-          <Box
-            component="img"
-            src={bannerUrl}
-            alt={activityName}
-            onLoad={() => setImageLoaded(true)}
-            loading="lazy"
-            sx={{
-              width: '100%',
-              height: '100%',
-              objectFit: bannerAspect === 'contain' ? 'contain' : 'cover',
-              display: 'block',
-              backgroundColor: bannerColor || '#f5f5f5',
-              opacity: imageLoaded ? 1 : 0.8,
-              transition: 'opacity .4s ease',
-            }}
-          />
+      {/* Banner Section */}
+      <Box sx={{ position: 'relative', height: { xs: 160, md: 190 }, bgcolor: bannerColor || 'grey.100', overflow: 'hidden' }}>
+        {bannerUrl ? (
+          <>
+            <Box
+              component="img"
+              src={bannerUrl}
+              alt={activityName}
+              onLoad={() => setImageLoaded(true)}
+              sx={{
+                width: '100%',
+                height: '100%',
+                objectFit: bannerAspect as any,
+                opacity: imageLoaded ? 1 : 0,
+                transition: 'opacity 0.5s ease',
+              }}
+            />
+            {!imageLoaded && <Skeleton variant="rectangular" width="100%" height="100%" sx={{ position: 'absolute', top: 0 }} />}
+          </>
+        ) : (
+          <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.2 }}>
+            <QrCode sx={{ fontSize: 60 }} />
+          </Box>
         )}
+        
+        {/* Overlay Gradient สำหรับความอ่านง่าย */}
+        <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, transparent 100%)' }} />
 
-        {!bannerUrl && (
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              background: bannerColor || theme.palette.primary.main,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          />
-        )}
-
-        {/* Status Badge */}
-        <Box
+        <Chip
+          label={status.label}
+          color={getStatusColor(status.key) as any}
+          size="small"
           sx={{
             position: 'absolute',
-            top: isMobile ? 8 : 12,
-            left: isMobile ? 8 : 12,
-            right: isMobile ? 8 : 12,
-            display: 'flex',
-            gap: 0.6,
-            flexWrap: 'wrap',
-            alignItems: 'flex-start',
+            top: 14,
+            left: 14,
+            fontWeight: 800,
+            fontSize: '0.75rem',
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
           }}
-        >
-          <Chip
-            label={status.label}
-            size={isMobile ? 'small' : 'medium'}
-            color={statusColorMap[status.key] || 'default'}
-            variant="filled"
-            sx={{
-              fontWeight: 950,
-              opacity: 0.9,
-              fontSize: isMobile ? '0.7rem' : '0.8rem',
-            }}
-          />
-        </Box>
+        />
       </Box>
 
       {/* Content Section */}
-      <CardContent sx={{ p: isMobile ? 1.5 : 2, flex: 1, display: 'flex', flexDirection: 'column', gap: isMobile ? 1 : 1.5 }}>
-        {/* Title & Location */}
-        <Box sx={{ minWidth: 0 }}>
-          <Typography
-            variant={isMobile ? 'body1' : 'h6'}
-            fontWeight={950}
-            sx={{
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              lineHeight: 1.3,
-              color: 'text.primary',
-              fontSize: isMobile ? '0.95rem' : 'auto',
-            }}
-          >
-            {activityName}
-          </Typography>
+      <CardContent sx={{ p: { xs: 2, md: 3 }, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        <Typography
+          variant="h6"
+          sx={{
+            fontWeight: 800,
+            fontSize: { xs: '1.05rem', md: '1.15rem' },
+            mb: 0.5,
+            lineHeight: 1.4,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            minHeight: '3.1em',
+          }}
+        >
+          {activityName}
+        </Typography>
 
-          {location && (
-            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'flex-start', mt: isMobile ? 0.5 : 0.75 }}>
-              <LocationOn
-                fontSize="small"
-                sx={{
-                  color: 'text.secondary',
-                  flex: 'shrink',
-                  mt: 0.25,
-                  fontSize: isMobile ? '1rem' : '1.25rem',
-                }}
-              />
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{
-                  display: '-webkit-box',
-                  WebkitLineClamp: 1,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                  fontSize: isMobile ? '0.8rem' : '0.875rem',
-                }}
-              >
-                {location}
-              </Typography>
-            </Box>
-          )}
-        </Box>
-
-        <Divider sx={{ opacity: 0.2, my: isMobile ? 0.5 : undefined }} />
-
-        {/* Date & Time */}
-        <Stack spacing={isMobile ? 0.25 : 0.5}>
-          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-            <AccessTime
-              fontSize="small"
-              sx={{
-                color: 'text.secondary',
-                flex: 'shrink',
-                fontSize: isMobile ? '1rem' : '1.25rem',
-              }}
-            />
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              fontWeight={700}
-              sx={{ fontSize: isMobile ? '0.7rem' : '0.75rem' }}
-            >
-              ช่วงเวลา
-            </Typography>
-          </Box>
-          <Typography
-            variant="body2"
-            sx={{
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              fontSize: isMobile ? '0.775rem' : '0.875rem',
-              lineHeight: 1.4,
-              ml: isMobile ? 0 : undefined,
-            }}
-          >
-            <Box component="span" sx={{ fontWeight: 600, display: 'block' }}>
-              เริ่ม: {startText}
-            </Box>
-            <Box component="span" sx={{ fontWeight: 600, display: 'block' }}>
-              สิ้นสุด: {endText}
-            </Box>
-          </Typography>
-        </Stack>
-
-        {/* Capacity */}
-        {capacityMax && capacityMax > 0 && (
-          <Stack spacing={isMobile ? 0.25 : 0.5}>
-            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-              <People
-                fontSize="small"
-                sx={{
-                  color: 'text.secondary',
-                  flex: 'shrink',
-                  fontSize: isMobile ? '1rem' : '1.25rem',
-                }}
-              />
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                fontWeight={700}
-                sx={{ fontSize: isMobile ? '0.7rem' : '0.75rem' }}
-              >
-                ที่นั่ง
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <LinearProgress
-                variant="determinate"
-                value={capacityPercent}
-                sx={{
-                  flex: 1,
-                  height: isMobile ? 4 : 6,
-                  borderRadius: 999,
-                  background: alpha(theme.palette.primary.main, 0.1),
-                  '& .MuiLinearProgress-bar': {
-                    borderRadius: 999,
-                    background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-                  },
-                }}
-              />
-              <Typography
-                variant="caption"
-                fontWeight={950}
-                sx={{
-                  minWidth: 'fit-content',
-                  color: capacityPercent >= 80 ? 'warning.main' : 'text.secondary',
-                  fontSize: isMobile ? '0.7rem' : '0.75rem',
-                }}
-              >
-                {capacityText}/{capacityMax}
-              </Typography>
-            </Box>
+        {location && (
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 2, opacity: 0.7 }}>
+            <LocationOn sx={{ fontSize: 16 }} />
+            <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>{location}</Typography>
           </Stack>
         )}
 
-        <Box sx={{ flex: 1 }} />
+        <Stack spacing={1.5} sx={{ mb: 3 }}>
+          <Stack spacing={0.5}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ color: 'text.secondary' }}>
+              <AccessTime sx={{ fontSize: 16 }} />
+              <Typography variant="caption" fontWeight={700}>กำหนดการ</Typography>
+            </Stack>
+            <Box sx={{ pl: 2.8 }}>
+              <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500 }}>เริ่ม: {startText}</Typography>
+              <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, opacity: 0.8 }}>จบ: {endText}</Typography>
+            </Box>
+          </Stack>
 
-        {/* Code & Action */}
-        <Divider sx={{ opacity: 0.2 }} />
-
-        <Stack
-          direction={isMobile ? 'column' : 'row'}
-          spacing={isMobile ? 1 : 1}
-          alignItems={isMobile ? 'stretch' : 'center'}
-        >
-          <Chip
-            label={`รหัส: ${activityCode}`}
-            size={isMobile ? 'small' : 'medium'}
-            sx={{
-              borderRadius: 999,
-              background: alpha(theme.palette.primary.main, 0.08),
-              fontFamily: 'monospace',
-              fontWeight: 900,
-              fontSize: isMobile ? '0.65rem' : '0.75rem',
-              order: isMobile ? 2 : 0,
-            }}
-          />
-          {!isMobile && <Box sx={{ flex: 1 }} />}
-          <Button
-            component={Link}
-            href={`/register?activity=${encodeURIComponent(activityCode)}`}
-            variant={canOpen ? 'contained' : 'outlined'}
-            disabled={!canOpen}
-            size={isMobile ? 'small' : 'medium'}
-            fullWidth={isMobile}
-            sx={{
-              borderRadius: 999,
-              px: isMobile ? 1.5 : 2,
-              fontWeight: 950,
-              textTransform: 'none',
-              whiteSpace: isMobile ? 'normal' : 'nowrap',
-              transition: 'all .2s',
-              fontSize: isMobile ? '0.85rem' : '0.9rem',
-              order: isMobile ? 1 : 2,
-              ...(canOpen && {
-                boxShadow: `0 8px 24px ${alpha(theme.palette.primary.main, 0.3)}`,
-                '&:hover': {
-                  boxShadow: `0 12px 32px ${alpha(theme.palette.primary.main, 0.4)}`,
-                },
-              }),
-            }}
-          >
-            ลงทะเบียน
-          </Button>
+          {hasCapacity && (
+            <Stack spacing={0.8}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'text.secondary' }}>
+                  <People sx={{ fontSize: 16 }} />
+                  <Typography variant="caption" fontWeight={700}>สถานะที่ว่าง</Typography>
+                </Stack>
+                <Typography variant="caption" fontWeight={800} color={percent >= 90 ? 'error.main' : 'text.primary'}>
+                  {cur} / {max}
+                </Typography>
+              </Stack>
+              <LinearProgress
+                variant="determinate"
+                value={percent}
+                sx={{
+                  height: 6,
+                  borderRadius: 3,
+                  bgcolor: alpha(theme.palette.divider, 0.1),
+                  '& .MuiLinearProgress-bar': { borderRadius: 3 }
+                }}
+              />
+            </Stack>
+          )}
         </Stack>
+
+        <Box sx={{ flexGrow: 1 }} />
+
+        {/* Action Button - เด่นชัดและเต็มความกว้าง */}
+        <Button
+          component={Link}
+          href={`/register?activity=${encodeURIComponent(activityCode)}`}
+          variant="contained"
+          disabled={!canOpen}
+          fullWidth
+          sx={{
+            borderRadius: 3,
+            py: 1.2,
+            fontWeight: 800,
+            textTransform: 'none',
+            fontSize: '1rem',
+            boxShadow: canOpen ? `0 8px 20px ${alpha(theme.palette.primary.main, 0.3)}` : 'none',
+            '&:hover': {
+              boxShadow: `0 12px 28px ${alpha(theme.palette.primary.main, 0.45)}`,
+            },
+            '&.Mui-disabled': {
+              bgcolor: alpha(theme.palette.action.disabledBackground, 0.1),
+            }
+          }}
+        >
+          {canOpen ? 'ลงทะเบียนเข้าร่วม' : status.label}
+        </Button>
       </CardContent>
     </Card>
   );

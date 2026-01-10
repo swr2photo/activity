@@ -1,170 +1,156 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import {
   Box,
   Container,
   Stack,
   Typography,
-  Link as MuiLink,
   IconButton,
   useTheme,
-  useMediaQuery,
   Divider,
 } from '@mui/material';
-import Grid from '@mui/material/Grid';
+import Grid from '@mui/material/Grid'; // MUI v6 จะใช้ Grid v2 อัตโนมัติ
 import { alpha } from '@mui/material/styles';
 import { Facebook, Instagram, Mail, Phone } from '@mui/icons-material';
 
 const Footer: React.FC = () => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const socialLinks = [
-    { icon: Facebook, label: 'Facebook', url: 'https://www.facebook.com/psuscc', color: '#1877F2' },
-    { icon: Instagram, label: 'Instagram', url: 'https://www.instagram.com/psuscc', color: '#E4405F' },
-    { icon: Mail, label: 'Email', url: 'mailto:psuscc@psu.ac.th', color: theme.palette.primary.main },
-    { icon: Phone, label: 'Phone', url: 'tel:+66-81-2345678', color: theme.palette.primary.main },
+    { icon: Facebook, url: 'https://www.facebook.com/psuscc', color: '#1877F2' },
+    { icon: Instagram, url: 'https://www.instagram.com/psuscc', color: '#E4405F' },
+    { icon: Mail, url: 'mailto:psuscc@psu.ac.th', color: theme.palette.primary.main },
+    { icon: Phone, url: 'tel:+66-81-2345678', color: theme.palette.primary.main },
   ];
 
   return (
     <Box
       component="footer"
       sx={{
-        background:
-          theme.palette.mode === 'dark'
-            ? `linear-gradient(135deg, ${alpha('#ffffff', 0.02)}, ${alpha('#ffffff', 0.01)})`
-            : `linear-gradient(135deg, ${alpha('#000000', 0.02)}, ${alpha('#000000', 0.01)})`,
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
-        borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-        mt: { xs: 4, md: 6 },
-        py: { xs: 3, md: 4 },
+        // ✨ Apple Glassmorphism Style
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        backgroundColor: alpha(theme.palette.background.default, 0.8),
+        borderTop: `1px solid ${alpha(theme.palette.divider, 0.08)}`,
+        // pb: 12 สำหรับมือถือ เพื่อไม่ให้โดน Bottom Navbar บังเนื้อหา
+        pb: { xs: 12, sm: 4 }, 
+        pt: 6,
+        mt: 'auto',
       }}
     >
       <Container maxWidth="lg">
-        <Grid container spacing={{ xs: 2, md: 4 }}>
-          {/* Brand & Description */}
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Stack spacing={1}>
+        <Grid container spacing={4} justifyContent="space-between">
+          {/* Brand Section */}
+          <Grid size={{ xs: 12, md: 5 }}>
+            <Stack spacing={1.5} alignItems={{ xs: 'center', md: 'flex-start' }}>
               <Typography
                 variant="h6"
-                fontWeight={950}
                 sx={{
-                  background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-                  backgroundClip: 'text',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  fontSize: isMobile ? '1rem' : '1.25rem',
+                  fontWeight: 900,
+                  letterSpacing: -0.5,
+                  color: 'text.primary',
                 }}
               >
-                PSU SCC
+                PSU REGISTER
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ fontSize: isMobile ? '0.8rem' : '0.875rem' }}>
-                ศูนย์วิทยาศาสตร์ราชภัฏสงขลา
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ 
+                  maxWidth: 320, 
+                  textAlign: { xs: 'center', md: 'left' },
+                  lineHeight: 1.6 
+                }}
+              >
+                ระบบลงทะเบียนกิจกรรมชุมนุม คณะวิทยาศาสตร์ <br />
+                มหาวิทยาลัยสงขลานครินทร์
               </Typography>
             </Stack>
           </Grid>
 
-          {/* Quick Links */}
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Stack spacing={1}>
-              <Typography variant="subtitle2" fontWeight={950} sx={{ fontSize: isMobile ? '0.85rem' : '0.95rem' }}>
-                ลิงก์อื่น
-              </Typography>
-              <Stack spacing={0.75}>
-                {[
-                  { label: 'หน้าแรก', href: '/' },
-                  { label: 'ลงทะเบียน', href: '/register' },
-                  { label: 'เกี่ยวกับเรา', href: '/about' },
-                ].map((link) => (
-                  <MuiLink
-                    key={link.href}
-                    href={link.href}
-                    sx={{
-                      color: 'text.secondary',
-                      textDecoration: 'none',
-                      fontSize: isMobile ? '0.8rem' : '0.875rem',
-                      transition: 'color .2s',
-                      '&:hover': { color: 'primary.main' },
-                    }}
-                  >
-                    {link.label}
-                  </MuiLink>
-                ))}
-              </Stack>
-            </Stack>
-          </Grid>
-
-          {/* Contact Info */}
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Stack spacing={1}>
-              <Typography variant="subtitle2" fontWeight={950} sx={{ fontSize: isMobile ? '0.85rem' : '0.95rem' }}>
-                ติดต่อเรา
-              </Typography>
-              <Stack spacing={1}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                  <Phone sx={{ fontSize: isMobile ? '1rem' : '1.25rem', color: 'primary.main', mt: 0.25 }} />
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: isMobile ? '0.8rem' : '0.875rem' }}>
-                    +66-81-2345678
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                  <Mail sx={{ fontSize: isMobile ? '1rem' : '1.25rem', color: 'primary.main', mt: 0.25 }} />
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ fontSize: isMobile ? '0.8rem' : '0.875rem', wordBreak: 'break-all' }}
-                  >
-                    psuscc@psu.ac.th
-                  </Typography>
-                </Box>
-              </Stack>
-            </Stack>
-          </Grid>
-
-          {/* Social Links */}
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Stack spacing={1}>
-              <Typography variant="subtitle2" fontWeight={950} sx={{ fontSize: isMobile ? '0.85rem' : '0.95rem' }}>
-                ติดตามเรา
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {socialLinks.map(({ icon: Icon, label, url, color }) => (
+          {/* Social & Contact Section */}
+          <Grid size={{ xs: 12, md: 4 }}>
+            <Stack spacing={2} alignItems={{ xs: 'center', md: 'flex-end' }}>
+              <Stack direction="row" spacing={1}>
+                {socialLinks.map(({ icon: Icon, url, color }, index) => (
                   <IconButton
-                    key={label}
-                    component={MuiLink}
+                    key={index}
+                    component="a"
                     href={url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    size={isMobile ? 'small' : 'medium'}
                     sx={{
                       color: 'text.secondary',
-                      transition: 'all .3s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                      bgcolor: alpha(theme.palette.divider, 0.05),
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                       '&:hover': {
-                        color,
-                        transform: 'translateY(-4px)',
-                        background: alpha(color, 0.08),
+                        color: color,
+                        transform: 'translateY(-3px)',
+                        bgcolor: alpha(color, 0.1),
                       },
                     }}
-                    title={label}
                   >
-                    <Icon />
+                    <Icon fontSize="small" />
                   </IconButton>
                 ))}
-              </Box>
+              </Stack>
+              <Typography 
+                variant="caption" 
+                color="text.disabled"
+                sx={{ textAlign: { xs: 'center', md: 'right' } }}
+              >
+                ติดต่อเจ้าหน้าที่: 081-234-5678 (ในเวลาราชการ)
+              </Typography>
             </Stack>
           </Grid>
         </Grid>
 
-        <Divider sx={{ my: { xs: 2, md: 3 }, opacity: 0.1 }} />
+        <Divider sx={{ my: 4, opacity: 0.5 }} />
 
-        <Box sx={{ textAlign: 'center' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.7rem' : '0.8rem' }}>
-            © {new Date().getFullYear()} Prince of Songkla University Science Center. All rights reserved.
+        {/* Bottom Bar */}
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          alignItems="center"
+          spacing={2}
+        >
+          <Typography variant="caption" color="text.disabled" sx={{ order: { xs: 2, sm: 1 } }}>
+            © {new Date().getFullYear()} Prince of Songkla University.
           </Typography>
-        </Box>
+          
+          <Stack direction="row" spacing={3} sx={{ order: { xs: 1, sm: 2 } }}>
+            {/* ✅ ใช้ Typography + component={Link} เพื่อรองรับ Next.js 16 และ MUI v6 */}
+            <Typography
+              component={Link}
+              href="/privacy"
+              variant="caption"
+              sx={{ 
+                color: 'text.disabled', 
+                textDecoration: 'none', 
+                cursor: 'pointer',
+                '&:hover': { color: 'primary.main' } 
+              }}
+            >
+              ความเป็นส่วนตัว
+            </Typography>
+
+            <Typography
+              component={Link}
+              href="/admin"
+              variant="caption"
+              sx={{ 
+                color: 'text.disabled', 
+                textDecoration: 'none', 
+                cursor: 'pointer',
+                '&:hover': { color: 'primary.main' } 
+              }}
+            >
+              สำหรับแอดมิน
+            </Typography>
+          </Stack>
+        </Stack>
       </Container>
     </Box>
   );

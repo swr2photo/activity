@@ -1,6 +1,7 @@
+// src/components/admin/AdminLogsPanel.tsx
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Paper,
   Typography,
@@ -15,7 +16,13 @@ import {
   Button,
   Alert,
   Box,
+  CircularProgress,
+  IconButton,
+  Tooltip
 } from '@mui/material';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import DownloadIcon from '@mui/icons-material/Download';
+
 import type { AdminProfile } from '../../types/admin';
 import {
   subscribeAdminLogs,
@@ -29,13 +36,31 @@ type Props = {
   currentAdmin: AdminProfile;
 };
 
+// --- Utils ---
 function fmtDate(d?: Date) {
   if (!d) return '-';
   try {
-    return new Date(d).toLocaleString();
+    return new Date(d).toLocaleString('th-TH', { 
+        year: 'numeric', month: 'short', day: 'numeric', 
+        hour: '2-digit', minute: '2-digit', second: '2-digit' 
+    });
   } catch {
     return '-';
   }
+}
+
+// Function to safely stringify meta data (mask sensitive info if needed)
+function safeMetaString(meta: any): string {
+    if (!meta) return '{}';
+    try {
+        // Example: Mask sensitive keys if needed
+        const clone = { ...meta };
+        if (clone.password) clone.password = '***';
+        if (clone.token) clone.token = '***';
+        return JSON.stringify(clone);
+    } catch {
+        return String(meta);
+    }
 }
 
 function toCsv(rows: AdminLogEntry[]) {
@@ -46,65 +71,88 @@ function toCsv(rows: AdminLogEntry[]) {
     r.actorUid || '',
     r.actorEmail || '',
     (r.ua || '').replaceAll(',', ' '),
-    JSON.stringify(r.meta ?? {}).replaceAll(',', ';'),
+    safeMetaString(r.meta).replaceAll(',', ';'),
   ]);
   const lines = [header, ...body].map((cols) =>
     cols.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(',')
   );
-  // ใส่ BOM เพื่อให้ Excel เปิดภาษาไทยไม่เพี้ยน
   return '\uFEFF' + lines.join('\n');
 }
 
 export default function AdminLogsPanel({ currentAdmin }: Props) {
+  // State
   const [logs, setLogs] = useState<AdminLogEntry[]>([]);
   const [q, setQ] = useState('');
+  const [term, setTerm] = useState('');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const debounceTimer = useRef<number | null>(null);
+  
+  // Refs
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const logSearchTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // ---------- Gate: super_admin only ----------
-  const accessError = requireSuperAdmin(currentAdmin)
-    ? ''
-    : 'สิทธิ์ไม่เพียงพอ: เฉพาะผู้ดูแลสูงสุด (Super Admin) เท่านั้นที่เข้าถึงบันทึกการใช้งานได้';
+  // Security Gate
+  const isSuper = useMemo(() => requireSuperAdmin(currentAdmin), [currentAdmin]);
+  const accessError = isSuper ? '' : 'สิทธิ์ไม่เพียงพอ: เฉพาะผู้ดูแลสูงสุด (Super Admin) เท่านั้น';
 
+  // --- Effects ---
+
+  // 1. Log Access (Once per mount)
   useEffect(() => {
-    // บันทึกการเข้าใช้งานหน้า (ถ้าเข้าได้)
-    if (!accessError) {
-      logAdminEvent('ADMIN_LOGS_OPEN', {}, { uid: currentAdmin.uid, email: currentAdmin.email }).catch(() => {});
+    if (isSuper) {
+      logAdminEvent('ADMIN_LOGS_OPEN', {}, { uid: currentAdmin.uid, email: currentAdmin.email })
+        .catch(console.warn);
     }
-  }, [accessError, currentAdmin?.uid, currentAdmin?.email]);
+  }, [isSuper, currentAdmin]);
 
+  // 2. Fetch Data (Subscribe)
   useEffect(() => {
-    if (accessError) {
+    if (!isSuper) {
       setLoading(false);
       return;
     }
-    // preload 1 หน้า เพื่อให้มีข้อมูลทันที
-    (async () => {
-      try {
-        const pre = await getAdminLogs(100);
-        setLogs(pre);
-      } catch (e: any) {
-        setError('โหลดข้อมูลเบื้องต้นไม่สำเร็จ');
-      } finally {
+
+    setLoading(true);
+    // Initial fetch
+    getAdminLogs(100)
+        .then(setLogs)
+        .catch(() => setError('โหลดข้อมูลเบื้องต้นไม่สำเร็จ'))
+        .finally(() => setLoading(false));
+
+    // Realtime subscription
+    const unsub = subscribeAdminLogs((rows) => {
+        setLogs(rows);
         setLoading(false);
-      }
-    })();
+    }, 200);
 
-    // subscribe realtime
-    const unsub = subscribeAdminLogs((rows) => setLogs(rows), 200);
     return () => unsub();
-  }, [accessError]);
+  }, [isSuper]);
 
-  // debounce ค้นหา (ปรับปรุง UX)
-  const [term, setTerm] = useState('');
+  // 3. Debounce Search Input
   useEffect(() => {
-    if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
-    debounceTimer.current = window.setTimeout(() => setTerm(q.trim().toLowerCase()), 250);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+        setTerm(q.trim().toLowerCase());
+        
+        // Log search event (Debounced heavily to avoid spam)
+        if (q.trim().length > 2) {
+            if (logSearchTimer.current) clearTimeout(logSearchTimer.current);
+            logSearchTimer.current = setTimeout(() => {
+                logAdminEvent(
+                    'ADMIN_LOGS_SEARCH',
+                    { query: q },
+                    { uid: currentAdmin.uid, email: currentAdmin.email }
+                ).catch(() => {});
+            }, 2000);
+        }
+    }, 300);
+
     return () => {
-      if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
+        if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [q]);
+  }, [q, currentAdmin]);
+
+  // --- Handlers ---
 
   const filtered = useMemo(() => {
     if (!term) return logs;
@@ -115,117 +163,168 @@ export default function AdminLogsPanel({ currentAdmin }: Props) {
     });
   }, [term, logs]);
 
-  const exportCsv = () => {
-    const csv = toCsv(filtered);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const ts = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
-    a.href = url;
-    a.download = `admin-logs-${ts}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleExportCsv = useCallback(() => {
+    if (filtered.length === 0) return;
+    
+    try {
+        const csv = toCsv(filtered);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const ts = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
+        a.href = url;
+        a.download = `admin-logs-${ts}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
 
-    // log export
-    logAdminEvent(
-      'ADMIN_LOGS_EXPORT',
-      { count: filtered.length, query: term },
-      { uid: currentAdmin.uid, email: currentAdmin.email }
-    ).catch(() => {});
-  };
+        logAdminEvent(
+          'ADMIN_LOGS_EXPORT',
+          { count: filtered.length, query: term },
+          { uid: currentAdmin.uid, email: currentAdmin.email }
+        ).catch(() => {});
+    } catch (e) {
+        setError('เกิดข้อผิดพลาดในการส่งออกไฟล์');
+    }
+  }, [filtered, term, currentAdmin]);
 
-  const refreshNow = async () => {
+  const handleRefresh = useCallback(async () => {
     try {
       setLoading(true);
+      setError('');
       const fresh = await getAdminLogs(200);
       setLogs(fresh);
-      setError('');
     } catch (e: any) {
       setError('รีเฟรชข้อมูลไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // --- Render ---
 
   if (accessError) {
     return (
-      <Paper sx={{ p: 3 }}>
-        <Alert severity="error" sx={{ mb: 2 }}>{accessError}</Alert>
-        <Typography variant="body2" color="text.secondary">
-          หากต้องการสิทธิ์ โปรดติดต่อผู้ดูแลระบบสูงสุดของหน่วยงานคุณ
-        </Typography>
+      <Paper sx={{ p: 3, textAlign: 'center' }}>
+        <Alert severity="error" sx={{ mb: 2, display: 'inline-flex' }}>{accessError}</Alert>
       </Paper>
     );
   }
 
   return (
-    <Paper sx={{ p: 3 }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-        <Typography variant="h4" sx={{ flexGrow: 1 }}>บันทึกการใช้งานของแอดมิน (เรียลไทม์)</Typography>
-        <TextField
-          size="small"
-          placeholder="ค้นหา: คำสั่ง / อีเมล / รายละเอียด"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            // log event ช่วงค้นหาแบบยุบรวม
-            logAdminEvent(
-              'ADMIN_LOGS_SEARCH',
-              { query: e.target.value },
-              { uid: currentAdmin.uid, email: currentAdmin.email }
-            ).catch(() => {});
-          }}
-        />
-        <Button onClick={refreshNow} variant="outlined">รีเฟรช</Button>
-        <Button onClick={exportCsv} variant="contained">ส่งออก CSV</Button>
+    <Paper sx={{ p: 3, minHeight: 500 }}>
+      <Stack spacing={3}>
+        {/* Header */}
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center" justifyContent="space-between">
+            <Box>
+                <Typography variant="h5" fontWeight="bold">บันทึกการใช้งาน (Audit Logs)</Typography>
+                <Typography variant="body2" color="text.secondary">
+                    ติดตามกิจกรรมของผู้ดูแลระบบแบบเรียลไทม์
+                </Typography>
+            </Box>
+            
+            <Stack direction="row" spacing={1} sx={{ width: { xs: '100%', md: 'auto' } }}>
+                <TextField
+                    size="small"
+                    placeholder="ค้นหา..."
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    sx={{ minWidth: 250 }}
+                />
+                <Tooltip title="รีเฟรช">
+                    <IconButton onClick={handleRefresh} disabled={loading}>
+                        <RefreshIcon />
+                    </IconButton>
+                </Tooltip>
+                <Button 
+                    variant="outlined" 
+                    startIcon={<DownloadIcon />} 
+                    onClick={handleExportCsv}
+                    disabled={filtered.length === 0}
+                >
+                    CSV
+                </Button>
+            </Stack>
+        </Stack>
+
+        {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+
+        {/* Stats */}
+        <Box sx={{ bgcolor: 'grey.50', p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary">
+                แสดงผล {filtered.length} จากทั้งหมด {logs.length} รายการล่าสุด
+            </Typography>
+        </Box>
+
+        {/* Table */}
+        <TableContainer sx={{ maxHeight: 600, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+          <Table stickyHeader size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell width="180">เวลา</TableCell>
+                <TableCell width="150">Action</TableCell>
+                <TableCell width="250">ผู้ดำเนินการ</TableCell>
+                <TableCell>รายละเอียด (Meta)</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {loading && logs.length === 0 ? (
+                 <TableRow>
+                    <TableCell colSpan={4} align="center" sx={{ py: 5 }}>
+                        <CircularProgress size={24} />
+                        <Typography variant="caption" display="block" sx={{ mt: 1 }}>กำลังโหลดข้อมูล...</Typography>
+                    </TableCell>
+                 </TableRow>
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                    ไม่พบข้อมูลที่ตรงกับคำค้นหา
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((r) => (
+                  <TableRow key={r.id} hover>
+                    <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary', fontSize: '0.85rem' }}>
+                        {fmtDate(r.at)}
+                    </TableCell>
+                    <TableCell>
+                        <Typography variant="body2" fontWeight="bold" color="primary.main">
+                            {r.action}
+                        </Typography>
+                    </TableCell>
+                    <TableCell>
+                        <Stack spacing={0.5}>
+                            <Typography variant="body2" fontWeight="medium">
+                                {r.actorEmail || 'Unknown'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                                {r.actorUid}
+                            </Typography>
+                        </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <Box 
+                        component="pre" 
+                        sx={{ 
+                            m: 0, p: 1, 
+                            bgcolor: 'grey.100', 
+                            borderRadius: 1, 
+                            fontSize: '0.75rem', 
+                            overflowX: 'auto',
+                            maxWidth: 400
+                        }}
+                      >
+                        {safeMetaString(r.meta)}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Stack>
-
-      <Box sx={{ mt: 1, color: 'text.secondary', fontSize: 13 }}>
-        ทั้งหมด {logs.length.toLocaleString()} รายการ • ตรงเงื่อนไข {filtered.length.toLocaleString()} รายการ
-      </Box>
-
-      {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-
-      <TableContainer sx={{ mt: 2, maxHeight: 520 }}>
-        <Table stickyHeader size="small" aria-label="ตารางบันทึกการใช้งานผู้ดูแล">
-          <TableHead>
-            <TableRow>
-              <TableCell>เวลา</TableCell>
-              <TableCell>การกระทำ</TableCell>
-              <TableCell>ผู้กระทำ (uid)</TableCell>
-              <TableCell>ผู้กระทำ (อีเมล)</TableCell>
-              <TableCell>รายละเอียด</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {!loading && filtered.map((r) => (
-              <TableRow key={r.id} hover>
-                <TableCell>{fmtDate(r.at)}</TableCell>
-                <TableCell>{r.action}</TableCell>
-                <TableCell>{r.actorUid || '-'}</TableCell>
-                <TableCell>{r.actorEmail || '-'}</TableCell>
-                <TableCell>
-                  <code style={{ whiteSpace: 'pre-wrap' }}>
-                    {JSON.stringify(r.meta ?? {}, null, 0)}
-                  </code>
-                </TableCell>
-              </TableRow>
-            ))}
-            {!loading && filtered.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5}>ไม่พบข้อมูล</TableCell>
-              </TableRow>
-            )}
-            {loading && (
-              <TableRow>
-                <TableCell colSpan={5}>กำลังโหลดข้อมูล...</TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
     </Paper>
   );
 }
