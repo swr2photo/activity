@@ -5,6 +5,9 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "emulators": {
     "auth": {
       "port": 9099
@@ -38,17 +41,17 @@
     "redirects": [
       {
         "source": "/r/**",
-        "destination": "https://YOUR-NEXT-DOMAIN/r/:path*",
+        "destination": "https://event.psuscc.club/r/:path*",
         "type": 301
       },
       {
         "source": "/register",
-        "destination": "https://YOUR-NEXT-DOMAIN/register",
+        "destination": "https://event.psuscc.club/register",
         "type": 301
       },
       {
         "source": "/register/**",
-        "destination": "https://YOUR-NEXT-DOMAIN/register",
+        "destination": "https://event.psuscc.club/register",
         "type": 301
       }
     ]

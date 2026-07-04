@@ -46,6 +46,18 @@ export default function GlobalError({
   }, [error.digest]);
 
   useEffect(() => {
+    // If it's a chunk loading failure (deployment update/cache mismatch), force page reload to load new files
+    const isChunkError = 
+      /chunk/i.test(error.message) || 
+      /loading.*failed/i.test(error.message) ||
+      /load.*chunk/i.test(error.message);
+
+    if (isChunkError) {
+      console.warn("Chunk load failure detected. Reloading page...");
+      window.location.reload();
+      return;
+    }
+
     let mounted = true;
     (async () => {
       try {

@@ -24,6 +24,7 @@ import {
   Divider,
   Chip,
   Stack,
+  LinearProgress,
 } from '@mui/material';
 
 import {
@@ -121,7 +122,7 @@ const DEGREE_LEVELS = [
 
 const DEPARTMENTS_BY_FACULTY: Record<string, string[]> = {
   คณะวิศวกรรมศาสตร์: ['วิศวกรรมคอมพิวเตอร์', 'วิศวกรรมไฟฟ้า', 'วิศวกรรมเครื่องกล', 'วิศวกรรมโยธา'],
-  คณะวิทยาศาสตร์: ['วิทยาการคอมพิวเตอร์', 'เทคโนโลยีสารสนเทศและการสื่อสาร', 'คณิตศาสตร์', 'ฟิสิกส์'],
+  คณะวิทยาศาสตร์: ['วิทยาการคอมพิวเตอร์', 'วิทยาการคำนวณ', 'เทคโนโลยีสารสนเทศและการสื่อสาร', 'คณิตศาสตร์', 'ฟิสิกส์'],
   คณะแพทยศาสตร์: ['การแพทย์', 'กายภาพบำบัด'],
   คณะทรัพยากรธรรมชาติ: ['ทรัพยากรธรรมชาติ', 'ประมง'],
   คณะศึกษาศาสตร์: ['การศึกษาปฐมวัย', 'วิทยาศาสตรศึกษา'],
@@ -453,6 +454,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           isActive: true,
         }));
         list = fallback;
+      } else {
+        const hasCompSci = list.some((d) => d.name === 'วิทยาการคำนวณ');
+        if (!hasCompSci) {
+          list.push({
+            id: 'temp-comp-sci',
+            name: 'วิทยาการคำนวณ',
+            faculty: 'คณะวิทยาศาสตร์',
+            isActive: true,
+          });
+        }
       }
 
       list.sort((a, b) => {
@@ -568,14 +579,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       setError('กรุณาเลือกสาขา');
       return false;
     }
-    if (!(formData as any).userCode) {
-      setError('กรุณาใส่รหัสผู้ใช้');
-      return false;
-    }
-    if ((formData as any).userCode !== activityStatus.userCode) {
-      setError('รหัสผู้ใช้ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
-      return false;
-    }
+    // Removed userCode check
 
     // กันลงทะเบียนซ้ำด้วย studentId (เร็ว)
     try {
@@ -678,7 +682,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           activityCode,
           activityDocId,
           location,
-          userCode: (formData as any).userCode,
+          userCode: activityStatus.userCode || '',
           transcriptSaved: true,
           timestamp: serverTimestamp(),
         };
@@ -1059,10 +1063,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             )}
           </Box>
 
+          {/* Desktop Stepper */}
           <Stepper
             activeStep={activeStep}
             sx={{
-              mb: { xs: 2.5, sm: 4 },
+              display: { xs: 'none', sm: 'flex' },
+              mb: 4,
               '& .MuiStepLabel-root .Mui-completed': { color: 'success.main' },
               '& .MuiStepLabel-root .Mui-active': { color: 'primary.main' },
             }}
@@ -1083,6 +1089,29 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             ))}
           </Stepper>
 
+          {/* Mobile Stepper / Progress Bar */}
+          <Box sx={{ display: { xs: 'block', sm: 'none' }, mb: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="body2" fontWeight="bold" color="primary.main">
+                {activeStep === 0 && 'ขั้นตอนที่ 1: กรอกข้อมูล'}
+                {activeStep === 1 && 'ขั้นตอนที่ 2: ตรวจสอบตำแหน่ง'}
+                {activeStep === 2 && 'ขั้นตอนที่ 3: ลงทะเบียนสำเร็จ'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {activeStep + 1} / 3
+              </Typography>
+            </Box>
+            <LinearProgress
+              variant="determinate"
+              value={((activeStep + 1) / 3) * 100}
+              sx={(theme) => ({
+                height: 6,
+                borderRadius: 3,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+              })}
+            />
+          </Box>
+
           {error && (
             <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>
               {error}
@@ -1093,65 +1122,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           {activeStep === 0 && (
             <Fade in>
               <Box>
-                {/* Organizer code bar */}
-                <Box
-                  sx={(t) => ({
-                    mb: 3,
-                    p: { xs: 1.5, sm: 2 },
-                    borderRadius: 3,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 2,
-                    flexWrap: 'wrap',
-                    bgcolor: t.palette.mode === 'dark' ? 'rgba(20,20,24,0.35)' : 'rgba(255,255,255,0.65)',
-                    backdropFilter: 'blur(16px) saturate(160%)',
-                    border: '1px solid rgba(255,255,255,0.35)',
-                    boxShadow: '0 8px 32px rgba(0,0,0,.12)',
-                  })}
-                >
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="caption" sx={{ opacity: 0.75, display: 'block' }}>
-                      รหัสที่ได้รับจากผู้จัดกิจกรรม
-                    </Typography>
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontFamily: 'monospace',
-                        fontWeight: 800,
-                        letterSpacing: 1,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        maxWidth: { xs: 180, sm: 260 },
-                      }}
-                      title={activityStatus.userCode || ''}
-                    >
-                      {activityStatus.userCode || '—'}
-                    </Typography>
-                  </Box>
-                  <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      onClick={() => setFormData((prev) => ({ ...prev, userCode: activityStatus.userCode || '' }))}
-                    >
-                      ใส่รหัสให้เลย
-                    </Button>
-                    <Button
-                      variant="text"
-                      size="small"
-                      startIcon={<ContentCopyIcon fontSize="small" />}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(activityStatus.userCode || '');
-                        } catch {}
-                      }}
-                    >
-                      คัดลอก
-                    </Button>
-                  </Stack>
-                </Box>
+                {/* Organizer code bar removed */}
 
                 <Grid container spacing={2.5}>
                   <Grid size={{ xs: 12, sm: 6 }}>
@@ -1280,19 +1251,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     </FormControl>
                   </Grid>
 
-                  <Grid size={{ xs: 12 }}>
-                    <TextField
-                      label="รหัสผู้ใช้"
-                      value={(formData as any).userCode}
-                      onChange={handleInputChange('userCode')}
-                      fullWidth
-                      required
-                      disabled={loading || forceRefreshEnabled}
-                      type="password"
-                      helperText="รหัสที่ได้รับจากผู้จัดกิจกรรม"
-                      sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
-                    />
-                  </Grid>
+                  {/* userCode field removed */}
                 </Grid>
 
                 <Divider sx={{ my: { xs: 3, sm: 4 } }} />

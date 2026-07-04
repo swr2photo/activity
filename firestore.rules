@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getAdminData() {
+      return get(/databases/$(database)/documents/adminUsers/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid)) &&
+        getAdminData().isActive == true;
+    }
+
+    function getStudentData() {
+      return get(/databases/$(database)/documents/universityUsers/$(request.auth.uid)).data;
+    }
+
+    // 1. adminUsers
+    match /adminUsers/{uid} {
+      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      allow create: if isAuthenticated() && request.auth.uid == uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // 2. adminInvites
+    match /adminInvites/{inviteId} {
+      allow read: if isAuthenticated(); // Anyone logged in can check if they are invited
+      allow write: if isAdmin();
+    }
+
+    // 3. activities & activityQRCodes (PRIMARY_ACTIVITY_COLLECTION)
+    match /activities/{activityId} {
+      allow read: if true; // Publicly readable for registration page
+      allow write: if isAdmin();
+    }
+    match /activityQRCodes/{qrId} {
+      allow read: if true; // Publicly readable for registration page
+      allow write: if isAdmin();
+    }
+
+    // 4. activityRecords (Registration records)
+    match /activityRecords/{recordId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() || 
+        (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) && 
+         resource.data.studentId == getStudentData().studentId)
+      );
+      allow create: if isAuthenticated() && (
+        isAdmin() || 
+        (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) && 
+         request.resource.data.studentId == getStudentData().studentId)
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // 5. universityUsers (Student profiles)
+    match /universityUsers/{uid} {
+      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      allow write: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+    }
+
+    // 6. logs (System logs)
+    match /logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    // 7. ipLoginRecords (IP limits for verification)
+    match /ipLoginRecords/{recordId} {
+      allow read, write: if true; // Public rate limiting
+    }
+
+    // 8. errorReports (Frontend errors)
+    match /errorReports/{reportId} {
+      allow create: if true; // Anyone can submit an error report
+      allow read, update, delete: if isAdmin();
+    }
+
+    // 9. departments (Faculty / department list)
+    match /departments/{deptId} {
+      allow read: if true; // Publicly readable
+      allow write: if isAdmin();
+    }
+
+    // 10. systemSettings (Global settings)
+    match /systemSettings/{settingId} {
+      allow read: if true; // Publicly readable (e.g. check maintenance mode)
+      allow write: if isAdmin();
+    }
+  }
+}

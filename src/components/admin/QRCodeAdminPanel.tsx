@@ -73,6 +73,7 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import {
   getAllActivities,
   getActivitiesByDepartment,
+  subscribeActivities,
   toggleActivityLive,
   createActivity,
   type Activity,
@@ -112,8 +113,15 @@ const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(mi
 const envBase = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || '').toString();
 
 const getBaseUrl = () => {
+  if (typeof window !== 'undefined' && window.location.origin) {
+    const origin = window.location.origin;
+    const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('[::1]');
+    if (isLocalhost && envBase) {
+      return envBase.replace(/\/$/, '');
+    }
+    return origin.replace(/\/$/, '');
+  }
   if (envBase) return envBase.replace(/\/$/, '');
-  if (typeof window !== 'undefined') return window.location.origin;
   return '';
 };
 
@@ -515,22 +523,18 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     await load();
   };
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const data =
-        currentAdmin.department === 'all'
-          ? await getAllActivities()
-          : await getActivitiesByDepartment(currentAdmin.department as AdminDepartment);
-      setActivities(data);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const load = async () => {};
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line
+    setLoading(true);
+    const unsubscribe = subscribeActivities(
+      currentAdmin.department as AdminDepartment,
+      (data) => {
+        setActivities(data);
+        setLoading(false);
+      }
+    );
+    return () => unsubscribe();
   }, [currentAdmin.department]);
 
   /* ---------- Create ---------- */

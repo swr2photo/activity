@@ -334,6 +334,73 @@ export const getActivitiesByDepartment = async (
   });
 };
 
+export const subscribeActivities = (
+  department: AdminDepartment,
+  cb: (activities: Activity[]) => void
+): () => void => {
+  const mapDoc = (d: any) => {
+    const data = d.data() as any;
+    return {
+      id: d.id,
+      activityName: data.activityName ?? '',
+      activityCode: data.activityCode ?? '',
+      userCode: data.userCode,
+      description: data.description,
+      bannerUrl: data.bannerUrl,
+      bannerAspect: data.bannerAspect || 'cover',
+      location: data.location,
+      startDateTime: toDateSafe(data.startDateTime),
+      endDateTime: toDateSafe(data.endDateTime),
+      checkInRadius: data.checkInRadius ?? 50,
+      maxParticipants: data.maxParticipants ?? 0,
+      currentParticipants: data.currentParticipants ?? 0,
+      isActive: data.isActive ?? true,
+      qrUrl: data.qrUrl || data.qrCode || '',
+      department: data.department,
+      createdAt: toDateSafe(data.createdAt),
+      closeReason: data.closeReason,
+      stateVersion: data.stateVersion,
+      forceRefresh: data.forceRefresh === true,
+      singleUserMode: data.singleUserMode === true,
+      requiresUniversityLogin: data.requiresUniversityLogin === true,
+    } as Activity;
+  };
+
+  let legacyUnsubscribe: (() => void) | null = null;
+  const colRef = collection(db, PRIMARY_ACTIVITY_COLLECTION);
+  const qy = department === 'all'
+    ? colRef
+    : query(colRef, where('department', '==', department));
+
+  const primaryUnsubscribe = onSnapshot(qy, (snap) => {
+    if (snap.empty) {
+      if (!legacyUnsubscribe) {
+        const legacyCol = collection(db, LEGACY_ACTIVITY_COLLECTION);
+        const legacyQy = department === 'all'
+          ? legacyCol
+          : query(legacyCol, where('department', '==', department));
+        
+        legacyUnsubscribe = onSnapshot(legacyQy, (legacySnap) => {
+          cb(legacySnap.docs.map(mapDoc));
+        });
+      }
+    } else {
+      if (legacyUnsubscribe) {
+        legacyUnsubscribe();
+        legacyUnsubscribe = null;
+      }
+      cb(snap.docs.map(mapDoc));
+    }
+  });
+
+  return () => {
+    primaryUnsubscribe();
+    if (legacyUnsubscribe) {
+      legacyUnsubscribe();
+    }
+  };
+};
+
 /** ใหม่: Toggle แบบ Transaction + version bump + เหตุผลปิด + ผู้แก้ไข */
 export const toggleActivityLive = async (
   activityId: string,

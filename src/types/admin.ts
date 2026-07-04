@@ -102,7 +102,7 @@ const LABEL_TO_KEY: Record<string, AdminDepartment> = Object.entries(DEPARTMENT_
 const KEYWORDS: Array<[AdminDepartment, string[]]> = [
   ['science_faculty', [
     'คณะวิทยาศาสตร์', 'วิทยาศาสตร์', 'วิทยา', 'วิทย์',
-    'วิทยาการคอมพิวเตอร์', 'คอมพิวเตอร์', 'computer', 'science', 'sci'
+    'วิทยาการคอมพิวเตอร์', 'วิทยาการคำนวณ', 'คอมพิวเตอร์', 'computer', 'science', 'sci'
   ]],
   ['engineering_faculty', [
     'คณะวิศวกรรมศาสตร์', 'วิศวกรรม', 'วิศว', 'engineering', 'engineer', 'eng'
