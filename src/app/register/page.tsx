@@ -12,13 +12,12 @@ import {
   Container,
   Divider,
   Grid,
-  Paper,
   Stack,
   Typography,
   Snackbar,
   Alert as MuiAlert,
 } from '@mui/material';
-import { alpha, keyframes } from '@mui/material/styles';
+import { alpha } from '@mui/material/styles';
 import {
   Refresh as RefreshIcon,
   Warning as WarningIcon,
@@ -54,6 +53,8 @@ import {
 import ProfileEditDialog from '../../components/profile/ProfileEditDialog';
 import ActivityRegistrationForm from '../../components/ActivityRegistrationForm';
 import GeofenceMap from '../../components/maps/GeofenceMap';
+import Footer from '../../components/Footer';
+import { glassCardSx, pageColors, pageLayoutSx } from '../../lib/uiTheme';
 
 // Firebase helpers
 import { db } from '../../lib/firebase';
@@ -184,17 +185,6 @@ const checkIPRestriction = async (
   }
 };
 
-const float1 = keyframes`
-  0% { transform: translateY(0) translateX(0); }
-  50% { transform: translateY(-12px) translateX(10px); }
-  100% { transform: translateY(0) translateX(0); }
-`;
-const float2 = keyframes`
-  0% { transform: translateY(0) translateX(0); }
-  50% { transform: translateY(12px) translateX(-10px); }
-  100% { transform: translateY(0) translateX(0); }
-`;
-
 /* ============================= Helpers ============================= */
 const getActivityStatus = (activity: ActivityData): ActivityStatusInfo => {
   const now = new Date();
@@ -231,11 +221,7 @@ const ModernActivityBanner: React.FC<{
   adminSettings: AdminSettings | null;
 }> = ({ activity, status, adminSettings }) => {
   const tintColor =
-    activity.bannerTintColor || (adminSettings as any)?.branding?.primaryColor || '#0ea5e9';
-  const tintOpacity =
-    typeof activity.bannerTintOpacity === 'number'
-      ? Math.max(0, Math.min(1, activity.bannerTintOpacity))
-      : 0.42;
+    activity.bannerTintColor || (adminSettings as any)?.branding?.primaryColor || '#1c1c1e';
 
   const hasImage = !!activity.bannerUrl;
 
@@ -261,94 +247,88 @@ const ModernActivityBanner: React.FC<{
       ? 'สิ้นสุดแล้ว'
       : 'ปิดใช้งาน';
 
-  return (
-    <Box sx={{ position: 'relative', borderRadius: { xs: 0, md: 4 }, overflow: 'hidden', mb: 3 }}>
-      {hasImage ? (
-        <>
-          <Box
-            component="img"
-            src={activity.bannerUrl!}
-            alt={activity.activityName}
-            loading="lazy"
-            sx={{
-              width: '100%',
-              height: { xs: 220, md: 320 },
-              objectFit: activity.bannerAspect === 'contain' ? 'contain' : 'cover',
-              display: 'block',
-              backgroundColor: '#000',
-            }}
-          />
-          <Box
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              background: `linear-gradient(180deg,
-                ${alpha(tintColor as any, tintOpacity)},
-                ${alpha(tintColor as any, Math.max(0, tintOpacity - 0.17))} 40%,
-                ${alpha(tintColor as any, Math.min(0.85, tintOpacity + 0.18))}
-              )`,
-            }}
-          />
-        </>
-      ) : (
-        <Box
-          sx={{
-            width: '100%',
-            height: { xs: 160, md: 220 },
-            background: activity.bannerColor || tintColor,
-          }}
-        />
-      )}
+  const statusChipSx =
+    status.status === 'active'
+      ? { bgcolor: pageColors.appleGreenBg, color: pageColors.appleGreen, fontWeight: 700, borderRadius: '10px' }
+      : undefined;
 
-      <Container maxWidth="md" sx={{ position: 'relative', zIndex: 1 }}>
-        <Box sx={{ mt: { xs: -6, md: -8 } }}>
-          <Paper
-            elevation={0}
-            sx={{
-              p: { xs: 2, md: 3 },
-              borderRadius: 3,
-              backdropFilter: 'blur(14px)',
-              background: 'linear-gradient(145deg, rgba(255,255,255,0.65), rgba(255,255,255,0.35))',
-              border: '1px solid rgba(255,255,255,0.3)',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
-            }}
-          >
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={2}
-              alignItems={{ xs: 'flex-start', md: 'center' }}
-              justifyContent="space-between"
-            >
-              <Box>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                  <Chip label={statusLabel} color={statusColor} size="small" sx={{ borderRadius: 2 }} />
-                </Stack>
-                <Typography variant="h5" fontWeight={800}>
-                  {activity.activityName}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                  {activity.location}
-                </Typography>
-              </Box>
-              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' } }} />
-              <Box>
-                <Stack spacing={0.5}>
-                  <Typography variant="overline">ช่วงเวลา</Typography>
-                  <Typography variant="body2">
-                    {formatDateTime(activity.startDateTime)} — {formatDateTime(activity.endDateTime)}
-                  </Typography>
-                  {activity.maxParticipants > 0 && (
-                    <Typography variant="body2" color="text.secondary">
-                      ผู้สมัคร {activity.currentParticipants}/{activity.maxParticipants}
-                    </Typography>
-                  )}
-                </Stack>
-              </Box>
-            </Stack>
-          </Paper>
+  return (
+    <Card elevation={0} sx={{ ...glassCardSx, mb: 3, overflow: 'hidden', p: 0 }}>
+      <Box
+        sx={{
+          position: 'relative',
+          height: { xs: 180, md: 220 },
+          bgcolor: activity.bannerColor || tintColor || '#1c1c1e',
+          overflow: 'hidden',
+        }}
+      >
+        {hasImage && (
+          <>
+            <Box
+              component="img"
+              src={activity.bannerUrl!}
+              alt={activity.activityName}
+              loading="lazy"
+              sx={{
+                width: '100%',
+                height: '100%',
+                objectFit: activity.bannerAspect === 'contain' ? 'contain' : 'cover',
+                display: 'block',
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                background: `linear-gradient(180deg, transparent 40%, ${alpha('#000', 0.55)} 100%)`,
+              }}
+            />
+          </>
+        )}
+        <Box sx={{ position: 'absolute', top: 12, left: 12 }}>
+          <Chip
+            label={statusLabel}
+            color={statusColor}
+            size="small"
+            sx={statusChipSx}
+          />
         </Box>
-      </Container>
-    </Box>
+      </Box>
+
+      <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
+        <Typography
+          variant="h5"
+          fontWeight={800}
+          sx={{ color: pageColors.textPrimary, letterSpacing: '-0.02em', mb: 0.5 }}
+        >
+          {activity.activityName}
+        </Typography>
+        <Typography variant="body2" sx={{ color: pageColors.textSecondary, mb: 2 }}>
+          {activity.location}
+        </Typography>
+        <Divider sx={{ mb: 2, opacity: 0.5 }} />
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <Typography variant="overline" sx={{ color: pageColors.textSecondary, fontWeight: 600 }}>
+              ช่วงเวลา
+            </Typography>
+            <Typography variant="body2" sx={{ color: pageColors.textPrimary, fontWeight: 500 }}>
+              {formatDateTime(activity.startDateTime)} — {formatDateTime(activity.endDateTime)}
+            </Typography>
+          </Grid>
+          {activity.maxParticipants > 0 && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <Typography variant="overline" sx={{ color: pageColors.textSecondary, fontWeight: 600 }}>
+                ผู้สมัคร
+              </Typography>
+              <Typography variant="body2" sx={{ color: pageColors.textPrimary, fontWeight: 500 }}>
+                {activity.currentParticipants}/{activity.maxParticipants} คน
+              </Typography>
+            </Grid>
+          )}
+        </Grid>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -937,35 +917,8 @@ const RegisterPageContent: React.FC = () => {
         urgentNotices={urgentNotices}
       />
 
-      <Box sx={{ position: 'relative', background: 'linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)', minHeight: '100vh', pb: 6, overflowX: 'hidden' }}>
-        <Box
-          sx={{
-            position: 'absolute',
-            top: -60,
-            left: -80,
-            width: 260,
-            height: 260,
-            borderRadius: '50%',
-            background: alpha('#7c3aed', 0.12),
-            filter: 'blur(24px)',
-            animation: `${float1} 12s ease-in-out infinite`,
-          }}
-        />
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: -70,
-            right: -60,
-            width: 320,
-            height: 320,
-            borderRadius: '50%',
-            background: alpha('#2563eb', 0.12),
-            filter: 'blur(28px)',
-            animation: `${float2} 14s ease-in-out infinite`,
-          }}
-        />
-
-        <Container maxWidth="md" sx={{ position: 'relative', zIndex: 1, pt: 2 }}>
+      <Box sx={{ ...pageLayoutSx, flex: 1 }}>
+        <Container maxWidth="md" sx={{ flex: 1, pt: { xs: 2, md: 3 }, pb: 4 }}>
           {/* Banner + Status */}
           {activityData && statusInfo && !ipBlocked && !singleUserBlocked && (
             <ModernActivityBanner activity={activityData} status={statusInfo} adminSettings={adminSettings} />
@@ -1025,7 +978,7 @@ const RegisterPageContent: React.FC = () => {
                 </Box>
 
                 {/* GPS Status Card */}
-                <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+                <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
                   <CardContent>
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
                       <GpsFixedIcon />
@@ -1078,7 +1031,7 @@ const RegisterPageContent: React.FC = () => {
                 </Card>
 
                 {/* รายละเอียดกิจกรรม */}
-                <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+                <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
                   <CardContent>
                     <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
                       รายละเอียดกิจกรรม
@@ -1189,6 +1142,7 @@ const RegisterPageContent: React.FC = () => {
             </MuiAlert>
           </Snackbar>
         </Container>
+        <Footer />
       </Box>
     </>
   );
@@ -1197,9 +1151,8 @@ const RegisterPageContent: React.FC = () => {
 /* ============================= Page Wrapper with Suspense ============================= */
 const RegisterPage: React.FC = () => {
   return (
-    <Box sx={{ minHeight: '100vh', background: 'transparent', overflowX: 'hidden' }}>
-      <Container maxWidth="md" sx={{ py: 0 }}>
-        <Suspense
+    <Box sx={pageLayoutSx}>
+      <Suspense
           fallback={
             <Box
               sx={{
@@ -1220,7 +1173,6 @@ const RegisterPage: React.FC = () => {
         >
           <RegisterPageContent />
         </Suspense>
-      </Container>
     </Box>
   );
 };

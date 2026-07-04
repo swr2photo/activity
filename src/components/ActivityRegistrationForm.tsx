@@ -59,6 +59,7 @@ import { db, auth } from '../lib/firebase';
 import LocationChecker from './LocationChecker';
 import { AdminSettings } from '../types';
 import { validateStudentId, validateThaiName } from '../utils/validation';
+import { accentCardSx, glassCardSx, pageColors } from '../lib/uiTheme';
 
 /** =========================
  * Types & Interfaces
@@ -730,27 +731,21 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (isRefreshing) {
     return (
       <Fade in>
-        <Card
-          elevation={12}
-          sx={{
-            borderRadius: 4,
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            color: 'white',
-          }}
-        >
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
+        <Card elevation={0} sx={glassCardSx}>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
             <RefreshIcon
               sx={{
-                fontSize: 80,
-                mb: 3,
+                fontSize: 48,
+                mb: 2,
+                color: 'primary.main',
                 animation: 'spin 1s linear infinite',
                 '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } },
               }}
             />
-            <Typography variant="h4" sx={{ mt: 2, fontWeight: 700 }}>
+            <Typography variant="h5" sx={{ fontWeight: 800, color: pageColors.textPrimary }}>
               กำลังโหลดหน้าใหม่...
             </Typography>
-            <Typography variant="body1" sx={{ mt: 2, opacity: 0.9 }}>
+            <Typography variant="body2" sx={{ mt: 1, color: pageColors.textSecondary }}>
               กรุณารอสักครู่
             </Typography>
           </CardContent>
@@ -762,16 +757,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (activityStatusLoading) {
     return (
       <Fade in>
-        <Card elevation={8} sx={{ borderRadius: 4 }}>
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <CircularProgress size={80} thickness={4} sx={{ mb: 3, color: 'primary.main' }} />
-            <Typography variant="h4" sx={{ mt: 2, fontWeight: 600, color: 'primary.main' }}>
+        <Card elevation={0} sx={glassCardSx}>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <CircularProgress size={48} thickness={4} sx={{ mb: 2, color: 'primary.main' }} />
+            <Typography variant="h5" sx={{ fontWeight: 800, color: pageColors.textPrimary }}>
               กำลังตรวจสอบสถานะกิจกรรม...
             </Typography>
             <Chip
               label={`รหัสกิจกรรม: ${activityCode}`}
               variant="outlined"
-              sx={{ mt: 2, fontFamily: 'monospace', fontWeight: 600 }}
+              sx={{ mt: 2, fontFamily: 'monospace', fontWeight: 600, borderRadius: '10px' }}
             />
           </CardContent>
         </Card>
@@ -782,34 +777,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (!activityStatus.exists) {
     return (
       <Grow in>
-        <Card
-          elevation={8}
-          sx={{
-            borderRadius: 4,
-            border: '3px solid',
-            borderColor: 'error.main',
-            background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)',
-            color: 'white',
-          }}
-        >
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <ErrorIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">
+        <Card elevation={0} sx={accentCardSx(pageColors.accentError)}>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <ErrorIcon sx={{ fontSize: 64, mb: 2, color: 'error.main' }} />
+            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
               ไม่พบกิจกรรมนี้
             </Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
               ไม่พบกิจกรรมที่มีรหัส
             </Typography>
-            <Chip
-              label={activityCode}
-              sx={{
-                bgcolor: 'rgba(255,255,255,0.2)',
-                color: 'white',
-                fontFamily: 'monospace',
-                fontWeight: 600,
-                fontSize: '1.1rem',
-              }}
-            />
+            <Chip label={activityCode} sx={{ fontFamily: 'monospace', fontWeight: 600, borderRadius: '10px' }} />
           </CardContent>
         </Card>
       </Grow>
@@ -819,27 +796,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (!activityStatus.isActive) {
     return (
       <Grow in>
-        <Card
-          elevation={8}
-          sx={{
-            borderRadius: 4,
-            border: '3px solid',
-            borderColor: 'warning.main',
-            background: 'linear-gradient(135deg, #ffa726 0%, #fb8c00 100%)',
-            color: 'white',
-          }}
-        >
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <BlockIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">
+        <Card elevation={0} sx={accentCardSx(pageColors.accentWarning)}>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <BlockIcon sx={{ fontSize: 64, mb: 2, color: 'warning.main' }} />
+            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
               กิจกรรมปิดการลงทะเบียนแล้ว
             </Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
               {activityStatus.closeReason || 'กิจกรรมได้ปิดการลงทะเบียนแล้ว'}
             </Typography>
             <Chip
               label={activityStatus.activityCode}
-              sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600 }}
+              sx={{ fontFamily: 'monospace', fontWeight: 600, borderRadius: '10px' }}
             />
           </CardContent>
         </Card>
@@ -850,27 +818,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (!activityStatus.userCode) {
     return (
       <Grow in>
-        <Card
-          elevation={8}
-          sx={{
-            borderRadius: 4,
-            border: '3px solid',
-            borderColor: 'warning.main',
-            background: 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
-            color: 'white',
-          }}
-        >
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <PersonIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">
+        <Card elevation={0} sx={accentCardSx(pageColors.accentInfo)}>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <PersonIcon sx={{ fontSize: 64, mb: 2, color: 'info.main' }} />
+            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
               ไม่มีรหัสผู้ใช้
             </Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
               กิจกรรมยังไม่ได้ตั้งค่ารหัสผู้ใช้
             </Typography>
             <Chip
               label={activityStatus.activityCode}
-              sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontWeight: 600 }}
+              sx={{ fontFamily: 'monospace', fontWeight: 600, borderRadius: '10px' }}
             />
           </CardContent>
         </Card>
@@ -881,57 +840,21 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (singleUserViolation) {
     return (
       <Grow in>
-        <Card
-          elevation={8}
-          sx={{
-            borderRadius: 4,
-            border: '3px solid',
-            borderColor: 'error.main',
-            background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
-            color: 'white',
-          }}
-        >
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <LockIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">
+        <Card elevation={0} sx={accentCardSx(pageColors.accentError)}>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <LockIcon sx={{ fontSize: 64, mb: 2, color: 'error.main' }} />
+            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
               ไม่สามารถลงทะเบียนได้
             </Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
               กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียวเท่านั้น
             </Typography>
-            <Chip
-              label={currentRegisteredUser}
-              sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', mb: 4, fontWeight: 600 }}
-            />
+            <Chip label={currentRegisteredUser} sx={{ mb: 3, fontWeight: 600, borderRadius: '10px' }} />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
-              <Button
-                variant="contained"
-                size="large"
-                onClick={handleLogout}
-                startIcon={<LogoutIcon />}
-                sx={{
-                  px: 4,
-                  py: 1.5,
-                  borderRadius: 3,
-                  bgcolor: 'rgba(255,255,255,0.15)',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
-                }}
-              >
+              <Button variant="contained" size="large" onClick={handleLogout} startIcon={<LogoutIcon />} sx={{ borderRadius: '12px', px: 4 }}>
                 ออกจากระบบ
               </Button>
-              <Button
-                variant="outlined"
-                size="large"
-                onClick={() => window.close()}
-                sx={{
-                  px: 4,
-                  py: 1.5,
-                  borderRadius: 3,
-                  borderColor: 'rgba(255,255,255,0.5)',
-                  color: 'white',
-                  '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' },
-                }}
-              >
+              <Button variant="outlined" size="large" onClick={() => window.close()} sx={{ borderRadius: '12px', px: 4 }}>
                 ปิดหน้าต่าง
               </Button>
             </Stack>
@@ -944,36 +867,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (activityStatus.requiresUniversityLogin && !existingUserProfile && !existingAuthStatus) {
     return (
       <Grow in>
-        <Card
-          elevation={8}
-          sx={{
-            borderRadius: 4,
-            border: '3px solid',
-            borderColor: 'warning.main',
-            background: 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)',
-            color: 'white',
-          }}
-        >
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <WarningIcon sx={{ fontSize: 100, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">
+        <Card elevation={0} sx={accentCardSx(pageColors.accentWarning)}>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <WarningIcon sx={{ fontSize: 64, mb: 2, color: 'warning.main' }} />
+            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
               จำเป็นต้องเข้าสู่ระบบ
             </Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
               กิจกรรมนี้ต้องการให้เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยก่อน
             </Typography>
-            <Button
-              variant="contained"
-              size="large"
-              onClick={() => window.history.back()}
-              sx={{
-                px: 4,
-                py: 1.5,
-                borderRadius: 3,
-                bgcolor: 'rgba(255,255,255,0.15)',
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
-              }}
-            >
+            <Button variant="contained" size="large" onClick={() => window.history.back()} sx={{ borderRadius: '12px', px: 4 }}>
               กลับไปเข้าสู่ระบบ
             </Button>
           </CardContent>
@@ -985,52 +888,21 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   if (success) {
     return (
       <Fade in>
-        <Card
-          elevation={12}
-          sx={{
-            borderRadius: 4,
-            border: '3px solid',
-            borderColor: 'success.main',
-            background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)',
-            color: 'white',
-          }}
-        >
+        <Card elevation={0} sx={accentCardSx(pageColors.accentSuccess)}>
           <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <CheckCircleIcon sx={{ fontSize: 120, mb: 3 }} />
-            <Typography variant="h3" gutterBottom fontWeight="bold">
+            <CheckCircleIcon sx={{ fontSize: 72, mb: 2, color: 'success.main' }} />
+            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
               บันทึกสำเร็จ!
             </Typography>
-            <Typography variant="h6" paragraph sx={{ opacity: 0.9 }}>
+            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
               ข้อมูลการเข้าร่วมกิจกรรมของคุณได้รับการบันทึกเรียบร้อยแล้ว
             </Typography>
-            <Alert
-              severity="success"
-              sx={{
-                mb: 3,
-                borderRadius: 2,
-                bgcolor: 'rgba(255,255,255,0.15)',
-                color: 'white',
-                '& .MuiAlert-icon': { color: 'white' },
-              }}
-            >
+            <Alert severity="success" sx={{ mb: 3, borderRadius: '12px', textAlign: 'left' }}>
               บันทึก Transcript เรียบร้อยแล้ว
             </Alert>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
-              <Button
-                variant="contained"
-                size="large"
-                onClick={() => window.close()}
-                sx={{
-                  px: 4,
-                  py: 1.5,
-                  borderRadius: 3,
-                  bgcolor: 'rgba(255,255,255,0.15)',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
-                }}
-              >
-                ปิดหน้าต่าง
-              </Button>
-            </Stack>
+            <Button variant="contained" size="large" onClick={() => window.close()} sx={{ borderRadius: '12px', px: 4 }}>
+              ปิดหน้าต่าง
+            </Button>
           </CardContent>
         </Card>
       </Fade>
@@ -1042,19 +914,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
    * =======================*/
   return (
     <Fade in>
-      <Card elevation={8} sx={{ borderRadius: 4 }}>
-        <CardContent sx={{ p: { xs: 2, sm: 4 } }}>
+      <Card elevation={0} sx={glassCardSx}>
+        <CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
           <Box sx={{ textAlign: 'center', mb: 3 }}>
             <Typography
-              variant="h4"
+              variant="h5"
               gutterBottom
-              fontWeight="bold"
+              fontWeight={800}
               sx={{
-                fontSize: { xs: '1.6rem', sm: '2rem' },
-                background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
-                backgroundClip: 'text',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
+                fontSize: { xs: '1.5rem', sm: '1.75rem' },
+                color: pageColors.textPrimary,
+                letterSpacing: '-0.02em',
               }}
             >
               ลงทะเบียนกิจกรรม

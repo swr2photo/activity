@@ -31,14 +31,16 @@ import {
   Stack,
 } from '@mui/material';
 import {
-  EventNote as EventIcon,
   Logout as LogoutIcon,
   AccountCircle as AccountIcon,
   Save as SaveIcon,
   AutoFixHigh as AutoFillIcon,
   Edit as EditIcon,
   Notifications as NotificationsIcon,
+  ScienceOutlined as ScienceIcon,
 } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
+import { glassNavSx, pageColors } from '../../lib/uiTheme';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { UniversityUserProfile } from '../../lib/firebaseAuth';
@@ -362,24 +364,47 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
           position="sticky"
           color="transparent"
           sx={{
-            mt: 1.5,
+            mt: { xs: 1, md: 1.5 },
             mx: 'auto',
             width: { xs: 'calc(100% - 16px)', sm: 'calc(100% - 24px)' },
-            borderRadius: 3,
-            backdropFilter: 'blur(16px) saturate(180%)',
-            backgroundColor: 'rgba(255,255,255,0.65)',
-            border: '1px solid rgba(255,255,255,0.25)',
-            boxShadow:
-              '0 8px 24px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.15)',
+            borderRadius: '20px',
+            ...glassNavSx,
           }}
         >
           <Toolbar sx={{ minHeight: { xs: 64, sm: 72 } }}>
-            {/* ซ้าย: โลโก้ */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <EventIcon sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }} />
-              <Typography variant="h6" component="div" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 'bold' }}>
-                ระบบลงทะเบียนกิจกรรม
-              </Typography>
+            {/* ซ้าย: โลโก้ — สไตล์เดียวกับ Navbar หน้าแรก */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box
+                sx={{
+                  bgcolor: 'primary.main',
+                  p: 0.5,
+                  borderRadius: 1,
+                  display: 'flex',
+                  boxShadow: (t) => `0 4px 12px ${alpha(t.palette.primary.main, 0.3)}`,
+                }}
+              >
+                <ScienceIcon sx={{ color: '#fff', fontSize: { xs: 20, sm: 24 } }} />
+              </Box>
+              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                <Typography
+                  variant="subtitle1"
+                  sx={{
+                    fontWeight: 900,
+                    color: pageColors.textPrimary,
+                    lineHeight: 1.2,
+                    letterSpacing: -0.5,
+                    fontSize: { xs: '0.85rem', sm: '1rem' },
+                  }}
+                >
+                  PSU REGISTER
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{ fontWeight: 600, color: pageColors.textSecondary, display: { xs: 'none', sm: 'block' } }}
+                >
+                  Faculty of Science
+                </Typography>
+              </Box>
             </Box>
 
             <Box sx={{ flex: 1 }} />

@@ -13,6 +13,7 @@ import {
   Collapse,
 } from '@mui/material';
 import { Security as SecurityIcon } from '@mui/icons-material';
+import { glassCardLargeSx, pageColors } from '../../lib/uiTheme';
 import MicrosoftLogin from '../MicrosoftLogin';
 
 interface MicrosoftAuthSectionProps {
@@ -111,11 +112,10 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
 
   return (
     <Card
+      elevation={0}
       sx={{
+        ...glassCardLargeSx,
         mb: 4,
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-        border: '1px solid rgba(255,255,255,0.2)',
         position: 'relative',
         overflow: 'visible',
       }}
@@ -161,13 +161,7 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
           <Typography
             variant="h5"
             gutterBottom
-            sx={{
-              fontWeight: 'bold',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              backgroundClip: 'text',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
+            sx={{ fontWeight: 800, color: pageColors.textPrimary, letterSpacing: '-0.02em' }}
           >
             เข้าสู่ระบบ
           </Typography>

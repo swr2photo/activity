@@ -93,7 +93,7 @@ const StyledMapContainer = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'editable',
 })<{ editable?: boolean }>(({ theme, editable }) => ({
   position: 'relative',
-  borderRadius: theme.spacing(2),
+  borderRadius: '20px',
   overflow: 'hidden',
   // ให้ vertical scroll ของหน้าเว็บทำงานได้เมื่อเลื่อนผ่านแผนที่ (โหมดลงทะเบียน)
   touchAction: editable ? 'none' : 'pan-y pinch-zoom',

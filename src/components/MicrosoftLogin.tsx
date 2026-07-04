@@ -20,6 +20,7 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
+import { glassCardSx } from '../lib/uiTheme';
 import {
   Person as PersonIcon,
   Logout as LogoutIcon,
@@ -602,12 +603,11 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
     return (
       <Card
+        elevation={0}
         sx={{
+          ...glassCardSx,
           mb: 3,
           overflow: 'hidden',
-          borderRadius: 3,
-          boxShadow: `0 12px 40px ${alpha('#000', 0.08)}`,
-          border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
         }}
       >
         {/* Header */}
@@ -615,11 +615,8 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
           sx={{
             px: 2.5,
             py: 2,
-            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.14)}, ${alpha(
-              theme.palette.primary.light,
-              0.06
-            )})`,
-            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
+            bgcolor: alpha(theme.palette.primary.main, 0.06),
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.08)}`,
             display: 'flex',
             alignItems: 'center',
             gap: 2,
@@ -751,12 +748,11 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   return (
     <>
       <Card
+        elevation={0}
         sx={{
+          ...glassCardSx,
           mb: 3,
           overflow: 'hidden',
-          borderRadius: 3,
-          border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
-          boxShadow: `0 12px 40px ${alpha('#000', 0.08)}`,
         }}
       >
         {/* Hero */}
@@ -764,14 +760,8 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
           sx={{
             px: 3,
             py: isMobile ? 3 : 4,
-            background: `radial-gradient(1200px 400px at -10% -30%, ${alpha(
-              theme.palette.primary.main,
-              0.15
-            )}, transparent), linear-gradient(135deg, ${alpha(theme.palette.primary.light, 0.1)}, ${alpha(
-              theme.palette.background.paper,
-              0.6
-            )})`,
-            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
+            bgcolor: alpha(theme.palette.primary.main, 0.04),
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.08)}`,
             textAlign: 'center',
           }}
         >
