@@ -702,37 +702,7 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-
-      await addDoc(collection(db, 'activityQRCodes'), qrPayload);
-
-      // legacy (optional)
-      const legacy = clean({
-        activityName: form.activityName,
-        activityCode: code,
-        description: form.description,
-        location: form.location,
-        startDateTime: form.startDateTime?.toDate(),
-        endDateTime: form.endDateTime?.toDate(),
-        checkInRadius: radius,
-        maxParticipants: max,
-        isActive: form.isActive,
-        qrUrl: qrDataUrl,
-        department: currentAdmin.department,
-        userCode: userCode || undefined,
-        bannerUrl,
-        bannerColor,
-        bannerTintColor: form.bannerTintColor,
-        bannerTintOpacity: form.bannerTintOpacity,
-
-        // ✅ Registration Code Series (legacy mirror)
-        registrationCodeEnabled: shouldSaveReg ? true : false,
-        registrationCodePrefix: shouldSaveReg ? regPrefix : undefined,
-        registrationCodeDigits: shouldSaveReg ? regDigits : undefined,
-        registrationCodeStart: shouldSaveReg ? regStart : undefined,
-        registrationCodeTotal: shouldSaveReg ? regTotal : undefined,
-      });
-
-      await createActivity(legacy);
+      await createActivity(qrPayload as any);
 
       setForm((p) => ({
         ...p,

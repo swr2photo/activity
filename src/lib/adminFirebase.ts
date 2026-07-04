@@ -461,6 +461,21 @@ export type CreateActivityInput = {
   forceRefresh?: boolean;
   singleUserMode?: boolean;
   requiresUniversityLogin?: boolean;
+  headerTitle?: string;
+  bannerColor?: string;
+  bannerTintColor?: string;
+  bannerTintOpacity?: number;
+  latitude?: number;
+  longitude?: number;
+  scanEnabled?: boolean;
+  targetUrl?: string;
+  registrationCodeEnabled?: boolean;
+  registrationCodePrefix?: string;
+  registrationCodeDigits?: number;
+  registrationCodeStart?: number;
+  registrationCodeTotal?: number;
+  registrationCodeNext?: number;
+  registrationCodeAssigned?: number;
 };
 
 export type UpdateActivityInput = Partial<CreateActivityInput> & {
@@ -478,7 +493,41 @@ export const createActivity = async (payload: CreateActivityInput) => {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  
+  // 1. เขียนลงตารางหลัก (activityQRCodes)
   await addDoc(collection(db, PRIMARY_ACTIVITY_COLLECTION), data);
+
+  // 2. เขียนลงตาราง Legacy (activities) เพื่อความเข้ากันได้แบบย้อนหลัง (ถ้ามีข้อมูล)
+  try {
+    const legacyData = {
+      activityName: data.activityName,
+      activityCode: data.activityCode,
+      description: data.description || '',
+      location: data.location || '',
+      startDateTime: data.startDateTime,
+      endDateTime: data.endDateTime,
+      checkInRadius: data.checkInRadius || 100,
+      maxParticipants: data.maxParticipants || 0,
+      isActive: data.isActive,
+      qrUrl: data.qrUrl || '',
+      department: data.department || '',
+      userCode: data.userCode || '',
+      bannerUrl: data.bannerUrl || '',
+      bannerColor: data.bannerColor || '',
+      bannerTintColor: data.bannerTintColor || '',
+      bannerTintOpacity: data.bannerTintOpacity || 0,
+      registrationCodeEnabled: data.registrationCodeEnabled || false,
+      registrationCodePrefix: data.registrationCodePrefix || '',
+      registrationCodeDigits: data.registrationCodeDigits || 2,
+      registrationCodeStart: data.registrationCodeStart || 1,
+      registrationCodeTotal: data.registrationCodeTotal || 0,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
+    };
+    await addDoc(collection(db, LEGACY_ACTIVITY_COLLECTION), stripUndefined(legacyData));
+  } catch (err) {
+    console.error('Failed to create legacy activity mirror:', err);
+  }
 };
 
 export const updateActivity = async (activityId: string, patch: UpdateActivityInput) => {
