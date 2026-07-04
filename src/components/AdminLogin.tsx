@@ -25,9 +25,9 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 
 import { useSnackbar } from 'notistack';
 
-import { auth, db } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithPopup, signOut, UserCredential } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { auth } from '@/lib/firebase';
+import { signOut } from 'firebase/auth';
+import { signInAdmin } from '@/lib/adminFirebase';
 
 // session helpers
 import { startSession } from '@/lib/useAdminSession';
@@ -84,66 +84,22 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
     setErr(null);
     setLoading(true);
     try {
-      const provider = new GoogleAuthProvider();
-      const cred: UserCredential = await signInWithPopup(auth, provider);
-      const { user } = cred;
+      const data = await signInAdmin();
 
-      await user.getIdToken(true);
-
-      const ref = doc(db, 'adminUsers', user.uid);
-      const snap = await getDoc(ref);
-
-      if (!snap.exists()) {
-        await signOut(auth);
-        setErr('บัญชีนี้ยังไม่ได้รับอนุญาตให้เป็นผู้ดูแลระบบ');
-        enqueueSnackbar('บัญชีนี้ยังไม่ได้รับสิทธิ์ผู้ดูแล', { variant: 'error' });
-        return;
-      }
-
-      const rawData = snap.data();
-      const data: AdminProfile = {
-        uid: user.uid,
-        email: user.email ?? rawData.email ?? '',
-        displayName: user.displayName ?? rawData.displayName ?? 'Admin User',
-        firstName: rawData.firstName ?? '',
-        lastName: rawData.lastName ?? '',
-        role: (rawData.role as AdminRole) || 'viewer',
-        department: (rawData.department as AdminDepartment) || 'all',
-        permissions: Array.isArray(rawData.permissions) 
-            ? rawData.permissions as AdminPermission[] 
-            : (ROLE_PERMISSIONS[rawData.role as AdminRole] || []),
-        isActive: rawData.isActive ?? false,
-        profileImage: user.photoURL ?? rawData.profileImage,
-        createdAt: rawData.createdAt?.toDate ? rawData.createdAt.toDate() : new Date(),
-        updatedAt: rawData.updatedAt?.toDate ? rawData.updatedAt.toDate() : new Date(),
-        lastLoginAt: new Date(),
-        createdBy: rawData.createdBy,
-        profileImagePosX: rawData.profileImagePosX,
-        profileImagePosY: rawData.profileImagePosY
-      };
-
-      if (!data.isActive) {
-        await signOut(auth);
-        setErr('บัญชีผู้ดูแลระบบนี้ถูกปิดการใช้งาน');
-        enqueueSnackbar('บัญชีผู้ดูแลถูกปิดใช้งาน', { variant: 'error' });
-        return;
-      }
-
-      try {
-        await updateDoc(ref, { 
-            lastLoginAt: serverTimestamp(),
-            displayName: user.displayName || data.displayName,
-            profileImage: user.photoURL || data.profileImage
-        });
-      } catch {}
-
-      startSession(user.uid, 30);
+      startSession(data.uid, 30);
       enqueueSnackbar(`ยินดีต้อนรับ ${data.displayName} (${data.role})`, { variant: 'success' });
       onLoginSuccess(data);
 
     } catch (e: any) {
       console.error(e);
-      const msg = parseFirebaseError(e?.code, e?.message);
+      let msg = 'ไม่สามารถเข้าสู่ระบบได้';
+      if (e?.message === 'NOT_ADMIN') {
+        msg = 'บัญชีนี้ยังไม่ได้รับอนุญาตให้เป็นผู้ดูแลระบบ';
+      } else if (e?.message === 'ADMIN_DISABLED') {
+        msg = 'บัญชีผู้ดูแลระบบนี้ถูกปิดการใช้งาน';
+      } else {
+        msg = parseFirebaseError(e?.code, e?.message);
+      }
       setErr(msg);
       enqueueSnackbar(msg, { variant: 'error' });
       try { await signOut(auth); } catch {}

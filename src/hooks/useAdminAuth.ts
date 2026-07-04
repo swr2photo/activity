@@ -28,10 +28,10 @@ export const useAdminAuth = () => {
     }
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async () => {
     try {
       setLoading(true);
-      const adminData = await signInAdmin(email, password);
+      const adminData = await signInAdmin();
       setCurrentAdmin(adminData);
       return adminData;
     } catch (error) {

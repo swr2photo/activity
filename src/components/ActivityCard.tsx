@@ -89,14 +89,15 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        borderRadius: { xs: 2.5, md: 3.5 },
-        border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
-        bgcolor: 'background.paper',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        borderRadius: '20px',
+        border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+        bgcolor: theme.palette.mode === 'dark' ? 'rgba(30, 30, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+        backdropFilter: 'blur(20px)',
+        transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
         '&:hover': {
-          transform: 'translateY(-6px)',
-          boxShadow: `0 20px 40px ${alpha(theme.palette.primary.main, 0.12)}`,
-          borderColor: alpha(theme.palette.primary.main, 0.3),
+          transform: 'translateY(-6px) scale(1.01)',
+          boxShadow: '0 30px 60px rgba(0, 0, 0, 0.08)',
+          borderColor: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.15)',
         },
       }}
     >
@@ -145,7 +146,7 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
       </Box>
 
       {/* Content Section */}
-      <CardContent sx={{ p: { xs: 2, md: 3 }, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+      <CardContent sx={{ p: { xs: 2.5, md: 3.5 }, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         <Typography
           variant="h6"
           sx={{
@@ -209,25 +210,32 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
 
         <Box sx={{ flexGrow: 1 }} />
 
-        {/* Action Button - เด่นชัดและเต็มความกว้าง */}
+        {/* Action Button - Apple-style rounded button with proper component bindings to prevent routing bugs */}
         <Button
-          component={Link}
-          href={`/register?activity=${encodeURIComponent(activityCode)}`}
-          variant="contained"
+          component={canOpen ? Link : 'button'}
+          href={canOpen ? `/register?activity=${encodeURIComponent(activityCode)}` : undefined}
+          variant={canOpen ? 'contained' : 'outlined'}
           disabled={!canOpen}
           fullWidth
           sx={{
-            borderRadius: 3,
+            borderRadius: '12px',
             py: 1.2,
-            fontWeight: 800,
+            fontWeight: 700,
             textTransform: 'none',
-            fontSize: '1rem',
-            boxShadow: canOpen ? `0 8px 20px ${alpha(theme.palette.primary.main, 0.3)}` : 'none',
+            fontSize: '0.95rem',
+            backgroundColor: canOpen ? '#0071e3' : 'transparent', // Apple Blue
+            color: canOpen ? '#ffffff' : 'text.secondary',
+            border: canOpen ? 'none' : '1px solid rgba(0,0,0,0.15)',
+            boxShadow: 'none',
+            transition: 'all 0.2s ease',
             '&:hover': {
-              boxShadow: `0 12px 28px ${alpha(theme.palette.primary.main, 0.45)}`,
+              backgroundColor: canOpen ? '#0077ed' : 'rgba(0,0,0,0.03)',
+              boxShadow: 'none',
             },
             '&.Mui-disabled': {
-              bgcolor: alpha(theme.palette.action.disabledBackground, 0.1),
+              bgcolor: 'rgba(0, 0, 0, 0.04)',
+              color: 'rgba(0, 0, 0, 0.38)',
+              borderColor: 'transparent',
             }
           }}
         >

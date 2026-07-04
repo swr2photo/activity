@@ -81,16 +81,28 @@ const HomePage: React.FC = () => {
     try {
       setLoading(true);
       setError("");
-      const qRef = query(
-        collection(db, "activityQRCodes"),
-        where("activityCode", "!=", ""),
-        orderBy("activityCode", "asc"),
-        limit(100)
-      );
-      const snap = await getDocs(qRef);
+      
+      let snap;
+      try {
+        // Try the optimized query first
+        const qRef = query(
+          collection(db, "activityQRCodes"),
+          where("activityCode", "!=", ""),
+          orderBy("activityCode", "asc"),
+          limit(100)
+        );
+        snap = await getDocs(qRef);
+      } catch (err) {
+        console.warn("Optimized query failed, falling back to direct collection fetch", err);
+        // Fallback: fetch the whole collection directly (guaranteed to work without composite indexes or permissions)
+        snap = await getDocs(collection(db, "activityQRCodes"));
+      }
+
       const list: ActivityListItem[] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-      setActivities(list.filter((x) => !!x.activityCode));
+      const filteredList = list.filter((x) => !!x.activityCode);
+      setActivities(filteredList);
     } catch (e) {
+      console.error(e);
       setError("ไม่สามารถโหลดรายการกิจกรรมได้");
     } finally {
       setLoading(false);
@@ -122,32 +134,27 @@ const HomePage: React.FC = () => {
   }, [activities, qText, filter]);
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#f8fafc" }}>
+    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#f5f5f7" }}>
       <Navbar />
 
-      {/* Hero Header */}
+      {/* Hero Header - Apple Event Dark Minimal Theme */}
       <Box sx={{ 
-        bgcolor: 'primary.main', 
+        bgcolor: '#000000', 
         color: 'white', 
-        pt: { xs: 8, md: 12 }, 
-        pb: { xs: 15, md: 20 },
+        pt: { xs: 10, md: 14 }, 
+        pb: { xs: 18, md: 24 },
         textAlign: 'center',
         position: 'relative',
         overflow: 'hidden',
-        background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 100%)`
+        background: `radial-gradient(circle at center, #1c1c1e 0%, #000000 100%)`
       }}>
-        <Box sx={{ 
-          position: 'absolute', top: '-10%', left: '-5%', width: '40%', height: '80%', 
-          borderRadius: '50%', background: alpha('#fff', 0.1), filter: 'blur(80px)' 
-        }} />
-        
         <Container maxWidth="md">
-          <Fade in timeout={800}>
+          <Fade in timeout={1000}>
             <Box>
-              <Typography variant="h2" fontWeight={900} sx={{ fontSize: { xs: '2.5rem', md: '4rem' }, mb: 2, letterSpacing: -1 }}>
-                ค้นพบกิจกรรมที่คุณชอบ
+              <Typography variant="h2" fontWeight={800} sx={{ fontSize: { xs: '2.8rem', md: '4.5rem' }, mb: 2, letterSpacing: '-0.03em', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+                ค้นพบกิจกรรมที่คุณชอบ.
               </Typography>
-              <Typography variant="h6" sx={{ opacity: 0.9, fontWeight: 400, mb: 4, px: 2 }}>
+              <Typography variant="h6" sx={{ color: '#86868b', fontWeight: 500, mb: 4, px: 2, fontSize: { xs: '1rem', md: '1.25rem' }, letterSpacing: '-0.01em' }}>
                 ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ. สะดวก รวดเร็ว และแม่นยำ
               </Typography>
             </Box>
@@ -155,16 +162,15 @@ const HomePage: React.FC = () => {
         </Container>
       </Box>
 
-      <Container maxWidth="lg" sx={{ mt: -10, mb: 10, position: 'relative', zIndex: 2 }}>
-        {/* Floating Search & Filter Bar */}
+      <Container maxWidth="lg" sx={{ mt: -12, mb: 10, position: 'relative', zIndex: 2 }}>
+        {/* Floating Search & Filter Bar - Apple Glassmorphism Design */}
         <Card sx={{ 
-          p: { xs: 2, md: 3 }, 
-          borderRadius: 6, 
-          boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
-          border: '1px solid',
-          borderColor: alpha(theme.palette.divider, 0.1),
-          backdropFilter: 'blur(20px)',
-          bgcolor: alpha('#fff', 0.95)
+          p: { xs: 2.5, md: 3.5 }, 
+          borderRadius: '24px', 
+          boxShadow: '0 20px 40px rgba(0,0,0,0.04)',
+          border: '1px solid rgba(0, 0, 0, 0.08)',
+          backdropFilter: 'blur(30px)',
+          bgcolor: 'rgba(255, 255, 255, 0.85)'
         }}>
           <Stack spacing={3}>
             <Grid container spacing={2} alignItems="center">
@@ -175,39 +181,81 @@ const HomePage: React.FC = () => {
                   value={qText}
                   onChange={(e) => setQText(e.target.value)}
                   InputProps={{
-                    startAdornment: <InputAdornment position="start"><Search color="primary" /></InputAdornment>,
-                    sx: { borderRadius: 4, bgcolor: '#f1f5f9', border: 'none', '& fieldset': { border: 'none' } }
+                    startAdornment: <InputAdornment position="start"><Search color="action" /></InputAdornment>,
+                    sx: { 
+                      borderRadius: '14px', 
+                      bgcolor: 'rgba(0, 0, 0, 0.04)', 
+                      border: 'none', 
+                      '& fieldset': { border: 'none' },
+                      '& input': { py: 1.5 }
+                    }
                   }}
                 />
               </Grid>
               <Grid size={{ xs: 12, md: 4 }}>
-                <Stack direction="row" spacing={1} justifyContent="flex-end">
-                   {/* แก้ไข Chip Soft Variant เป็นการใช้ Filled + Alpha แทน */}
+                <Stack direction="row" spacing={1.5} justifyContent="flex-end" alignItems="center">
                   <Chip 
-                    icon={<EventAvailable sx={{ fontSize: '1.2rem !important' }} />} 
-                    label={`เปิดรับ ${counts.active}`} 
-                    sx={{ bgcolor: alpha(theme.palette.success.main, 0.1), color: 'success.dark', fontWeight: 700, borderRadius: 2 }} 
+                    icon={<EventAvailable sx={{ fontSize: '1.1rem !important', color: '#1d1d1f !important' }} />} 
+                    label={`เปิดรับสมัคร: ${counts.active}`} 
+                    sx={{ 
+                      bgcolor: 'rgba(52, 199, 89, 0.15)', // Apple Green
+                      color: '#248a3d', 
+                      fontWeight: 700, 
+                      borderRadius: '10px',
+                      fontSize: '0.85rem'
+                    }} 
                   />
-                  <Button variant="contained" onClick={fetchActivities} sx={{ borderRadius: 4, px: 3, boxShadow: theme.shadows[4] }}>
+                  <Button 
+                    variant="text" 
+                    onClick={fetchActivities} 
+                    sx={{ 
+                      minWidth: 46, 
+                      height: 46, 
+                      borderRadius: '12px', 
+                      bgcolor: 'rgba(0, 0, 0, 0.04)', 
+                      color: '#1d1d1f',
+                      '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.08)' }
+                    }}
+                  >
                     <Refresh />
                   </Button>
                 </Stack>
               </Grid>
             </Grid>
 
+            {/* Apple Native Segment Control Style */}
             <Stack direction="row" alignItems="center" spacing={2} sx={{ overflowX: 'auto', pb: 1, '&::-webkit-scrollbar': { display: 'none' } }}>
-              <FilterList color="action" />
+              <FilterList sx={{ color: '#86868b' }} />
               <ToggleButtonGroup
                 exclusive
                 value={filter}
                 onChange={(_, v) => v && setFilter(v)}
                 sx={{ 
-                  gap: 1, 
+                  bgcolor: 'rgba(0, 0, 0, 0.04)',
+                  p: '3px',
+                  borderRadius: '14px',
+                  gap: '2px',
+                  border: 'none !important',
                   '& .MuiToggleButton-root': { 
-                    border: 'none !important', borderRadius: '12px !important', 
-                    px: 3, py: 0.8, whiteSpace: 'nowrap',
-                    color: 'text.secondary', fontWeight: 600,
-                    '&.Mui-selected': { bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }
+                    border: 'none !important', 
+                    borderRadius: '11px !important', 
+                    px: 3, 
+                    py: 1, 
+                    whiteSpace: 'nowrap',
+                    color: '#86868b', 
+                    fontWeight: 600,
+                    textTransform: 'none',
+                    fontSize: '0.875rem',
+                    transition: 'all 0.2s ease',
+                    '&.Mui-selected': { 
+                      bgcolor: '#ffffff', 
+                      color: '#1d1d1f', 
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                      '&:hover': { bgcolor: '#ffffff' } 
+                    },
+                    '&:hover': {
+                      bgcolor: 'rgba(0, 0, 0, 0.02)'
+                    }
                   } 
                 }}
               >
@@ -223,20 +271,20 @@ const HomePage: React.FC = () => {
         {/* Content Section */}
         <Box sx={{ mt: 6 }}>
           {loading ? (
-            <Grid container spacing={3}>
+            <Grid container spacing={4}>
               {[1, 2, 3, 4, 5, 6].map(i => (
                 <Grid key={i} size={{ xs: 12, sm: 6, lg: 4 }}>
-                  <Skeleton variant="rectangular" height={240} sx={{ borderRadius: 5, mb: 2 }} />
-                  <Skeleton width="60%" height={30} />
-                  <Skeleton width="40%" />
+                  <Skeleton variant="rectangular" height={240} sx={{ borderRadius: '20px', mb: 2 }} />
+                  <Skeleton width="60%" height={30} sx={{ borderRadius: '8px' }} />
+                  <Skeleton width="40%" sx={{ borderRadius: '8px' }} />
                 </Grid>
               ))}
             </Grid>
           ) : filteredAndSorted.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 10 }}>
-              <InfoOutlined sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
-              <Typography variant="h5" fontWeight={700} color="text.secondary">ไม่พบกิจกรรมที่คุณมองหา</Typography>
-              <Button sx={{ mt: 2 }} onClick={() => setQText("")}>ล้างการค้นหา</Button>
+            <Box sx={{ textAlign: 'center', py: 12 }}>
+              <InfoOutlined sx={{ fontSize: 80, color: '#86868b', mb: 2 }} />
+              <Typography variant="h5" fontWeight={700} color="#1d1d1f">ไม่พบกิจกรรมที่คุณมองหา</Typography>
+              <Button sx={{ mt: 2, color: '#0071e3', fontWeight: 600 }} onClick={() => setQText("")}>ล้างการค้นหา</Button>
             </Box>
           ) : (
             <Grid container spacing={4}>

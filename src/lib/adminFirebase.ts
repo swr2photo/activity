@@ -25,7 +25,8 @@ import {
 import { db, auth } from '@/lib/firebase';
 import {
   onAuthStateChanged,
-  signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth';
@@ -886,36 +887,90 @@ export async function getCurrentAdmin(): Promise<AdminProfile | null> {
   return toAdminProfileFrom(user, data);
 }
 
-export async function signInAdmin(
-  email: string,
-  password: string
-): Promise<AdminProfile> {
-  const cred = await signInWithEmailAndPassword(auth, email, password);
+export async function signInAdmin(): Promise<AdminProfile> {
+  const provider = new GoogleAuthProvider();
+  const cred = await signInWithPopup(auth, provider);
   const user = cred.user;
 
-  const { data, ref } = await readAdminDoc(user.uid);
-  if (!data) {
+  await user.getIdToken(true);
+
+  const { data: existingData, ref: existingRef } = await readAdminDoc(user.uid);
+  let finalData = existingData;
+  let finalRef = existingRef;
+
+  if (!existingData) {
+    // Check if there is an accepted/pending invitation for this email
+    if (user.email) {
+      const invitesRef = collection(db, 'adminInvites');
+      const q = query(
+        invitesRef,
+        where('email', '==', user.email.toLowerCase()),
+        where('status', 'in', ['accepted', 'pending'])
+      );
+      const inviteSnap = await getDocs(q);
+      
+      if (!inviteSnap.empty) {
+        const inviteDoc = inviteSnap.docs[0];
+        const inviteData = inviteDoc.data();
+        
+        // Auto-create admin user from invite
+        const newRef = doc(db, 'adminUsers', user.uid);
+        const newAdminData: AdminProfile = {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || inviteData.email.split('@')[0],
+          firstName: user.displayName?.split(' ')[0] || '',
+          lastName: user.displayName?.split(' ')[1] || '',
+          role: inviteData.role as AdminRole,
+          department: inviteData.department as AdminDepartment,
+          permissions: inviteData.permissions || ROLE_PERMISSIONS[inviteData.role as AdminRole] || [],
+          isActive: true,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          lastLoginAt: serverTimestamp(),
+          createdBy: inviteData.invitedByUid || 'system',
+          profileImage: user.photoURL || '',
+        };
+        
+        await setDoc(newRef, newAdminData);
+        
+        // Update invite status
+        await updateDoc(doc(db, 'adminInvites', inviteDoc.id), {
+          status: 'registered',
+          acceptedByUid: user.uid,
+          updatedAt: serverTimestamp()
+        });
+
+        // Re-read doc to update finalData
+        const { data: newlyCreatedData, ref: newlyCreatedRef } = await readAdminDoc(user.uid);
+        finalData = newlyCreatedData;
+        finalRef = newlyCreatedRef;
+      }
+    }
+  }
+
+  if (!finalData) {
     await fbSignOut(auth);
     throw new Error('NOT_ADMIN');
   }
-  if (data.isActive === false) {
+  if (finalData.isActive === false) {
     await fbSignOut(auth);
     throw new Error('ADMIN_DISABLED');
   }
 
   try {
-    if (ref) {
-      await updateDoc(ref, stripUndefined({
+    if (finalRef) {
+      await updateDoc(finalRef, stripUndefined({
         lastLoginAt: serverTimestamp(),
-        email: user.email ?? (data as any).email ?? email,
+        email: user.email ?? (finalData as any).email ?? '',
         updatedAt: serverTimestamp(),
       }));
     }
-  } catch {
-    /* ignore write-permission errors */
+  } catch (err) {
+    console.warn('signInAdmin write error:', err);
   }
 
-  return toAdminProfileFrom(user, data);
+  return toAdminProfileFrom(user, finalData);
 }
 
 export async function signOutAdmin(): Promise<void> {
