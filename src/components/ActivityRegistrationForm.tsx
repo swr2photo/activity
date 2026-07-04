@@ -53,6 +53,7 @@ import {
   doc,
   onSnapshot,
   runTransaction,
+  increment,
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import LocationChecker from './LocationChecker';
@@ -688,6 +689,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         };
 
         tx.set(recordRef, payload, { merge: false });
+        tx.update(activityRef, {
+          currentParticipants: increment(1)
+        });
       });
 
       setActiveStep(2);

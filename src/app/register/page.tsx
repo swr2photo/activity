@@ -828,14 +828,9 @@ const RegisterPageContent: React.FC = () => {
     setTimeout(() => setSuccessMessage(''), 3000);
   };
 
-  // เพิ่มตัวนับผู้เข้าร่วม
+  // เพิ่มตัวนับผู้เข้าร่วม (อัปเดตแบบอะตอมิกจาก Transaction ในระดับเซิร์ฟเวอร์แล้ว และ sync ผ่าน real-time onSnapshot)
   const handleRegistrationSuccess = async () => {
-    if (!activityData) return;
-    try {
-      const docRef = doc(db, 'activityQRCodes', activityData.id);
-      await updateDoc(docRef, { currentParticipants: increment(1) });
-      setActivityData((prev) => (prev ? { ...prev, currentParticipants: prev.currentParticipants + 1 } : prev));
-    } catch {}
+    // ปล่อยให้ onSnapshot ในระดับ Parent อัปเดตข้อมูลจำนวนผู้เข้าร่วมจากฐานข้อมูลอัตโนมัติ
   };
 
   /* ============================= รวม notices ไปแสดงบน NavigationBar ============================= */

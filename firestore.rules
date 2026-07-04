@@ -21,6 +21,14 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/universityUsers/$(request.auth.uid)).data;
     }
 
+    function isActivityOpen(activityDocId) {
+      let activity = get(/databases/$(database)/documents/activityQRCodes/$(activityDocId)).data;
+      return activity.get('isActive', true) != false &&
+        (!('startDateTime' in activity) || request.time >= activity.startDateTime) &&
+        (!('endDateTime' in activity) || request.time <= activity.endDateTime) &&
+        (activity.get('maxParticipants', 0) == 0 || activity.get('currentParticipants', 0) < activity.get('maxParticipants', 0));
+    }
+
     // 1. adminUsers
     match /adminUsers/{uid} {
       allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
@@ -41,7 +49,12 @@ service cloud.firestore {
     }
     match /activityQRCodes/{qrId} {
       allow read: if true; // Publicly readable for registration page
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentParticipants']) &&
+        request.resource.data.currentParticipants == (resource.data.currentParticipants == null ? 0 : resource.data.currentParticipants) + 1
+      );
     }
 
     // 4. activityRecords (Registration records)
@@ -54,7 +67,8 @@ service cloud.firestore {
       allow create: if isAuthenticated() && (
         isAdmin() || 
         (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) && 
-         request.resource.data.studentId == getStudentData().studentId)
+         request.resource.data.studentId == getStudentData().studentId &&
+         isActivityOpen(request.resource.data.activityDocId))
       );
       allow update, delete: if isAdmin();
     }
