@@ -477,14 +477,27 @@ const RegisterPageContent: React.FC = () => {
         if (!prev) return prev;
         const updated: ActivityData = {
           ...prev,
+          // ข้อมูลหลัก (sync ทั้งหมดแบบ real-time)
+          activityName: data.activityName || prev.activityName,
+          description: data.description ?? prev.description,
+          location: data.location ?? prev.location,
+          latitude: data.latitude ?? prev.latitude,
+          longitude: data.longitude ?? prev.longitude,
+          checkInRadius: data.checkInRadius ?? prev.checkInRadius,
+          startDateTime: data.startDateTime ?? prev.startDateTime,
+          endDateTime: data.endDateTime ?? prev.endDateTime,
+          maxParticipants: data.maxParticipants ?? prev.maxParticipants,
           currentParticipants: data.currentParticipants || 0,
           isActive: data.isActive !== undefined ? data.isActive : true,
+          requiresUniversityLogin: data.requiresUniversityLogin ?? prev.requiresUniversityLogin,
           singleUserMode: data.singleUserMode || false,
           closeReason: data.closeReason || '',
+          userCode: data.userCode ?? prev.userCode,
+          // แบนเนอร์
           bannerAspect: data.bannerAspect || prev.bannerAspect,
-          bannerUrl: data.bannerUrl || prev.bannerUrl,
-          bannerColor: data.bannerColor || prev.bannerColor,
-          bannerTintColor: data.bannerTintColor || prev.bannerTintColor,
+          bannerUrl: data.bannerUrl ?? prev.bannerUrl,
+          bannerColor: data.bannerColor ?? prev.bannerColor,
+          bannerTintColor: data.bannerTintColor ?? prev.bannerTintColor,
           bannerTintOpacity: typeof data.bannerTintOpacity === 'number' ? data.bannerTintOpacity : prev.bannerTintOpacity,
         };
 
@@ -919,7 +932,7 @@ const RegisterPageContent: React.FC = () => {
         urgentNotices={urgentNotices}
       />
 
-      <Box sx={{ position: 'relative', background: 'linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)', minHeight: '100vh', pb: 6 }}>
+      <Box sx={{ position: 'relative', background: 'linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)', minHeight: '100vh', pb: 6, overflowX: 'hidden' }}>
         <Box
           sx={{
             position: 'absolute',
@@ -1179,7 +1192,7 @@ const RegisterPageContent: React.FC = () => {
 /* ============================= Page Wrapper with Suspense ============================= */
 const RegisterPage: React.FC = () => {
   return (
-    <Box sx={{ minHeight: '100vh', background: 'transparent' }}>
+    <Box sx={{ minHeight: '100vh', background: 'transparent', overflowX: 'hidden' }}>
       <Container maxWidth="md" sx={{ py: 0 }}>
         <Suspense
           fallback={

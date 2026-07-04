@@ -206,7 +206,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   const containerStyle = useMemo(
     () => ({
       ...defaultContainerStyle,
-      height: height ?? (isMobile ? 440 : 560),
+      height: height ?? (isMobile ? 300 : 480),
       borderRadius: theme.spacing(2),
     }),
     [height, isMobile, theme]
