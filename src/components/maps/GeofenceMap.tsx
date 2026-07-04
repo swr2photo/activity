@@ -89,10 +89,14 @@ const floatUpDown = keyframes`
 `;
 
 /* ============== Styled ============== */
-const StyledMapContainer = styled(Box)(({ theme }) => ({
+const StyledMapContainer = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'editable',
+})<{ editable?: boolean }>(({ theme, editable }) => ({
   position: 'relative',
   borderRadius: theme.spacing(2),
   overflow: 'hidden',
+  // ให้ vertical scroll ของหน้าเว็บทำงานได้เมื่อเลื่อนผ่านแผนที่ (โหมดลงทะเบียน)
+  touchAction: editable ? 'none' : 'pan-y pinch-zoom',
   boxShadow: `
     0 8px 32px rgba(0,0,0,.12),
     0 2px 16px rgba(0,0,0,.08),
@@ -222,7 +226,9 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
         streetViewControl: false,
         mapTypeControl: false,
         fullscreenControl: false,
-        gestureHandling: 'greedy',
+        // cooperative = เลื่อนหน้าได้ด้วยนิ้วเดียวบนมือถือ, ใช้สองนิ้วเมื่อต้องการเลื่อนแผนที่
+        // greedy ใช้เฉพาะโหมดแก้ไข (แอดมิน) ที่ต้องลากแผนที่ได้สะดวก
+        gestureHandling: editable ? 'greedy' : 'cooperative',
         clickableIcons: false,
         styles:
           mode === 'roadmap'
@@ -387,7 +393,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   /* Guards */
   if (loadError) {
     return (
-      <StyledMapContainer>
+      <StyledMapContainer editable={editable}>
         <LoadingOverlay>
           <Typography variant="h6" color="error" gutterBottom>ไม่สามารถโหลดแผนที่ได้</Typography>
           <Typography variant="body2" color="text.secondary">กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</Typography>
@@ -397,7 +403,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   }
   if (!isLoaded) {
     return (
-      <StyledMapContainer>
+      <StyledMapContainer editable={editable}>
         <LoadingOverlay>
           <CircularProgress size={48} thickness={3.6} sx={{ mb: 2 }} />
           <Typography variant="h6" gutterBottom>กำลังโหลดแผนที่...</Typography>
@@ -409,7 +415,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
 
   /* Render */
   return (
-    <StyledMapContainer>
+    <StyledMapContainer editable={editable}>
       {/* Title */}
       <EnhancedTitleCard>
         <LocationIcon

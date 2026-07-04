@@ -402,6 +402,7 @@ const RegisterPageContent: React.FC = () => {
     { open: false, text: '', severity: 'info' }
   );
   const lastActiveRef = useRef<boolean | null>(null);
+  const sessionCheckStartedRef = useRef(false);
 
   // Notices for NavigationBar
   const [navNotices, setNavNotices] = useState<NavNotice[]>([]);
@@ -429,11 +430,15 @@ const RegisterPageContent: React.FC = () => {
   }, [activityCode]);
 
   useEffect(() => {
-    if (user && !sessionExpired && !sessionValidating) {
-      validateInitialSession();
+    if (!user?.uid || sessionExpired) {
+      sessionCheckStartedRef.current = false;
+      return;
     }
+    if (sessionCheckStartedRef.current) return;
+    sessionCheckStartedRef.current = true;
+    validateInitialSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user?.uid, sessionExpired]);
 
   useEffect(() => {
     let sessionCheck: any;
@@ -727,7 +732,6 @@ const RegisterPageContent: React.FC = () => {
     if (!user?.uid) return;
     setSessionValidating(true);
     try {
-      await new Promise((r) => setTimeout(r, 1200));
       const result = await SessionManager.validateSession(user.uid);
       if (!result.isValid) {
         setSessionExpired(true);
@@ -828,6 +832,7 @@ const RegisterPageContent: React.FC = () => {
       setSnack({ open: false, text: '', severity: 'info' });
 
       resetGeoState(); // ✅ สำคัญ: logout แล้ว map + geo หายทันที
+      sessionCheckStartedRef.current = false;
     } catch {
       setError('เกิดข้อผิดพลาดในการออกจากระบบ');
     }
@@ -880,7 +885,7 @@ const RegisterPageContent: React.FC = () => {
   }, [error, sessionWarning, geoError, ipBlocked, blockRemainingTime, isDuplicateRegistration]);
 
   /* ============================= Render ============================= */
-  if (loading || authLoading || sessionValidating) {
+  if (loading || authLoading) {
     return (
       <Box
         sx={{
@@ -894,7 +899,7 @@ const RegisterPageContent: React.FC = () => {
       >
         <CircularProgress size={40} />
         <Typography variant="body1" color="text.secondary">
-          {sessionValidating ? 'กำลังตรวจสอบเซสชัน...' : 'กำลังโหลดข้อมูล...'}
+          กำลังโหลดข้อมูล...
         </Typography>
       </Box>
     );
