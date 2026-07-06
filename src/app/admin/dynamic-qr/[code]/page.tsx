@@ -168,7 +168,7 @@ export default function DynamicQrPage() {
   return (
     <Box sx={{ 
       minHeight: '100vh', 
-      bgcolor: pageColors.blueBackground, 
+      bgcolor: pageColors.bg || '#f0f4f8', 
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
