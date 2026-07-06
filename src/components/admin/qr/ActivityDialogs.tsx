@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { 
-  Edit, Plus, Save, ImageIcon, ClearIcon, Shuffle, Copy, Link as LinkIcon 
+  Edit, Plus, Save, ImageIcon, Shuffle, Copy, Link as LinkIcon 
 } from 'lucide-react';
 import dayjs, { Dayjs } from 'dayjs';
 

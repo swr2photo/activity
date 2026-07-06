@@ -88,7 +88,7 @@ export function ActivityTable({
                     <TableCell>
                       <div className="font-semibold text-base">{a.activityName}</div>
                       <div className="text-sm text-muted-foreground mt-1">
-                        {DEPARTMENT_LABELS[a.department as any] || a.department}
+                        {DEPARTMENT_LABELS[a.department as keyof typeof DEPARTMENT_LABELS] || a.department}
                       </div>
                       {a.location && (
                         <div className="text-xs text-muted-foreground mt-1">

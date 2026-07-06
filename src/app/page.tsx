@@ -14,20 +14,18 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Card,
-  CardContent,
   Chip,
   InputAdornment,
-  Fade,
 } from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
 import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ActivityCard from "@/components/ActivityCard";
-import { Refresh, Search, EventAvailable, AccessTime, InfoOutlined, FilterList } from "@mui/icons-material";
+import { Refresh, Search, EventAvailable, FilterList, InfoOutlined } from "@mui/icons-material";
+import { motion, AnimatePresence } from "framer-motion";
 
-// --- Types (เหมือนเดิม) ---
+// --- Types ---
 type ActivityListItem = {
   id: string;
   activityCode: string;
@@ -69,8 +67,21 @@ const isSoon = (a: ActivityListItem, hours = 24) => {
   return diffMs > 0 && diffMs <= hours * 60 * 60 * 1000;
 };
 
+// Animation Variants
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants: any = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+};
+
 const HomePage: React.FC = () => {
-  const theme = useTheme();
   const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState<ActivityListItem[]>([]);
   const [error, setError] = useState("");
@@ -81,28 +92,16 @@ const HomePage: React.FC = () => {
     try {
       setLoading(true);
       setError("");
-      
       let snap;
       try {
-        // Try the optimized query first
-        const qRef = query(
-          collection(db, "activityQRCodes"),
-          where("activityCode", "!=", ""),
-          orderBy("activityCode", "asc"),
-          limit(100)
-        );
+        const qRef = query(collection(db, "activityQRCodes"), where("activityCode", "!=", ""), orderBy("activityCode", "asc"), limit(100));
         snap = await getDocs(qRef);
       } catch (err) {
-        console.warn("Optimized query failed, falling back to direct collection fetch", err);
-        // Fallback: fetch the whole collection directly (guaranteed to work without composite indexes or permissions)
         snap = await getDocs(collection(db, "activityQRCodes"));
       }
-
       const list: ActivityListItem[] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-      const filteredList = list.filter((x) => !!x.activityCode);
-      setActivities(filteredList);
+      setActivities(list.filter((x) => !!x.activityCode));
     } catch (e) {
-      console.error(e);
       setError("ไม่สามารถโหลดรายการกิจกรรมได้");
     } finally {
       setLoading(false);
@@ -134,169 +133,246 @@ const HomePage: React.FC = () => {
   }, [activities, qText, filter]);
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#f5f5f7" }}>
+    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#000000" }}>
       <Navbar />
 
-      {/* Hero Header - Apple Event Dark Minimal Theme */}
+      {/* Hero Header - Premium Dark Theme with Animated Blobs */}
       <Box sx={{ 
+        position: 'relative',
         bgcolor: '#000000', 
         color: 'white', 
-        pt: { xs: 10, md: 14 }, 
-        pb: { xs: 18, md: 24 },
+        pt: { xs: 12, md: 18 }, 
+        pb: { xs: 20, md: 28 },
         textAlign: 'center',
-        position: 'relative',
         overflow: 'hidden',
-        background: `radial-gradient(circle at center, #1c1c1e 0%, #000000 100%)`
+        zIndex: 1
       }}>
+        {/* Animated Background Gradients */}
+        <Box
+          component={motion.div}
+          animate={{
+            scale: [1, 1.1, 1],
+            opacity: [0.3, 0.5, 0.3],
+          }}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+          sx={{
+            position: 'absolute',
+            top: '-20%', left: '10%', width: '40vw', height: '40vw',
+            background: 'radial-gradient(circle, rgba(0, 113, 227, 0.4) 0%, rgba(0,0,0,0) 70%)',
+            filter: 'blur(80px)', zIndex: -1,
+          }}
+        />
+        <Box
+          component={motion.div}
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.2, 0.4, 0.2],
+          }}
+          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+          sx={{
+            position: 'absolute',
+            bottom: '-10%', right: '10%', width: '35vw', height: '35vw',
+            background: 'radial-gradient(circle, rgba(142, 68, 173, 0.3) 0%, rgba(0,0,0,0) 70%)',
+            filter: 'blur(80px)', zIndex: -1,
+          }}
+        />
+
         <Container maxWidth="md">
-          <Fade in timeout={1000}>
-            <Box>
-              <Typography variant="h2" fontWeight={800} sx={{ fontSize: { xs: '2.8rem', md: '4.5rem' }, mb: 2, letterSpacing: '-0.03em', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
-                ค้นพบกิจกรรมที่คุณชอบ.
-              </Typography>
-              <Typography variant="h6" sx={{ color: '#86868b', fontWeight: 500, mb: 4, px: 2, fontSize: { xs: '1rem', md: '1.25rem' }, letterSpacing: '-0.01em' }}>
-                ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ. สะดวก รวดเร็ว และแม่นยำ
-              </Typography>
-            </Box>
-          </Fade>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+          >
+            <Typography variant="h1" fontWeight={800} sx={{ 
+              fontSize: { xs: '3rem', md: '5rem' }, 
+              mb: 2, 
+              letterSpacing: '-0.04em', 
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              background: 'linear-gradient(135deg, #ffffff 30%, #a1a1a6 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}>
+              ค้นพบกิจกรรมที่คุณชอบ.
+            </Typography>
+            <Typography variant="h6" sx={{ 
+              color: '#a1a1a6', 
+              fontWeight: 500, 
+              mb: 4, 
+              px: 2, 
+              fontSize: { xs: '1.1rem', md: '1.35rem' }, 
+              letterSpacing: '-0.01em',
+              maxWidth: '80%',
+              mx: 'auto'
+            }}>
+              ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ. สะดวก รวดเร็ว และแม่นยำ
+            </Typography>
+          </motion.div>
         </Container>
       </Box>
 
-      <Container maxWidth="lg" sx={{ mt: -12, mb: 10, position: 'relative', zIndex: 2 }}>
-        {/* Floating Search & Filter Bar - Apple Glassmorphism Design */}
-        <Card sx={{ 
-          p: { xs: 2.5, md: 3.5 }, 
-          borderRadius: '24px', 
-          boxShadow: '0 20px 40px rgba(0,0,0,0.04)',
-          border: '1px solid rgba(0, 0, 0, 0.08)',
-          backdropFilter: 'blur(30px)',
-          bgcolor: 'rgba(255, 255, 255, 0.85)'
-        }}>
-          <Stack spacing={3}>
-            <Grid container spacing={2} alignItems="center">
-              <Grid size={{ xs: 12, md: 8 }}>
-                <TextField
-                  fullWidth
-                  placeholder="ค้นหาชื่อกิจกรรม รหัส หรือสถานที่..."
-                  value={qText}
-                  onChange={(e) => setQText(e.target.value)}
-                  InputProps={{
-                    startAdornment: <InputAdornment position="start"><Search color="action" /></InputAdornment>,
-                    sx: { 
-                      borderRadius: '14px', 
-                      bgcolor: 'rgba(0, 0, 0, 0.04)', 
-                      border: 'none', 
-                      '& fieldset': { border: 'none' },
-                      '& input': { py: 1.5 }
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, md: 4 }}>
-                <Stack direction="row" spacing={1.5} justifyContent="flex-end" alignItems="center">
-                  <Chip 
-                    icon={<EventAvailable sx={{ fontSize: '1.1rem !important', color: '#1d1d1f !important' }} />} 
-                    label={`เปิดรับสมัคร: ${counts.active}`} 
+      {/* Main Content Area */}
+      <Box sx={{ bgcolor: '#f5f5f7', flexGrow: 1, borderTopLeftRadius: '40px', borderTopRightRadius: '40px', position: 'relative', zIndex: 2 }}>
+        <Container maxWidth="lg" sx={{ mt: -10, mb: 10 }}>
+          {/* Floating Search & Filter Bar */}
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2, type: "spring", stiffness: 200 }}
+          >
+            <Card sx={{ 
+              p: { xs: 2.5, md: 3.5 }, 
+              borderRadius: '24px', 
+              boxShadow: '0 24px 48px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.5) inset',
+              border: '1px solid rgba(0, 0, 0, 0.05)',
+              backdropFilter: 'blur(40px)',
+              bgcolor: 'rgba(255, 255, 255, 0.75)',
+            }}>
+              <Stack spacing={3}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid size={{ xs: 12, md: 8 }}>
+                    <TextField
+                      fullWidth
+                      placeholder="ค้นหาชื่อกิจกรรม รหัส หรือสถานที่..."
+                      value={qText}
+                      onChange={(e) => setQText(e.target.value)}
+                      InputProps={{
+                        startAdornment: <InputAdornment position="start"><Search sx={{ color: '#86868b' }} /></InputAdornment>,
+                        sx: { 
+                          borderRadius: '16px', 
+                          bgcolor: '#ffffff', 
+                          border: '1px solid rgba(0,0,0,0.04)', 
+                          boxShadow: '0 2px 12px rgba(0,0,0,0.02) inset',
+                          '& fieldset': { border: 'none' },
+                          '& input': { py: 1.8, fontSize: '1.05rem', color: '#1d1d1f' },
+                          transition: 'all 0.3s ease',
+                          '&:hover': { boxShadow: '0 2px 12px rgba(0,0,0,0.04) inset' },
+                          '&.Mui-focused': { boxShadow: '0 0 0 4px rgba(0, 113, 227, 0.15)' }
+                        }
+                      }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 4 }}>
+                    <Stack direction="row" spacing={1.5} justifyContent="flex-end" alignItems="center">
+                      <Chip 
+                        icon={<EventAvailable sx={{ fontSize: '1.2rem !important', color: '#248a3d !important' }} />} 
+                        label={`เปิดรับสมัคร: ${counts.active}`} 
+                        sx={{ 
+                          bgcolor: 'rgba(52, 199, 89, 0.12)', 
+                          color: '#248a3d', 
+                          fontWeight: 700, 
+                          borderRadius: '12px',
+                          px: 1,
+                          height: 48,
+                          fontSize: '0.95rem',
+                          border: '1px solid rgba(52, 199, 89, 0.2)'
+                        }} 
+                      />
+                      <Button 
+                        variant="text" 
+                        onClick={fetchActivities} 
+                        sx={{ 
+                          minWidth: 48, 
+                          height: 48, 
+                          borderRadius: '14px', 
+                          bgcolor: '#ffffff', 
+                          color: '#1d1d1f',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                          border: '1px solid rgba(0,0,0,0.04)',
+                          transition: 'all 0.2s',
+                          '&:hover': { bgcolor: '#f5f5f7', transform: 'scale(1.05)' }
+                        }}
+                      >
+                        <Refresh />
+                      </Button>
+                    </Stack>
+                  </Grid>
+                </Grid>
+
+                <Stack direction="row" alignItems="center" spacing={2} sx={{ overflowX: 'auto', pb: 1, '&::-webkit-scrollbar': { display: 'none' } }}>
+                  <FilterList sx={{ color: '#86868b' }} />
+                  <ToggleButtonGroup
+                    exclusive
+                    value={filter}
+                    onChange={(_, v) => v && setFilter(v)}
                     sx={{ 
-                      bgcolor: 'rgba(52, 199, 89, 0.15)', // Apple Green
-                      color: '#248a3d', 
-                      fontWeight: 700, 
-                      borderRadius: '10px',
-                      fontSize: '0.85rem'
-                    }} 
-                  />
-                  <Button 
-                    variant="text" 
-                    onClick={fetchActivities} 
-                    sx={{ 
-                      minWidth: 46, 
-                      height: 46, 
-                      borderRadius: '12px', 
-                      bgcolor: 'rgba(0, 0, 0, 0.04)', 
-                      color: '#1d1d1f',
-                      '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.08)' }
+                      bgcolor: 'rgba(0, 0, 0, 0.03)',
+                      p: 0.5,
+                      borderRadius: '16px',
+                      gap: 0.5,
+                      border: 'none',
+                      '& .MuiToggleButton-root': { 
+                        border: 'none !important', 
+                        borderRadius: '12px !important', 
+                        px: 3.5, 
+                        py: 1.2, 
+                        whiteSpace: 'nowrap',
+                        color: '#86868b', 
+                        fontWeight: 600,
+                        textTransform: 'none',
+                        fontSize: '0.9rem',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        '&.Mui-selected': { 
+                          bgcolor: '#ffffff', 
+                          color: '#1d1d1f', 
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                          transform: 'scale(1.02)',
+                          '&:hover': { bgcolor: '#ffffff' } 
+                        },
+                        '&:hover:not(.Mui-selected)': {
+                          bgcolor: 'rgba(0, 0, 0, 0.04)'
+                        }
+                      } 
                     }}
                   >
-                    <Refresh />
-                  </Button>
+                    <ToggleButton value="all">ทั้งหมด ({activities.length})</ToggleButton>
+                    <ToggleButton value="active">กำลังเปิดรับ</ToggleButton>
+                    <ToggleButton value="soon">เร็วๆ นี้</ToggleButton>
+                    <ToggleButton value="ended">สิ้นสุดแล้ว</ToggleButton>
+                  </ToggleButtonGroup>
                 </Stack>
+              </Stack>
+            </Card>
+          </motion.div>
+
+          {/* Activity Cards List */}
+          <Box sx={{ mt: 8 }}>
+            {loading ? (
+              <Grid container spacing={4}>
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <Grid key={i} size={{ xs: 12, sm: 6, lg: 4 }}>
+                    <Skeleton variant="rectangular" height={280} sx={{ borderRadius: '24px', mb: 2 }} />
+                    <Skeleton width="70%" height={32} sx={{ borderRadius: '8px', mb: 1 }} />
+                    <Skeleton width="40%" height={24} sx={{ borderRadius: '8px' }} />
+                  </Grid>
+                ))}
               </Grid>
-            </Grid>
-
-            {/* Apple Native Segment Control Style */}
-            <Stack direction="row" alignItems="center" spacing={2} sx={{ overflowX: 'auto', pb: 1, '&::-webkit-scrollbar': { display: 'none' } }}>
-              <FilterList sx={{ color: '#86868b' }} />
-              <ToggleButtonGroup
-                exclusive
-                value={filter}
-                onChange={(_, v) => v && setFilter(v)}
-                sx={{ 
-                  bgcolor: 'rgba(0, 0, 0, 0.04)',
-                  p: '3px',
-                  borderRadius: '14px',
-                  gap: '2px',
-                  border: 'none !important',
-                  '& .MuiToggleButton-root': { 
-                    border: 'none !important', 
-                    borderRadius: '11px !important', 
-                    px: 3, 
-                    py: 1, 
-                    whiteSpace: 'nowrap',
-                    color: '#86868b', 
-                    fontWeight: 600,
-                    textTransform: 'none',
-                    fontSize: '0.875rem',
-                    transition: 'all 0.2s ease',
-                    '&.Mui-selected': { 
-                      bgcolor: '#ffffff', 
-                      color: '#1d1d1f', 
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                      '&:hover': { bgcolor: '#ffffff' } 
-                    },
-                    '&:hover': {
-                      bgcolor: 'rgba(0, 0, 0, 0.02)'
-                    }
-                  } 
-                }}
-              >
-                <ToggleButton value="all">ทั้งหมด ({activities.length})</ToggleButton>
-                <ToggleButton value="active">กำลังเปิดรับ</ToggleButton>
-                <ToggleButton value="soon">เร็วๆ นี้</ToggleButton>
-                <ToggleButton value="ended">สิ้นสุดแล้ว</ToggleButton>
-              </ToggleButtonGroup>
-            </Stack>
-          </Stack>
-        </Card>
-
-        {/* Content Section */}
-        <Box sx={{ mt: 6 }}>
-          {loading ? (
-            <Grid container spacing={4}>
-              {[1, 2, 3, 4, 5, 6].map(i => (
-                <Grid key={i} size={{ xs: 12, sm: 6, lg: 4 }}>
-                  <Skeleton variant="rectangular" height={240} sx={{ borderRadius: '20px', mb: 2 }} />
-                  <Skeleton width="60%" height={30} sx={{ borderRadius: '8px' }} />
-                  <Skeleton width="40%" sx={{ borderRadius: '8px' }} />
+            ) : filteredAndSorted.length === 0 ? (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <Box sx={{ textAlign: 'center', py: 14 }}>
+                  <InfoOutlined sx={{ fontSize: 90, color: '#d2d2d7', mb: 3 }} />
+                  <Typography variant="h5" fontWeight={700} color="#1d1d1f" mb={1}>ไม่พบกิจกรรมที่คุณมองหา</Typography>
+                  <Typography variant="body1" color="#86868b" mb={3}>ลองปรับเงื่อนไขการค้นหาใหม่ หรือเลือกดูทั้งหมด</Typography>
+                  <Button variant="outlined" sx={{ borderRadius: '12px', px: 4, py: 1.5, fontWeight: 600 }} onClick={() => { setQText(""); setFilter("all"); }}>ดูทั้งหมด</Button>
+                </Box>
+              </motion.div>
+            ) : (
+              <motion.div variants={containerVariants} initial="hidden" animate="show">
+                <Grid container spacing={4}>
+                  <AnimatePresence>
+                    {filteredAndSorted.map((a) => (
+                      <Grid key={a.id} size={{ xs: 12, sm: 6, lg: 4 }}>
+                        <motion.div variants={itemVariants} layoutId={a.id} style={{ height: '100%' }}>
+                          <ActivityCard {...a} status={getStatus(a)} canOpen={getStatus(a).key === "active"} />
+                        </motion.div>
+                      </Grid>
+                    ))}
+                  </AnimatePresence>
                 </Grid>
-              ))}
-            </Grid>
-          ) : filteredAndSorted.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 12 }}>
-              <InfoOutlined sx={{ fontSize: 80, color: '#86868b', mb: 2 }} />
-              <Typography variant="h5" fontWeight={700} color="#1d1d1f">ไม่พบกิจกรรมที่คุณมองหา</Typography>
-              <Button sx={{ mt: 2, color: '#0071e3', fontWeight: 600 }} onClick={() => setQText("")}>ล้างการค้นหา</Button>
-            </Box>
-          ) : (
-            <Grid container spacing={4}>
-              {filteredAndSorted.map((a) => (
-                <Grid key={a.id} size={{ xs: 12, sm: 6, lg: 4 }}>
-                  <ActivityCard {...a} status={getStatus(a)} canOpen={getStatus(a).key === "active"} />
-                </Grid>
-              ))}
-            </Grid>
-          )}
-        </Box>
-      </Container>
+              </motion.div>
+            )}
+          </Box>
+        </Container>
+      </Box>
 
       <Footer />
     </Box>
