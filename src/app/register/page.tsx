@@ -90,6 +90,9 @@ interface ActivityData {
   singleUserMode?: boolean;
   closeReason?: string;
   bannerAspect?: string;
+  dynamicQREnabled?: boolean;
+  dynamicToken?: string;
+  previousDynamicToken?: string;
 }
 
 interface IPLoginRecord {
@@ -605,9 +608,24 @@ const RegisterPageContent: React.FC = () => {
           bannerColor: docData.bannerColor,
           bannerTintColor: docData.bannerTintColor,
           bannerTintOpacity: typeof docData.bannerTintOpacity === 'number' ? docData.bannerTintOpacity : undefined,
+          dynamicQREnabled: docData.dynamicQREnabled || false,
+          dynamicToken: docData.dynamicToken,
+          previousDynamicToken: docData.previousDynamicToken,
         } as ActivityData;
 
         setActivityData(activity);
+        
+        // Dynamic QR Validation
+        if (activity.dynamicQREnabled) {
+          const dt = searchParams.get('dt');
+          if (!dt || (dt !== activity.dynamicToken && dt !== activity.previousDynamicToken)) {
+            setError('QR Code หมดอายุ หรือไม่ถูกต้อง กรุณาสแกนใหม่จากหน้าจอจุดลงทะเบียน');
+            setValidActivity(false);
+            setLoading(false);
+            return;
+          }
+        }
+
         const statusInfo = getActivityStatus(activity);
         setValidActivity(statusInfo.status === 'active');
         lastActiveRef.current = activity.isActive;

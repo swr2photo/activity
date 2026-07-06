@@ -1,0 +1,182 @@
+import React from 'react';
+import { Activity } from '../../../lib/adminFirebase';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Edit, Download, Printer, Users, Trash2, Link as LinkIcon, QrCode, MonitorPlay } from 'lucide-react';
+import { DEPARTMENT_LABELS } from '../../../types/admin';
+import dayjs from 'dayjs';
+
+interface ActivityTableProps {
+  activities: Activity[];
+  onToggleStatus: (activity: Activity) => void;
+  onEdit: (activity: Activity) => void;
+  onDelete: (activity: Activity) => void;
+  onDownload: (e: React.MouseEvent<HTMLElement>, activity: Activity) => void;
+  onViewParticipants: (activityCode: string) => void;
+  onViewRegistration: (activityCode: string) => void;
+  isSuperAdmin: boolean;
+  currentDept: string;
+}
+
+export function ActivityTable({
+  activities,
+  onToggleStatus,
+  onEdit,
+  onDelete,
+  onDownload,
+  onViewParticipants,
+  onViewRegistration,
+  isSuperAdmin,
+  currentDept
+}: ActivityTableProps) {
+  
+  const statusOf = (a: Activity) => {
+    const now = new Date();
+    if (!a.isActive) return { label: 'ปิดใช้งาน', variant: 'secondary' as const };
+    if (a.startDateTime && now < a.startDateTime) return { label: 'รอเปิด', variant: 'warning' as const };
+    if (a.endDateTime && now > a.endDateTime) return { label: 'สิ้นสุดแล้ว', variant: 'default' as const };
+    return { label: 'เปิดใช้งาน', variant: 'success' as const };
+  };
+
+  const fmt = (v: any) => {
+    if (!v) return '-';
+    const d = typeof v.toDate === 'function' ? v.toDate() : v;
+    return dayjs(d).isValid() ? dayjs(d).format('DD MMM YYYY HH:mm') : '-';
+  };
+
+  return (
+    <div className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead className="w-[80px]">สถานะ</TableHead>
+              <TableHead>ข้อมูลกิจกรรม</TableHead>
+              <TableHead className="hidden md:table-cell">เวลา</TableHead>
+              <TableHead className="hidden lg:table-cell">โค้ด/URL</TableHead>
+              <TableHead className="text-right">จัดการ</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {activities.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                  ไม่พบกิจกรรม
+                </TableCell>
+              </TableRow>
+            ) : (
+              activities.map((a) => {
+                const s = statusOf(a);
+                const canManage = isSuperAdmin || a.department === currentDept;
+
+                return (
+                  <TableRow key={a.id} className="group">
+                    <TableCell>
+                      <div className="flex flex-col items-center gap-2">
+                        <Switch
+                          checked={a.isActive}
+                          onCheckedChange={() => canManage && onToggleStatus(a)}
+                          disabled={!canManage}
+                        />
+                        <Badge variant={s.variant as any} className="text-[10px]">
+                          {s.label}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-semibold text-base">{a.activityName}</div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        {DEPARTMENT_LABELS[a.department as any] || a.department}
+                      </div>
+                      {a.location && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          📍 {a.location}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell whitespace-nowrap">
+                      <div className="text-sm">เริ่ม: {fmt(a.startDateTime)}</div>
+                      <div className="text-sm text-muted-foreground">สิ้นสุด: {fmt(a.endDateTime)}</div>
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <div className="flex items-center gap-2 mb-1">
+                        <QrCode className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-mono text-sm">{a.activityCode}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <LinkIcon className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {a.userCode || '-'}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onViewParticipants(a.activityCode)}
+                          title="ดูผู้เข้าร่วม"
+                        >
+                          <Users className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onViewRegistration(a.activityCode)}
+                          title="ดูหน้าลงทะเบียน"
+                        >
+                          <LinkIcon className="h-4 w-4 text-blue-500" />
+                        </Button>
+                        {(a as any).dynamicQREnabled && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => window.open(`/admin/dynamic-qr/${a.activityCode}`, '_blank')}
+                            title="เปิดจอ Dynamic QR"
+                          >
+                            <MonitorPlay className="h-4 w-4 text-purple-500" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => onDownload(e, a)}
+                          title="ดาวน์โหลด QR/รูป"
+                        >
+                          <Download className="h-4 w-4 text-emerald-500" />
+                        </Button>
+                        {canManage && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => onEdit(a)}
+                              title="แก้ไข"
+                            >
+                              <Edit className="h-4 w-4 text-amber-500" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => onDelete(a)}
+                              title="ลบ"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}

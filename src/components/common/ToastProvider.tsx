@@ -8,12 +8,12 @@ import CloseIcon from '@mui/icons-material/Close';
 
 // Custom Styled Component
 const StyledMaterialDesignContent = styled(MaterialDesignContent)(({ theme }) => ({
-  '&.notistack-MuiContent': {
-    // ✅ FIX: Cast เป็น number เพื่อแก้ Error: The left-hand side of an arithmetic operation...
-    borderRadius: (theme.shape.borderRadius as number) * 1.5,
-    boxShadow: theme.shadows[4],
-    fontWeight: 500,
-  },
+  // Apply base styles directly to the root element instead of using the class selector
+  borderRadius: (theme.shape.borderRadius as number) * 1.5,
+  boxShadow: theme.shadows[4],
+  fontWeight: 500,
+  pointerEvents: 'all',
+  
   '&.notistack-MuiContent-success': {
     backgroundColor: theme.palette.success.main,
   },
@@ -51,7 +51,14 @@ const CloseAction: React.FC<{ id: SnackbarKey }> = ({ id }) => {
 
 export default function ToastProvider({ children }: { children: React.ReactNode }) {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const [mounted, setMounted] = React.useState(false);
+  const isMobileQuery = useMediaQuery(theme.breakpoints.down('sm'));
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isMobile = mounted ? isMobileQuery : false;
 
   const anchorOrigin = useMemo(
     () =>
@@ -60,6 +67,7 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
         : ({ vertical: 'top', horizontal: 'right' } as const),
     [isMobile]
   );
+
 
   return (
     <SnackbarProvider
@@ -77,11 +85,8 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
         info: StyledMaterialDesignContent,
       }}
       style={{
-        pointerEvents: 'none', 
-        '& .notistack-MuiContent': {
-            pointerEvents: 'all'
-        }
-      } as React.CSSProperties}
+        pointerEvents: 'none',
+      }}
     >
       {children}
     </SnackbarProvider>

@@ -2,20 +2,10 @@
 'use client';
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  Box, Card, CardContent, Typography, TextField, Button, Alert, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Dialog, DialogTitle,
-  DialogContent, DialogActions, IconButton, Tooltip, Snackbar, LinearProgress, InputAdornment,
-  ButtonGroup, AppBar, Toolbar, Container, Fade, Skeleton, Checkbox, FormControl, InputLabel,
-  Select, OutlinedInput, MenuItem, ListItemText, Avatar, useMediaQuery, Badge, Menu, ListItemAvatar,
-  Stack
-} from '@mui/material';
-import { useTheme } from '@mui/material/styles';
-import {
-  Download as DownloadIcon, Refresh as RefreshIcon, Delete as DeleteIcon, Visibility as ViewIcon,
-  Search as SearchIcon, Clear as ClearIcon, GetApp as GetAppIcon, Event as EventIcon,
-  People as PeopleIcon, Today as TodayIcon, Analytics as AnalyticsIcon, ContentCopy as CopyIcon,
-  Notifications as NotificationsIcon, CloudDownload as CloudDownloadIcon
-} from '@mui/icons-material';
+  Download, RefreshCw, Trash2, Eye, Search, Calendar,
+  Activity, Bell, FileText, ChevronDown, CheckSquare, Settings2, Trash
+} from 'lucide-react';
+import { useSnackbar } from 'notistack';
 
 import type { AdminProfile, AdminPermission } from '../../types/admin';
 import { normalizeDepartment, deptEquals, getDepartmentLabel } from '../../types/admin';
@@ -32,21 +22,36 @@ import {
   onSnapshot, Timestamp, QueryConstraint, startAfter
 } from 'firebase/firestore';
 
-// --- Helper & Types ---
-type MsgType = 'success' | 'error' | 'info' | 'warning';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator
+} from '@/components/ui/dropdown-menu';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
+import { Label } from '@/components/ui/label';
+import { PageHeader } from './shared/PageHeader';
 
+// --- Types ---
 interface FilterState {
   search: string;
   activities: string[];
   faculties: string[];
-  dateRange: { start: string; end: string; }; // เปลี่ยนเป็น string YYYY-MM-DD เพื่อใช้ง่ายกับ input type="date"
+  dateRange: { start: string; end: string; };
 }
 
 interface Props {
   currentAdmin: AdminProfile;
 }
 
-// ... (NotificationBell Component ยังคงเดิม หรือจะตัดออกก็ได้ถ้าไฟล์ยาวเกินไป แต่ผมจะคงไว้เพื่อให้ครบ) ...
 type AdminNotif = {
   id: string;
   title?: string;
@@ -56,13 +61,12 @@ type AdminNotif = {
   createdAt?: Date | Timestamp | null;
 };
 
+// --- NotificationBell Component ---
 const NotificationBell: React.FC<{
   currentAdmin: AdminProfile;
   allowedDeptKey: string;
 }> = ({ currentAdmin, allowedDeptKey }) => {
-  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [items, setItems] = useState<AdminNotif[]>([]);
-  const open = Boolean(anchorEl);
   const LS_KEY = useMemo(() => `admin_last_seen_notif_${currentAdmin.uid}`, [currentAdmin.uid]);
   const [lastSeen, setLastSeen] = useState<number>(0);
 
@@ -89,12 +93,9 @@ const NotificationBell: React.FC<{
   useEffect(() => {
     const unsubscribers: Array<() => void> = [];
     const watch = (colName: string) => {
-      // Logic การดึง Notification แบบเดิม (ละไว้ในฐานที่เข้าใจ หรือใส่เต็มก็ได้)
-      // เพื่อความกระชับ ขออนุญาตใช้ Logic แบบง่ายในตัวอย่างนี้
       const q = query(collection(db, colName), orderBy('createdAt', 'desc'), limit(20));
       const un = onSnapshot(q, snap => {
          const arr = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-         // Filter dept key
          const filtered = arr.filter(n => {
              if (allowedDeptKey === 'all') return true;
              const dep = n.departmentKey || n.department;
@@ -112,44 +113,51 @@ const NotificationBell: React.FC<{
     return () => unsubscribers.forEach(u => u());
   }, [allowedDeptKey]);
 
-  const openMenu = (e: React.MouseEvent<HTMLElement>) => { setAnchorEl(e.currentTarget); markSeenNow(); };
-  const closeMenu = () => setAnchorEl(null);
-
   return (
-    <>
-      <IconButton onClick={openMenu} aria-label="notifications" sx={{ mr: 1 }}>
-        <Badge color="error" badgeContent={unseenCount} max={99}><NotificationsIcon htmlColor="#fff" /></Badge>
-      </IconButton>
-      <Menu anchorEl={anchorEl} open={open} onClose={closeMenu} PaperProps={{ sx: { width: 360, maxWidth: '90vw' } }}>
-        {items.length === 0 ? <MenuItem disabled>ไม่มีแจ้งเตือน</MenuItem> : items.slice(0, 10).map(n => (
-          <MenuItem key={n.id} sx={{ whiteSpace: 'normal', display: 'block' }}>
-            <Typography variant="subtitle2" fontWeight="bold">{n.title}</Typography>
-            <Typography variant="caption" color="text.secondary">{n.message}</Typography>
-          </MenuItem>
-        ))}
-      </Menu>
-    </>
+    <DropdownMenu onOpenChange={(open) => open && markSeenNow()}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative text-slate-700 hover:bg-slate-100">
+          <Bell className="h-5 w-5" />
+          {unseenCount > 0 && (
+            <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-red-500 text-[10px] font-bold text-white flex items-center justify-center border-2 border-slate-900">
+              {unseenCount > 99 ? '99+' : unseenCount}
+            </span>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel>การแจ้งเตือน</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <div className="max-h-[300px] overflow-y-auto">
+          {items.length === 0 ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">ไม่มีการแจ้งเตือน</div>
+          ) : (
+            items.slice(0, 10).map(n => (
+              <DropdownMenuItem key={n.id} className="flex flex-col items-start p-3 gap-1 whitespace-normal">
+                <span className="font-semibold text-sm">{n.title}</span>
+                <span className="text-xs text-muted-foreground">{n.message}</span>
+              </DropdownMenuItem>
+            ))
+          )}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };
 
 // --- Main Component ---
-
 const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { enqueueSnackbar } = useSnackbar();
 
   // Data State
   const [records, setRecords] = useState<ActivityRecord[]>([]);
-  const [lastDoc, setLastDoc] = useState<any>(null); // สำหรับ Pagination
+  const [lastDoc, setLastDoc] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
   
   // UI State
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [msg, setMsg] = useState<string>('');
-  const [msgType, setMsgType] = useState<MsgType>('success');
-  const [snack, setSnack] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<ActivityRecord | null>(null);
 
@@ -176,18 +184,11 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   const allowedDeptKey = normalizeDepartment(currentAdmin.department as any);
   const isDeptScoped = allowedDeptKey !== 'all';
 
-  // --- Helper Functions ---
-  const alert = (text: string, type: MsgType = 'success') => {
-    setMsg(text); setMsgType(type); setSnack(true);
-  };
-
-  // ✅ Optimized: Check cache first
   const loadActivityNames = async (codes: string[]) => {
     const uniq = Array.from(new Set(codes.filter(c => c && !activityNameByCode[c])));
     if (uniq.length === 0) return;
 
     const results: Record<string, string> = { ...activityNameByCode };
-    // Fetch in batches if necessary, here simplistic
     await Promise.all(uniq.map(async (code) => {
       try {
         const s = await getDoc(doc(db, 'activities', code));
@@ -195,7 +196,6 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
            const d: any = s.data();
            results[code] = d?.nameTh || d?.name || code;
         } else {
-            // Try query by 'code' field
             const qs = await getDocs(query(collection(db, 'activities'), where('code', '==', code), limit(1)));
             if (!qs.empty) {
                 const d:any = qs.docs[0].data();
@@ -209,7 +209,6 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
     setActivityNameByCode(results);
   };
 
-  // ✅ Secure & Optimized Load Function
   const loadData = useCallback(async (isLoadMore = false) => {
     if (loading) return;
     setLoading(true);
@@ -218,30 +217,26 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
     try {
       const constraints: QueryConstraint[] = [];
 
-      // 1. Security: Enforce Department Scope at Query Level
       if (isDeptScoped) {
         constraints.push(where('department', '==', allowedDeptKey));
       }
 
-      // 2. Date Filter (Server-side)
       if (filters.dateRange.start) {
         constraints.push(where('timestamp', '>=', new Date(filters.dateRange.start).toISOString()));
       }
       if (filters.dateRange.end) {
-        // End of day
         const e = new Date(filters.dateRange.end);
         e.setHours(23, 59, 59, 999);
         constraints.push(where('timestamp', '<=', e.toISOString()));
       }
 
-      // 3. Sorting & Pagination
       constraints.push(orderBy('timestamp', 'desc'));
       
       if (isLoadMore && lastDoc) {
         constraints.push(startAfter(lastDoc));
       }
       
-      constraints.push(limit(100)); // Load 100 at a time
+      constraints.push(limit(100));
 
       const q = query(collection(db, 'activityRecords'), ...constraints);
       const snap = await getDocs(q);
@@ -266,26 +261,22 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
       setLastDoc(snap.docs[snap.docs.length - 1]);
       setHasMore(snap.docs.length === 100);
 
-      // Load activity names for new records
       loadActivityNames(newRecords.map(r => r.activityCode));
-
       setProgress(100);
     } catch (e: any) {
       console.error(e);
-      alert('เกิดข้อผิดพลาดในการโหลดข้อมูล: ' + e.message, 'error');
+      enqueueSnackbar('เกิดข้อผิดพลาดในการโหลดข้อมูล: ' + e.message, { variant: 'error' });
     } finally {
       setLoading(false);
       setTimeout(() => setProgress(0), 500);
     }
-  }, [allowedDeptKey, isDeptScoped, filters.dateRange, lastDoc, loading]);
+  }, [allowedDeptKey, isDeptScoped, filters.dateRange, lastDoc, loading, enqueueSnackbar]);
 
-  // Initial Load & Refresh
   useEffect(() => {
     loadData(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedDeptKey, filters.dateRange.start, filters.dateRange.end]); 
 
-  // Client-side Filter (Search & Chips)
   const filteredRecords = useMemo(() => {
     let list = records;
     const s = filters.search.trim().toLowerCase();
@@ -309,60 +300,52 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
     return list;
   }, [records, filters.search, filters.activities, filters.faculties, activityNameByCode]);
 
-  // Available options for filter dropdowns (computed from loaded records)
   const availableActivities = useMemo(() => [...new Set(records.map(r => r.activityCode))].sort(), [records]);
   const availableFaculties = useMemo(() => [...new Set(records.map(r => String(r.faculty || 'ไม่ระบุ')))].sort(), [records]);
 
-  // --- Actions ---
-
   const handleDelete = async (ids: string[]) => {
-    if (!isSuperAdmin) return alert('ต้องเป็น Super Admin เท่านั้น', 'warning');
+    if (!isSuperAdmin) {
+      enqueueSnackbar('ต้องเป็น Super Admin เท่านั้น', { variant: 'warning' });
+      return;
+    }
     if (!confirm(`ยืนยันลบ ${ids.length} รายการ?`)) return;
 
     setLoading(true);
     try {
-       // Group by activity to adjust counts efficiently
        const recordsToDelete = records.filter(r => ids.includes(r.id));
        const countMap: Record<string, number> = {};
        recordsToDelete.forEach(r => countMap[r.activityCode] = (countMap[r.activityCode] || 0) + 1);
 
-       // Execute Deletes
        await Promise.all(ids.map(id => deleteActivityRecord(id)));
-       // Adjust Counts
        await Promise.all(Object.entries(countMap).map(([code, count]) => adjustParticipantsByActivityCode(code, -count)));
 
-       // Update State
        setRecords(prev => prev.filter(r => !ids.includes(r.id)));
        setSelected([]);
-       alert('ลบข้อมูลสำเร็จ', 'success');
+       enqueueSnackbar('ลบข้อมูลสำเร็จ', { variant: 'success' });
     } catch (e: any) {
-        alert('ลบข้อมูลไม่สำเร็จ: ' + e.message, 'error');
+        enqueueSnackbar('ลบข้อมูลไม่สำเร็จ: ' + e.message, { variant: 'error' });
     } finally {
         setLoading(false);
     }
   };
 
-  // ✅ Secure Export Function (Fetches ALL matching data from server)
   const handleExport = async () => {
     if (!canExport) return;
     setIsExporting(true);
     try {
         const constraints: QueryConstraint[] = [];
         if (isDeptScoped) constraints.push(where('department', '==', allowedDeptKey));
-        // Use current date filters
         if (filters.dateRange.start) constraints.push(where('timestamp', '>=', new Date(filters.dateRange.start).toISOString()));
         if (filters.dateRange.end) {
              const e = new Date(filters.dateRange.end); e.setHours(23, 59, 59, 999);
              constraints.push(where('timestamp', '<=', e.toISOString()));
         }
         constraints.push(orderBy('timestamp', 'desc'));
-        // NOTE: Export fetches everything (no limit), be careful with very large datasets
         
         const q = query(collection(db, 'activityRecords'), ...constraints);
         const snap = await getDocs(q);
         const allData = snap.docs.map(d => ({...d.data(), timestamp: d.data().timestamp?.toDate() } as ActivityRecord));
         
-        // CSV Build
         const headers = ['วันที่', 'เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'คณะ', 'สาขา', 'ชื่อกิจกรรม', 'รหัสกิจกรรม'];
         const rows = allData.map(r => [
             r.timestamp.toLocaleDateString('th-TH'),
@@ -381,256 +364,295 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
         a.click();
         URL.revokeObjectURL(url);
         
-        alert(`ส่งออกข้อมูล ${allData.length} รายการสำเร็จ`, 'success');
+        enqueueSnackbar(`ส่งออกข้อมูล ${allData.length} รายการสำเร็จ`, { variant: 'success' });
         setExportOpen(false);
     } catch(e:any) {
-        alert('ส่งออกล้มเหลว: ' + e.message, 'error');
+        enqueueSnackbar('ส่งออกล้มเหลว: ' + e.message, { variant: 'error' });
     } finally {
         setIsExporting(false);
     }
   };
 
-  // --- Components ---
+  const toggleSelectAll = () => {
+    if (selected.length === filteredRecords.length && filteredRecords.length > 0) {
+      setSelected([]);
+    } else {
+      setSelected(filteredRecords.map(r => r.id));
+    }
+  };
 
-  const ActivityChip = ({ code }: { code: string }) => (
-    <Tooltip title={code}><Chip size="small" color="primary" label={activityNameByCode[code] || code} /></Tooltip>
-  );
+  const toggleSelect = (id: string) => {
+    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
 
   return (
-    <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-      <AppBar position="static" elevation={0} sx={{ background: 'rgba(255,255,255,.15)', backdropFilter: 'blur(20px)' }}>
-        <Toolbar sx={{ py: 1 }}>
-          <Avatar sx={{ bgcolor: 'rgba(255,255,255,.25)', mr: 2 }}><AnalyticsIcon sx={{ color: 'white' }} /></Avatar>
-          <Typography variant="h5" sx={{ flexGrow: 1, fontWeight: 700, color: 'white' }}>
-             จัดการข้อมูลการเข้าร่วม
-          </Typography>
-          <NotificationBell currentAdmin={currentAdmin} allowedDeptKey={allowedDeptKey} />
-          <Chip
-            label={isDeptScoped ? `สังกัด: ${getDepartmentLabel(currentAdmin.department)}` : 'Super Admin'}
-            color={isDeptScoped ? 'info' : 'warning'} variant="filled" sx={{ mr: 2 }}
+    <div className="space-y-6 relative">
+      {progress > 0 && (
+        <div className="absolute -top-6 -left-4 sm:-left-6 lg:-left-8 w-[calc(100%+2rem)] sm:w-[calc(100%+3rem)] lg:w-[calc(100%+4rem)] h-1 bg-primary/10 overflow-hidden z-50">
+          <div 
+            className="h-full bg-primary transition-all duration-300 ease-out" 
+            style={{ width: `${progress}%` }}
           />
-        </Toolbar>
-      </AppBar>
+        </div>
+      )}
 
-      {progress > 0 && <LinearProgress variant="determinate" value={progress} />}
+      <PageHeader 
+        title="จัดการข้อมูลการเข้าร่วม"
+        icon={<Activity className="h-6 w-6" />}
+        actions={
+          <>
+            <Badge variant={isDeptScoped ? 'secondary' : 'default'} className="border-0">
+              {isDeptScoped ? `สังกัด: ${getDepartmentLabel(currentAdmin.department)}` : 'Super Admin'}
+            </Badge>
+            <NotificationBell currentAdmin={currentAdmin} allowedDeptKey={allowedDeptKey} />
+          </>
+        }
+      />
 
-      <Container maxWidth="xl" sx={{ py: 4 }}>
         {/* Filters */}
-        <Card sx={{ mb: 3, borderRadius: 3 }}>
-          <CardContent>
-             {/* Using Box Grid System */}
-             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 2 }}>
-                
-                {/* Search */}
-                <TextField
-                  size="small" label="ค้นหา (ในรายการที่โหลดมา)" value={filters.search}
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="ค้นหารายการ..."
+                  value={filters.search}
                   onChange={(e) => setFilters(v => ({ ...v, search: e.target.value }))}
-                  InputProps={{ startAdornment: <SearchIcon color="action" /> }}
+                  className="pl-9"
                 />
+              </div>
 
-                {/* Date Start */}
-                <TextField
-                  size="small" type="date" label="ตั้งแต่วันที่" InputLabelProps={{ shrink: true }}
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="date"
                   value={filters.dateRange.start}
                   onChange={(e) => setFilters(v => ({ ...v, dateRange: { ...v.dateRange, start: e.target.value } }))}
+                  className="pl-9"
                 />
+              </div>
 
-                {/* Date End */}
-                <TextField
-                  size="small" type="date" label="ถึงวันที่" InputLabelProps={{ shrink: true }}
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="date"
                   value={filters.dateRange.end}
                   onChange={(e) => setFilters(v => ({ ...v, dateRange: { ...v.dateRange, end: e.target.value } }))}
+                  className="pl-9"
                 />
+              </div>
 
-                {/* Actions */}
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button 
-                      fullWidth variant="contained" onClick={() => { setLastDoc(null); loadData(false); }} 
-                      disabled={loading} startIcon={<RefreshIcon />}
-                    >
-                      โหลดข้อมูล
-                    </Button>
-                    {canExport && (
-                      <Button 
-                         variant="outlined" color="success" onClick={() => setExportOpen(true)}
-                         startIcon={<CloudDownloadIcon />}
-                      >
-                         Export
-                      </Button>
-                    )}
-                </Box>
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => { setLastDoc(null); loadData(false); }} disabled={loading}>
+                  <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} /> โหลด
+                </Button>
+                {canExport && (
+                  <Button variant="default" className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setExportOpen(true)}>
+                    <Download className="h-4 w-4 mr-2" /> Export
+                  </Button>
+                )}
+              </div>
 
-                {/* Client-side Filters */}
-                <FormControl size="small" fullWidth>
-                    <InputLabel>กรองกิจกรรม</InputLabel>
-                    <Select
-                        multiple value={filters.activities}
-                        onChange={(e) => setFilters(v => ({...v, activities: e.target.value as string[]}))}
-                        input={<OutlinedInput label="กรองกิจกรรม" />}
-                        renderValue={(selected) => selected.length + ' รายการ'}
-                    >
-                        {availableActivities.map(a => (
-                            <MenuItem key={a} value={a}><Checkbox checked={filters.activities.includes(a)} /><ListItemText primary={activityNameByCode[a] || a} /></MenuItem>
-                        ))}
-                    </Select>
-                </FormControl>
+              {/* Advanced filters (simplified to selects for now, you can enhance with a multi-select component if needed) */}
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={filters.activities.length === 0 ? '' : filters.activities[0]}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFilters(v => ({ ...v, activities: val ? [val] : [] }));
+                }}
+              >
+                <option value="">ทุกกิจกรรม</option>
+                {availableActivities.map(a => (
+                  <option key={a} value={a}>{activityNameByCode[a] || a}</option>
+                ))}
+              </select>
 
-                <FormControl size="small" fullWidth>
-                    <InputLabel>กรองคณะ</InputLabel>
-                    <Select
-                        multiple value={filters.faculties}
-                        onChange={(e) => setFilters(v => ({...v, faculties: e.target.value as string[]}))}
-                        input={<OutlinedInput label="กรองคณะ" />}
-                        renderValue={(selected) => selected.length + ' คณะ'}
-                    >
-                        {availableFaculties.map(f => (
-                            <MenuItem key={f} value={f}><Checkbox checked={filters.faculties.includes(f)} /><ListItemText primary={f} /></MenuItem>
-                        ))}
-                    </Select>
-                </FormControl>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={filters.faculties.length === 0 ? '' : filters.faculties[0]}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFilters(v => ({ ...v, faculties: val ? [val] : [] }));
+                }}
+              >
+                <option value="">ทุกคณะ</option>
+                {availableFaculties.map(f => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
 
-                <Box sx={{ gridColumn: { md: 'span 2' }, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 2 }}>
-                    <Typography variant="caption" color="text.secondary">
-                        แสดง {filteredRecords.length} จากที่โหลดมา {records.length} รายการ
-                    </Typography>
-                    {selected.length > 0 && (
-                        <Button 
-                           color="error" variant="contained" size="small" startIcon={<DeleteIcon />}
-                           onClick={() => handleDelete(selected)}
-                           disabled={!isSuperAdmin}
-                        >
-                           ลบ {selected.length} รายการ
-                        </Button>
-                    )}
-                </Box>
-
-             </Box>
+              <div className="md:col-span-2 flex items-center justify-end gap-4">
+                <span className="text-sm text-muted-foreground">
+                  แสดง {filteredRecords.length} / {records.length}
+                </span>
+                {selected.length > 0 && isSuperAdmin && (
+                  <Button variant="destructive" size="sm" onClick={() => handleDelete(selected)}>
+                    <Trash2 className="h-4 w-4 mr-2" /> ลบ {selected.length} รายการ
+                  </Button>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Table / List */}
-        {!isMobile ? (
-            <TableContainer component={Paper} sx={{ maxHeight: 600, borderRadius: 2 }}>
-                <Table stickyHeader>
-                    <TableHead>
-                        <TableRow>
-                            <TableCell padding="checkbox">
-                                <Checkbox 
-                                    indeterminate={selected.length > 0 && selected.length < filteredRecords.length}
-                                    checked={filteredRecords.length > 0 && selected.length === filteredRecords.length}
-                                    onChange={(e) => setSelected(e.target.checked ? filteredRecords.map(r => r.id) : [])}
-                                />
-                            </TableCell>
-                            <TableCell>เวลา</TableCell>
-                            <TableCell>รหัสนักศึกษา</TableCell>
-                            <TableCell>ชื่อ-นามสกุล</TableCell>
-                            <TableCell>คณะ</TableCell>
-                            <TableCell>กิจกรรม</TableCell>
-                            <TableCell align="right">Action</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {filteredRecords.map((r) => (
-                            <TableRow key={r.id} hover selected={selected.includes(r.id)}>
-                                <TableCell padding="checkbox">
-                                    <Checkbox 
-                                       checked={selected.includes(r.id)} 
-                                       onChange={() => setSelected(p => p.includes(r.id) ? p.filter(x => x !== r.id) : [...p, r.id])} 
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Typography variant="body2">{r.timestamp.toLocaleDateString('th-TH')}</Typography>
-                                    <Typography variant="caption" color="text.secondary">{r.timestamp.toLocaleTimeString('th-TH')}</Typography>
-                                </TableCell>
-                                <TableCell>{r.studentId}</TableCell>
-                                <TableCell>{r.firstName} {r.lastName}</TableCell>
-                                <TableCell>{String(r.faculty || '-')}</TableCell>
-                                <TableCell><ActivityChip code={r.activityCode} /></TableCell>
-                                <TableCell align="right">
-                                    <IconButton size="small" onClick={() => { setSelectedRecord(r); setDetailOpen(true); }}><ViewIcon /></IconButton>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                        {loading && <TableRow><TableCell colSpan={7} align="center"><LinearProgress /></TableCell></TableRow>}
-                        {!loading && hasMore && (
-                            <TableRow>
-                                <TableCell colSpan={7} align="center">
-                                    <Button onClick={() => loadData(true)}>โหลดเพิ่ม (Load More)</Button>
-                                </TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-            </TableContainer>
-        ) : (
-            // Mobile View (Card List)
-            <Stack spacing={2}>
-                 {filteredRecords.map(r => (
-                     <Card key={r.id} variant="outlined">
-                         <CardContent sx={{ display: 'flex', gap: 2 }}>
-                             <Box sx={{ flex: 1 }}>
-                                 <Typography fontWeight="bold">{r.firstName} {r.lastName}</Typography>
-                                 <Typography variant="body2" color="text.secondary">{r.studentId}</Typography>
-                                 <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                                     <ActivityChip code={r.activityCode} />
-                                     <Chip size="small" label={r.timestamp.toLocaleDateString('th-TH')} />
-                                 </Box>
-                             </Box>
-                             <IconButton onClick={() => { setSelectedRecord(r); setDetailOpen(true); }}><ViewIcon /></IconButton>
-                         </CardContent>
-                     </Card>
-                 ))}
-                 {hasMore && <Button variant="outlined" fullWidth onClick={() => loadData(true)}>โหลดเพิ่ม</Button>}
-            </Stack>
-        )}
-
-      </Container>
+        {/* Data Table */}
+        <Card className="border-0 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-slate-50/50">
+                <TableRow>
+                  <TableHead className="w-[50px] text-center">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-gray-300 text-primary focus:ring-primary"
+                      checked={selected.length === filteredRecords.length && filteredRecords.length > 0}
+                      onChange={toggleSelectAll}
+                    />
+                  </TableHead>
+                  <TableHead>เวลา</TableHead>
+                  <TableHead>นักศึกษา</TableHead>
+                  <TableHead>คณะ/สาขา</TableHead>
+                  <TableHead>กิจกรรม</TableHead>
+                  <TableHead className="text-right">จัดการ</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredRecords.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                      ไม่พบข้อมูล
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredRecords.map((r) => (
+                    <TableRow key={r.id} className={cn(selected.includes(r.id) && "bg-primary/5")}>
+                      <TableCell className="text-center">
+                        <input 
+                          type="checkbox" 
+                          className="rounded border-gray-300 text-primary focus:ring-primary"
+                          checked={selected.includes(r.id)}
+                          onChange={() => toggleSelect(r.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">{r.timestamp.toLocaleDateString('th-TH')}</div>
+                        <div className="text-xs text-muted-foreground">{r.timestamp.toLocaleTimeString('th-TH')}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">{r.firstName} {r.lastName}</div>
+                        <div className="text-xs text-muted-foreground">{r.studentId}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{String(r.faculty || '-')}</div>
+                      </TableCell>
+                      <TableCell>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="secondary" className="truncate max-w-[200px] cursor-help">
+                                {activityNameByCode[r.activityCode] || r.activityCode}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {r.activityCode}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => { setSelectedRecord(r); setDetailOpen(true); }}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          
+          {!loading && hasMore && filteredRecords.length > 0 && (
+            <div className="p-4 border-t flex justify-center bg-slate-50/50">
+              <Button variant="outline" onClick={() => loadData(true)}>
+                โหลดเพิ่มเติม
+              </Button>
+            </div>
+          )}
+        </Card>
 
       {/* Detail Dialog */}
-      <Dialog open={detailOpen} onClose={() => setDetailOpen(false)}>
-        <DialogTitle>รายละเอียด</DialogTitle>
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent>
-            {selectedRecord && (
-                <Stack spacing={2} sx={{ mt: 1 }}>
-                    <TextField label="รหัสนักศึกษา" value={selectedRecord.studentId} fullWidth InputProps={{ readOnly: true }} />
-                    <TextField label="ชื่อ" value={`${selectedRecord.firstName} ${selectedRecord.lastName}`} fullWidth InputProps={{ readOnly: true }} />
-                    <TextField label="กิจกรรม" value={activityNameByCode[selectedRecord.activityCode] || selectedRecord.activityCode} fullWidth InputProps={{ readOnly: true }} />
-                    <TextField label="เวลาเช็คชื่อ" value={selectedRecord.timestamp.toLocaleString('th-TH')} fullWidth InputProps={{ readOnly: true }} />
-                </Stack>
-            )}
-        </DialogContent>
-        <DialogActions>
+          <DialogHeader>
+            <DialogTitle>รายละเอียดการเข้าร่วม</DialogTitle>
+          </DialogHeader>
+          {selectedRecord && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">รหัสนักศึกษา</Label>
+                  <p className="font-medium">{selectedRecord.studentId}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">ชื่อ-นามสกุล</Label>
+                  <p className="font-medium">{selectedRecord.firstName} {selectedRecord.lastName}</p>
+                </div>
+                <div className="space-y-1 col-span-2">
+                  <Label className="text-xs text-muted-foreground">กิจกรรม</Label>
+                  <p className="font-medium">{activityNameByCode[selectedRecord.activityCode] || selectedRecord.activityCode}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">เวลา</Label>
+                  <p className="font-medium">{selectedRecord.timestamp.toLocaleString('th-TH')}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">คณะ</Label>
+                  <p className="font-medium">{selectedRecord.faculty || '-'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
             {isSuperAdmin && selectedRecord && (
-                <Button color="error" onClick={() => { handleDelete([selectedRecord.id]); setDetailOpen(false); }}>ลบรายการนี้</Button>
+              <Button variant="destructive" className="mr-auto" onClick={() => { handleDelete([selectedRecord.id]); setDetailOpen(false); }}>
+                <Trash className="h-4 w-4 mr-2" /> ลบรายการ
+              </Button>
             )}
-            <Button onClick={() => setDetailOpen(false)}>ปิด</Button>
-        </DialogActions>
+            <Button variant="outline" onClick={() => setDetailOpen(false)}>ปิด</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       {/* Export Dialog */}
-      <Dialog open={exportOpen} onClose={() => setExportOpen(false)}>
-         <DialogTitle>Export CSV</DialogTitle>
-         <DialogContent>
-             <Typography variant="body2" color="text.secondary" paragraph>
-                ระบบจะทำการดึงข้อมูล "ทั้งหมด" จากฐานข้อมูลตามเงื่อนไขวันที่ที่คุณเลือก (ไม่จำกัดแค่ที่แสดงผลอยู่)
-             </Typography>
-             <TextField 
-                autoFocus margin="dense" label="ชื่อไฟล์" fullWidth 
-                value={exportFilename} onChange={(e) => setExportFilename(e.target.value)}
-             />
-         </DialogContent>
-         <DialogActions>
-             <Button onClick={() => setExportOpen(false)}>ยกเลิก</Button>
-             <Button onClick={handleExport} variant="contained" disabled={isExporting}>
-                {isExporting ? 'กำลังดึงข้อมูล...' : 'ดาวน์โหลด'}
-             </Button>
-         </DialogActions>
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ส่งออกข้อมูล (Export CSV)</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              ระบบจะทำการดึงข้อมูล "ทั้งหมด" จากฐานข้อมูลตามเงื่อนไขวันที่และสังกัดที่คุณเลือก (ไม่จำกัดแค่รายการที่แสดงผลอยู่)
+            </p>
+            <div className="space-y-2">
+              <Label>ชื่อไฟล์</Label>
+              <Input 
+                value={exportFilename} 
+                onChange={(e) => setExportFilename(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportOpen(false)}>ยกเลิก</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleExport} disabled={isExporting}>
+              {isExporting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+              {isExporting ? 'กำลังประมวลผล...' : 'ดาวน์โหลด CSV'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
-
-      <Snackbar open={snack} autoHideDuration={4000} onClose={() => setSnack(false)}>
-        <Alert onClose={() => setSnack(false)} severity={msgType} sx={{ width: '100%' }}>{msg}</Alert>
-      </Snackbar>
-    </Box>
+    </div>
   );
 };
 

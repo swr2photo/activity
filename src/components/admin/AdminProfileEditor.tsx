@@ -1,68 +1,37 @@
 // src/components/admin/AdminProfileEditor.tsx
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
-  Box,
-  Paper,
-  Typography,
-  TextField,
-  Stack,
-  Button,
-  Alert,
-  Tabs,
-  Tab,
-  Card,
-  CardContent,
-  CardHeader,
-  IconButton,
-  LinearProgress,
-  InputAdornment,
-  Tooltip,
-  Slider,
-  useMediaQuery,
-  useTheme,
-  Avatar,
-  Divider,
-  CircularProgress, // ✅ เพิ่ม Import นี้
-} from '@mui/material';
-import {
-  Upload as UploadIcon,
-  Link as LinkIcon,
-  Image as ImageIcon,
-  Delete as DeleteIcon,
-  Save as SaveIcon,
-  RestartAlt as ResetIcon,
-  OpenWith as DragIcon,
-  CenterFocusStrong as CenterIcon,
-  Person as PersonIcon,
-} from '@mui/icons-material';
-
+  Upload, Link as LinkIcon, Image as ImageIcon, Trash2,
+  Save, RotateCcw, Move, Crosshair, User,
+} from 'lucide-react';
 import { useSnackbar } from 'notistack';
 import { updateProfile } from 'firebase/auth';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
 import type { AdminProfile } from '../../types/admin';
 import { updateAdminUser, logAdminEvent } from '../../lib/adminFirebase';
+import { PageHeader } from './shared/PageHeader';
 import { auth, storage } from '../../lib/firebase';
 
-type ImagePos = { x: number; y: number };
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 
-type Props = {
-  currentAdmin: AdminProfile;
-};
+type ImagePos = { x: number; y: number };
+type Props = { currentAdmin: AdminProfile };
 
 export default function AdminProfileEditor({ currentAdmin }: Props) {
   const { enqueueSnackbar } = useSnackbar();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  // State
   const [displayName, setDisplayName] = useState(currentAdmin.displayName || '');
   const [firstName, setFirstName] = useState(currentAdmin.firstName || '');
   const [lastName, setLastName] = useState(currentAdmin.lastName || '');
   const [photoURL, setPhotoURL] = useState(currentAdmin.profileImage || '');
-  
   const [imgPos, setImgPos] = useState<ImagePos>({
     x: currentAdmin.profileImagePosX ?? 50,
     y: currentAdmin.profileImagePosY ?? 50,
@@ -72,25 +41,19 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
   const [photoMode, setPhotoMode] = useState<'upload' | 'link'>('upload');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState(false);
 
-  const previewSize = isMobile ? 160 : 220;
   const hasImage = Boolean(photoURL);
-
-  // --- Handlers ---
 
   const resetChanges = () => {
     setDisplayName(currentAdmin.displayName || '');
     setFirstName(currentAdmin.firstName || '');
     setLastName(currentAdmin.lastName || '');
     setPhotoURL(currentAdmin.profileImage || '');
-    setImgPos({
-      x: currentAdmin.profileImagePosX ?? 50,
-      y: currentAdmin.profileImagePosY ?? 50,
-    });
+    setImgPos({ x: currentAdmin.profileImagePosX ?? 50, y: currentAdmin.profileImagePosY ?? 50 });
     setPhotoMode('upload');
     enqueueSnackbar('รีเซ็ตข้อมูลแล้ว', { variant: 'info' });
   };
@@ -105,35 +68,26 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Validate File
     if (!file.type.startsWith('image/')) {
       enqueueSnackbar('กรุณาเลือกไฟล์รูปภาพเท่านั้น (JPG, PNG)', { variant: 'error' });
       return;
     }
-    if (file.size > 2 * 1024 * 1024) { // Limit 2MB
+    if (file.size > 2 * 1024 * 1024) {
       enqueueSnackbar('ขนาดไฟล์เกิน 2MB กรุณาลดขนาดไฟล์', { variant: 'error' });
       return;
     }
-
     try {
       setUploading(true);
       setUploadProgress(10);
-
-      // Upload to Firebase Storage
       const storagePath = `admin-profiles/${currentAdmin.uid}/${Date.now()}_${file.name}`;
       const storageRef = ref(storage, storagePath);
-      
       const snapshot = await uploadBytes(storageRef, file);
       setUploadProgress(70);
-      
       const downloadURL = await getDownloadURL(snapshot.ref);
       setPhotoURL(downloadURL);
       setUploadProgress(100);
-      
       enqueueSnackbar('อัปโหลดรูปสำเร็จ', { variant: 'success' });
-      setImgPos({ x: 50, y: 50 }); // Reset position for new image
-
+      setImgPos({ x: 50, y: 50 });
     } catch (error: any) {
       console.error('Upload failed:', error);
       enqueueSnackbar(`อัปโหลดล้มเหลว: ${error.message}`, { variant: 'error' });
@@ -149,10 +103,8 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
       enqueueSnackbar('กรุณาระบุชื่อที่แสดง (Display Name)', { variant: 'warning' });
       return;
     }
-
     try {
       setSaving(true);
-
       const updates: Partial<AdminProfile> = {
         displayName: displayName.trim(),
         firstName: firstName.trim(),
@@ -161,27 +113,15 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
         profileImagePosX: photoURL ? Math.round(imgPos.x) : undefined,
         profileImagePosY: photoURL ? Math.round(imgPos.y) : undefined,
       };
-
-      // 1. Update Firestore
       await updateAdminUser(currentAdmin.uid, updates);
-
-      // 2. Update Auth Profile (if current user)
       if (auth.currentUser && auth.currentUser.uid === currentAdmin.uid) {
         await updateProfile(auth.currentUser, {
           displayName: updates.displayName,
           photoURL: updates.profileImage,
         });
       }
-
-      // 3. Log Audit
-      await logAdminEvent(
-        'ADMIN_PROFILE_UPDATED',
-        { changes: Object.keys(updates) },
-        { uid: currentAdmin.uid, email: currentAdmin.email }
-      );
-
+      await logAdminEvent('ADMIN_PROFILE_UPDATED', { changes: Object.keys(updates) }, { uid: currentAdmin.uid, email: currentAdmin.email });
       enqueueSnackbar('บันทึกข้อมูลเรียบร้อยแล้ว', { variant: 'success' });
-
     } catch (error: any) {
       console.error('Save failed:', error);
       enqueueSnackbar(`บันทึกไม่สำเร็จ: ${error.message}`, { variant: 'error' });
@@ -190,10 +130,8 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
     }
   };
 
-  // --- Image Drag Logic ---
   const handleDragStart = () => hasImage && setDragging(true);
   const handleDragEnd = () => setDragging(false);
-  
   const handleDragMove = (clientX: number, clientY: number) => {
     if (!dragging || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -203,23 +141,21 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
   };
 
   return (
-    <Paper sx={{ p: { xs: 2, md: 4 }, maxWidth: 900, mx: 'auto' }}>
-      <Stack spacing={4}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}>
-            <PersonIcon fontSize="large" />
-          </Avatar>
-          <Typography variant="h4" fontWeight="bold">แก้ไขโปรไฟล์</Typography>
-        </Box>
+    <div className="space-y-6 relative">
+      <PageHeader 
+        title="แก้ไขโปรไฟล์"
+        subtitle="อัปเดตข้อมูลส่วนตัวและรูปโปรไฟล์ของคุณ"
+        icon={<User className="h-6 w-6" />}
+      />
+      <Card className="max-w-4xl border-0 shadow-sm mx-auto w-full">
+        <CardContent className="p-6">
 
-        <Divider />
 
-        <GridContainer>
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 items-start">
           {/* Left: Image Preview */}
-          <Box>
-            <Typography variant="subtitle2" gutterBottom color="text.secondary">รูปโปรไฟล์ (1:1)</Typography>
-            
-            <Box
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">รูปโปรไฟล์ (1:1)</p>
+            <div
               ref={containerRef}
               onMouseDown={handleDragStart}
               onMouseUp={handleDragEnd}
@@ -228,222 +164,205 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
               onTouchStart={handleDragStart}
               onTouchEnd={handleDragEnd}
               onTouchMove={(e) => handleDragMove(e.touches[0].clientX, e.touches[0].clientY)}
-              sx={{
-                width: previewSize,
-                height: previewSize,
-                borderRadius: 4,
-                bgcolor: 'grey.100',
-                border: '1px solid',
-                borderColor: 'divider',
-                overflow: 'hidden',
-                position: 'relative',
+              className={cn(
+                'w-[200px] h-[200px] rounded-2xl bg-muted border overflow-hidden relative flex items-center justify-center select-none',
+                hasImage ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : ''
+              )}
+              style={{
                 backgroundImage: hasImage ? `url("${photoURL}")` : 'none',
                 backgroundSize: 'cover',
                 backgroundPosition: `${imgPos.x}% ${imgPos.y}%`,
-                cursor: hasImage ? (dragging ? 'grabbing' : 'grab') : 'default',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                touchAction: 'none',
                 transition: dragging ? 'none' : 'background-position 0.2s',
-                touchAction: 'none'
               }}
             >
               {!hasImage && (
-                <Stack alignItems="center" color="text.disabled" spacing={1}>
-                  <ImageIcon fontSize="large" />
-                  <Typography variant="caption">ไม่มีรูปภาพ</Typography>
-                </Stack>
+                <div className="flex flex-col items-center text-muted-foreground gap-1">
+                  <ImageIcon className="h-8 w-8" />
+                  <span className="text-xs">ไม่มีรูปภาพ</span>
+                </div>
               )}
-              
               {hasImage && !dragging && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: 8,
-                    bgcolor: 'rgba(0,0,0,0.6)',
-                    color: 'white',
-                    px: 1.5,
-                    py: 0.5,
-                    borderRadius: 10,
-                    fontSize: 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                    pointerEvents: 'none'
-                  }}
-                >
-                  <DragIcon sx={{ fontSize: 14 }} /> ลากเพื่อจัดตำแหน่ง
-                </Box>
+                <div className="absolute bottom-2 bg-black/60 text-white px-2 py-1 rounded-full text-[11px] flex items-center gap-1 pointer-events-none">
+                  <Move className="h-3 w-3" /> ลากเพื่อจัดตำแหน่ง
+                </div>
               )}
-            </Box>
+            </div>
 
-            {/* Position Sliders */}
+            {/* Position Controls */}
             {hasImage && (
-              <Box sx={{ mt: 2, width: previewSize }}>
-                <Stack spacing={1}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="caption" sx={{ width: 20 }}>X</Typography>
-                    <Slider 
-                      size="small" 
-                      value={imgPos.x} 
-                      onChange={(_, v) => setImgPos(p => ({ ...p, x: v as number }))} 
-                    />
-                  </Stack>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="caption" sx={{ width: 20 }}>Y</Typography>
-                    <Slider 
-                      size="small" 
-                      value={imgPos.y} 
-                      onChange={(_, v) => setImgPos(p => ({ ...p, y: v as number }))} 
-                    />
-                  </Stack>
-                  <Button 
-                    size="small" 
-                    variant="outlined" 
-                    startIcon={<CenterIcon />} 
-                    onClick={() => setImgPos({ x: 50, y: 50 })}
-                    fullWidth
-                  >
-                    จัดกึ่งกลาง
-                  </Button>
-                </Stack>
-              </Box>
+              <div className="mt-3 w-[200px] space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs w-4">X</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={imgPos.x}
+                    onChange={(e) => setImgPos((p) => ({ ...p, x: Number(e.target.value) }))}
+                    className="flex-1 h-1.5 accent-primary"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs w-4">Y</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={imgPos.y}
+                    onChange={(e) => setImgPos((p) => ({ ...p, y: Number(e.target.value) }))}
+                    className="flex-1 h-1.5 accent-primary"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1"
+                  onClick={() => setImgPos({ x: 50, y: 50 })}
+                >
+                  <Crosshair className="h-3.5 w-3.5" />
+                  จัดกึ่งกลาง
+                </Button>
+              </div>
             )}
-          </Box>
+          </div>
 
-          {/* Right: Form & Actions */}
-          <Box sx={{ flex: 1 }}>
-            <Card variant="outlined">
-              <CardContent>
-                <Stack spacing={3}>
-                  {/* Photo Selection */}
-                  <Box>
-                    <Tabs value={photoMode} onChange={(_, v) => setPhotoMode(v)} sx={{ mb: 2, minHeight: 36 }}>
-                      <Tab label="อัปโหลดไฟล์" value="upload" icon={<UploadIcon fontSize="small" />} iconPosition="start" sx={{ minHeight: 36 }} />
-                      <Tab label="ใช้ลิงก์ URL" value="link" icon={<LinkIcon fontSize="small" />} iconPosition="start" sx={{ minHeight: 36 }} />
-                    </Tabs>
+          {/* Right: Form */}
+          <div className="space-y-5">
+            <Card className="border">
+              <CardContent className="p-5 space-y-5">
+                {/* Photo Selection Tabs */}
+                <div>
+                  <div className="flex gap-1 mb-3 bg-muted p-1 rounded-lg">
+                    <button
+                      className={cn(
+                        'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors',
+                        photoMode === 'upload' ? 'bg-white shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                      )}
+                      onClick={() => setPhotoMode('upload')}
+                    >
+                      <Upload className="h-4 w-4" /> อัปโหลดไฟล์
+                    </button>
+                    <button
+                      className={cn(
+                        'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors',
+                        photoMode === 'link' ? 'bg-white shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                      )}
+                      onClick={() => setPhotoMode('link')}
+                    >
+                      <LinkIcon className="h-4 w-4" /> ใช้ลิงก์ URL
+                    </button>
+                  </div>
 
-                    {photoMode === 'upload' ? (
-                      <Stack direction="row" spacing={2} alignItems="center">
-                        <Button
-                          component="label"
-                          variant="outlined"
-                          startIcon={<UploadIcon />}
-                          disabled={uploading}
-                        >
+                  {photoMode === 'upload' ? (
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" asChild disabled={uploading}>
+                        <label className="cursor-pointer gap-2">
+                          <Upload className="h-4 w-4" />
                           เลือกรูปภาพ...
-                          <input type="file" hidden accept="image/*" ref={fileInputRef} onChange={handleFileSelect} />
+                          <input type="file" className="hidden" accept="image/*" ref={fileInputRef} onChange={handleFileSelect} />
+                        </label>
+                      </Button>
+                      {uploading && <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />}
+                      {hasImage && !uploading && (
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={clearPhoto}>
+                          <Trash2 className="h-4 w-4" />
                         </Button>
-                        {uploading && <CircularProgress size={24} />}
-                        {hasImage && !uploading && (
-                          <IconButton color="error" onClick={clearPhoto} size="small">
-                            <DeleteIcon />
-                          </IconButton>
-                        )}
-                      </Stack>
-                    ) : (
-                      <TextField
-                        fullWidth
-                        size="small"
-                        label="วางลิงก์รูปภาพ (URL)"
+                      )}
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <Input
+                        placeholder="https://example.com/image.jpg"
                         value={photoURL}
                         onChange={(e) => setPhotoURL(e.target.value)}
-                        placeholder="https://example.com/image.jpg"
-                        InputProps={{
-                          endAdornment: hasImage && (
-                            <InputAdornment position="end">
-                              <IconButton onClick={clearPhoto} edge="end" size="small"><DeleteIcon /></IconButton>
-                            </InputAdornment>
-                          )
-                        }}
                       />
-                    )}
-                    
-                    {uploading && (
-                        <Box sx={{ mt: 1 }}>
-                            <LinearProgress variant="determinate" value={uploadProgress || 0} />
-                            <Typography variant="caption" color="text.secondary" align="right" display="block">
-                                กำลังอัปโหลด... {uploadProgress}%
-                            </Typography>
-                        </Box>
-                    )}
-                  </Box>
+                      {hasImage && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-destructive"
+                          onClick={clearPhoto}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
 
-                  <Divider />
+                  {uploading && uploadProgress !== null && (
+                    <div className="mt-2">
+                      <div className="w-full bg-muted rounded-full h-1.5">
+                        <div
+                          className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground text-right mt-1">
+                        กำลังอัปโหลด... {uploadProgress}%
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-                  {/* Text Fields */}
-                  <Stack spacing={2}>
-                    <TextField
-                      label="อีเมล (Email)"
-                      value={currentAdmin.email}
-                      disabled
-                      fullWidth
-                      helperText="ไม่สามารถเปลี่ยนอีเมลได้"
-                    />
-                    
-                    <TextField
-                      label="ชื่อที่แสดง (Display Name)"
+                <Separator />
+
+                {/* Text Fields */}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>อีเมล (Email)</Label>
+                    <Input value={currentAdmin.email} disabled />
+                    <p className="text-xs text-muted-foreground">ไม่สามารถเปลี่ยนอีเมลได้</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>ชื่อที่แสดง (Display Name) <span className="text-destructive">*</span></Label>
+                    <Input
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
-                      fullWidth
-                      required
-                      error={!displayName.trim()}
-                      helperText={!displayName.trim() ? "กรุณาระบุชื่อ" : "ชื่อที่แสดงในระบบ"}
+                      className={!displayName.trim() ? 'border-destructive' : ''}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {!displayName.trim() ? <span className="text-destructive">กรุณาระบุชื่อ</span> : 'ชื่อที่แสดงในระบบ'}
+                    </p>
+                  </div>
 
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                      <TextField
-                        label="ชื่อจริง"
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        fullWidth
-                      />
-                      <TextField
-                        label="นามสกุล"
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        fullWidth
-                      />
-                    </Stack>
-                  </Stack>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>ชื่อจริง</Label>
+                      <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>นามสกุล</Label>
+                      <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
 
-                  {/* Actions */}
-                  <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ pt: 2 }}>
-                    <Button 
-                        startIcon={<ResetIcon />} 
-                        onClick={resetChanges} 
-                        disabled={saving || uploading}
-                    >
-                        คืนค่าเดิม
-                    </Button>
-                    <Button 
-                        variant="contained" 
-                        startIcon={<SaveIcon />} 
-                        onClick={handleSave} 
-                        disabled={saving || uploading || !displayName.trim()}
-                    >
-                        {saving ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง'}
-                    </Button>
-                  </Stack>
-
-                </Stack>
+                {/* Actions */}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="ghost" onClick={resetChanges} disabled={saving || uploading} className="gap-1">
+                    <RotateCcw className="h-4 w-4" /> คืนค่าเดิม
+                  </Button>
+                  <Button onClick={handleSave} disabled={saving || uploading || !displayName.trim()} className="gap-1">
+                    {saving ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        กำลังบันทึก...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4" /> บันทึกการเปลี่ยนแปลง
+                      </>
+                    )}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
-          </Box>
-        </GridContainer>
-      </Stack>
-    </Paper>
+          </div>
+        </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
-
-// Helper Component for Layout
-const GridContainer = ({ children }: { children: React.ReactNode }) => (
-  <Box sx={{ 
-    display: 'grid', 
-    gridTemplateColumns: { xs: '1fr', md: 'auto 1fr' }, 
-    gap: 4,
-    alignItems: 'start'
-  }}>
-    {children}
-  </Box>
-);

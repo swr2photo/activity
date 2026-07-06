@@ -2,13 +2,9 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ThemeProvider, createTheme, CssBaseline, Box, CircularProgress } from '@mui/material';
-import { LocalizationProvider } from '@mui/x-date-pickers';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { Loader2 } from 'lucide-react';
 
-// ✅ ตรวจสอบ path ให้ถูกต้อง (ถ้าไฟล์ AdminLogin อยู่ใน components/admin ให้แก้ path ตามจริง)
-// import AdminLogin from '../../components/admin/AdminLogin'; 
-import AdminLogin from '../../components/AdminLogin'; 
+import AdminLogin from '../../components/AdminLogin';
 import AdminMain from '../../components/admin/AdminMain';
 
 import { onAuthStateChanged, User, signOut } from 'firebase/auth';
@@ -19,8 +15,6 @@ import { ROLE_PERMISSIONS, normalizeDepartment } from '../../types/admin';
 
 import useAdminSession, { endSession, getSession } from '../../lib/useAdminSession';
 import { useSnackbar } from 'notistack';
-
-const theme = createTheme();
 
 // ✅ รายการหน้าที่อนุญาต
 const VALID_SECTIONS = [
@@ -56,7 +50,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // ✅ อ่าน last section จาก localStorage
   const initialSection = useMemo<InitialSection | undefined>(() => {
     if (typeof window === 'undefined') return undefined;
     try {
@@ -107,8 +100,6 @@ function App() {
     const d = snap.data() as any;
     if (d.isActive === false) return;
 
-    // Map role เก่าถ้ามี (เผื่อไว้)
-    const roleMap = { super_admin: 'super_admin', admin: 'department_admin' } as const;
     const rawRole = d.role as string;
     const mappedRole = (rawRole === 'admin' ? 'department_admin' : rawRole) as AdminRole;
 
@@ -141,11 +132,8 @@ function App() {
 
       setCurrentAdmin((prev) => {
         if (!prev) return prev;
-        
-        // Map role เก่า
         const rawRole = d.role as string;
         const mappedRole = (rawRole === 'admin' ? 'department_admin' : rawRole) as AdminRole;
-
         const merged: AdminProfile = normalizeAdmin({
           ...prev,
           email: d.email ?? prev.email,
@@ -160,15 +148,12 @@ function App() {
           profileImagePosY: clamp(d.profileImagePosY) ?? prev.profileImagePosY,
           updatedAt: new Date(),
         } as AdminProfile);
-
         return merged;
       });
     });
   };
 
-  // ✅ FIX: เปลี่ยน Type ให้รับ AdminProfile โดยตรง (ไม่ต้องแปลงซ้ำ)
   const handleLoginSuccess = (profile: AdminProfile) => {
-    // AdminLogin ส่ง profile ที่สมบูรณ์มาแล้ว ใช้ได้เลย
     setCurrentAdmin(normalizeAdmin(profile));
   };
 
@@ -181,33 +166,23 @@ function App() {
 
   if (loading || !authChecked) {
     return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <Box sx={{
-          display:'flex', justifyContent:'center', alignItems:'center',
-          minHeight:'100vh',
-          background:'linear-gradient(135deg,#667eea 0%,#764ba2 100%)'
-        }}>
-          <Box sx={{ textAlign:'center', color:'white' }}>
-            <CircularProgress sx={{ color:'white', mb:2 }} size={60} />
-            <Box sx={{ fontSize:'1.2rem', fontWeight:'bold' }}>กำลังโหลดระบบ...</Box>
-          </Box>
-        </Box>
-      </ThemeProvider>
+      <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-violet-700">
+        <div className="text-center text-white">
+          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 opacity-80" />
+          <p className="text-lg font-semibold tracking-wide">กำลังโหลดระบบ...</p>
+        </div>
+      </div>
     );
   }
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <LocalizationProvider dateAdapter={AdapterDayjs}>
-        {currentAdmin ? (
-          <AdminMain currentAdmin={currentAdmin} onLogout={handleLogout} initialSection={initialSection} />
-        ) : (
-          <AdminLogin onLoginSuccess={handleLoginSuccess} />
-        )}
-      </LocalizationProvider>
-    </ThemeProvider>
+    <>
+      {currentAdmin ? (
+        <AdminMain currentAdmin={currentAdmin} onLogout={handleLogout} initialSection={initialSection} />
+      ) : (
+        <AdminLogin onLoginSuccess={handleLoginSuccess} />
+      )}
+    </>
   );
 }
 

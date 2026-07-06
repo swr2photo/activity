@@ -1,11 +1,12 @@
 import React from 'react';
-import { Alert, Typography, Box } from '@mui/material';
+import { ShieldAlert } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { AdminProfile, AdminPermission, AdminRole, AdminDepartment } from '../../types/admin';
 
 interface AdminRoleGuardProps {
   currentAdmin: AdminProfile | null;
   requiredPermission?: AdminPermission;
-  requiredRole?: AdminRole; // 'viewer' | 'moderator' | 'department_admin' | 'super_admin'
+  requiredRole?: AdminRole;
   allowedDepartments?: AdminDepartment[];
   children: React.ReactNode;
   fallback?: React.ReactNode;
@@ -17,62 +18,66 @@ export const AdminRoleGuard: React.FC<AdminRoleGuardProps> = ({
   requiredRole,
   allowedDepartments,
   children,
-  fallback
+  fallback,
 }) => {
-  // 1. เช็คว่ามี Admin Profile หรือไม่
   if (!currentAdmin) {
     return (
-      <Box p={2}>
-        <Alert severity="error">
-          <Typography>ไม่มีสิทธิ์เข้าถึง: ไม่พบข้อมูลผู้ดูแลระบบ กรุณาเข้าสู่ระบบใหม่</Typography>
+      <div className="p-4">
+        <Alert variant="destructive">
+          <AlertDescription>ไม่มีสิทธิ์เข้าถึง: ไม่พบข้อมูลผู้ดูแลระบบ กรุณาเข้าสู่ระบบใหม่</AlertDescription>
         </Alert>
-      </Box>
+      </div>
     );
   }
 
-  // 2. เช็ค Permission (ถ้ามีการระบุ)
   if (requiredPermission && !currentAdmin.permissions.includes(requiredPermission)) {
     return (
       <>{fallback || (
-        <Alert severity="warning" sx={{ my: 2 }}>
-          <Typography>คุณไม่มีสิทธิ์ในการดำเนินการนี้ (Missing: {requiredPermission})</Typography>
-        </Alert>
+        <div className="p-4">
+          <Alert variant="warning">
+            <AlertDescription>
+              คุณไม่มีสิทธิ์ในการดำเนินการนี้ (Missing: {requiredPermission})
+            </AlertDescription>
+          </Alert>
+        </div>
       )}</>
     );
   }
 
-  // 3. เช็ค Role Hierarchy (ถ้ามีการระบุ)
   if (requiredRole) {
     const roleHierarchy: AdminRole[] = ['viewer', 'moderator', 'department_admin', 'super_admin'];
     const currentRoleIndex = roleHierarchy.indexOf(currentAdmin.role);
     const requiredRoleIndex = roleHierarchy.indexOf(requiredRole);
-
     if (currentRoleIndex < requiredRoleIndex) {
       return (
         <>{fallback || (
-          <Alert severity="warning" sx={{ my: 2 }}>
-            <Typography>ระดับสิทธิ์ของคุณไม่เพียงพอ (Required: {requiredRole})</Typography>
-          </Alert>
+          <div className="p-4">
+            <Alert variant="warning">
+              <AlertDescription>
+                ระดับสิทธิ์ของคุณไม่เพียงพอ (Required: {requiredRole})
+              </AlertDescription>
+            </Alert>
+          </div>
         )}</>
       );
     }
   }
 
-  // 4. เช็ค Department Scope (ถ้ามีการระบุ และ Admin ไม่ใช่ 'all')
   if (
-    allowedDepartments && 
-    currentAdmin.department !== 'all' && 
+    allowedDepartments &&
+    currentAdmin.department !== 'all' &&
     !allowedDepartments.includes(currentAdmin.department)
   ) {
     return (
       <>{fallback || (
-        <Alert severity="warning" sx={{ my: 2 }}>
-          <Typography>คุณไม่มีสิทธิ์เข้าถึงข้อมูลของแผนกนี้</Typography>
-        </Alert>
+        <div className="p-4">
+          <Alert variant="warning">
+            <AlertDescription>คุณไม่มีสิทธิ์เข้าถึงข้อมูลของแผนกนี้</AlertDescription>
+          </Alert>
+        </div>
       )}</>
     );
   }
 
-  // ผ่านทุกด่าน
   return <>{children}</>;
 };

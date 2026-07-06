@@ -1,76 +1,48 @@
-// src/components/admin/AdminLogin.tsx
+// src/components/AdminLogin.tsx
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import {
-  Box,
-  Container,
-  Grid,
-  Card,
-  CardContent,
-  Typography,
-  Button,
-  Avatar,
-  Alert,
-  CircularProgress,
-  Stack,
-  Divider,
-  alpha,
-  useTheme,
-  Chip,
-} from '@mui/material';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import LogoutIcon from '@mui/icons-material/Logout';
-import LockOpenIcon from '@mui/icons-material/LockOpen';
-
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Lock, LogOut, Shield, Zap, MapPin, BarChart3, Users } from 'lucide-react';
 import { useSnackbar } from 'notistack';
 
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 import { signInAdmin } from '@/lib/adminFirebase';
-
-// session helpers
 import { startSession } from '@/lib/useAdminSession';
 
-// Type กลาง
-import type { AdminProfile, AdminRole, AdminDepartment, AdminPermission } from '@/types/admin';
-import { ROLE_PERMISSIONS } from '@/types/admin';
+import type { AdminProfile } from '@/types/admin';
+
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 
 type Props = {
   onLoginSuccess: (adminUser: AdminProfile) => void;
 };
 
-// ... (GoogleIcon component - คงเดิม) ...
 const GoogleIcon = () => (
-  <Box component="svg" viewBox="0 0 48 48" sx={{ width: 22, height: 22, mr: 1 }}>
+  <svg viewBox="0 0 48 48" className="w-5 h-5 mr-2 shrink-0">
     <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.657 31.987 29.223 35 24 35 16.82 35 11 29.18 11 22S16.82 9 24 9c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 3.02 30.2 1 24 1 10.745 1 0 11.745 0 25s10.745 24 24 24 24-10.745 24-24c0-1.603-.166-3.169-.389-4.917z" />
     <path fill="#FF3D00" d="M6.306 14.691l6.571 4.817C14.3 16.012 18.78 13 24 13c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 7.02 30.2 5 24 5 15.317 5 7.985 9.936 6.306 14.691z" />
     <path fill="#4CAF50" d="M24 45c5.135 0 9.773-1.982 13.286-5.214l-6.131-5.182C28.827 35.517 26.518 36 24 36c-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.793 39.985 15.124 45 24 45z" />
     <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-1.368 3.254-4.713 7-11.303 7-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.985 38.064 15.317 43 24 43c11.223 0 19-7.5 19-18 0-1.603-.166-3.169-.389-4.917z" />
-  </Box>
+  </svg>
 );
 
-const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
-  const theme = useTheme();
-  const { enqueueSnackbar } = useSnackbar();
+const features = [
+  { icon: Zap, label: 'สร้าง/แก้ไขกิจกรรม พร้อม QR Code อัตโนมัติ' },
+  { icon: MapPin, label: 'เช็คอินตามพิกัด + กำหนดรัศมี' },
+  { icon: BarChart3, label: 'รายงานภาพรวมแบบเรียลไทม์' },
+  { icon: Users, label: 'สิทธิ์การเข้าถึงตามบทบาท' },
+];
 
+const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
+  const { enqueueSnackbar } = useSnackbar();
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  const bg = useMemo(() => {
-    const p = theme.palette.primary.main;
-    const s = theme.palette.secondary.main;
-    return `radial-gradient(1100px 520px at 0% -10%, ${alpha(p, 0.22)}, transparent 55%), radial-gradient(900px 500px at 100% 0%, ${alpha(s, 0.16)}, transparent 50%), linear-gradient(180deg, ${alpha(theme.palette.background.default, 0.85)} 0%, ${theme.palette.background.default} 60%, ${theme.palette.background.paper} 100%)`;
-  }, [theme]);
-
-  const glassCardSx = useMemo(() => ({
-    borderRadius: 4,
-    backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.78),
-    backdropFilter: 'blur(14px)',
-    border: `1px solid ${alpha(theme.palette.divider, 0.65)}`,
-    boxShadow: `0 18px 55px ${alpha('#000', theme.palette.mode === 'dark' ? 0.45 : 0.18)}`,
-    overflow: 'hidden',
-  }), [theme]);
 
   const parseFirebaseError = (code?: string, message?: string) => {
     if (!code) return message || 'ไม่สามารถเข้าสู่ระบบได้';
@@ -85,11 +57,9 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true);
     try {
       const data = await signInAdmin();
-
       startSession(data.uid, 30);
       enqueueSnackbar(`ยินดีต้อนรับ ${data.displayName} (${data.role})`, { variant: 'success' });
       onLoginSuccess(data);
-
     } catch (e: any) {
       console.error(e);
       let msg = 'ไม่สามารถเข้าสู่ระบบได้';
@@ -114,8 +84,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
     try {
       await signOut(auth);
       enqueueSnackbar('ออกจากระบบแล้ว', { variant: 'info' });
-    } catch (e: any) {
-      console.error(e);
+    } catch {
       setErr('ออกจากระบบไม่สำเร็จ');
       enqueueSnackbar('ออกจากระบบไม่สำเร็จ', { variant: 'error' });
     } finally {
@@ -124,85 +93,128 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', background: bg, display: 'flex', alignItems: 'center', py: { xs: 6, md: 8 } }}>
-      <Container maxWidth="lg">
-        <Grid container spacing={4} alignItems="stretch">
-          {/* ✅ FIX: ใช้ size prop แทน xs/md และเอา item ออก */}
-          <Grid size={{ xs: 12, md: 6, lg: 7 }}>
-            <Card sx={{ height: '100%', ...glassCardSx }}>
-              <Box sx={{ p: { xs: 2.5, md: 3.5 }, background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.22)} 0%, ${alpha(theme.palette.secondary.main, 0.16)} 100%)`, borderBottom: `1px solid ${alpha(theme.palette.divider, 0.6)}` }}>
-                <Stack direction="row" alignItems="center" spacing={1.5}>
-                  <Avatar sx={{ bgcolor: alpha(theme.palette.primary.main, 0.14), color: theme.palette.primary.main, width: 54, height: 54, border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}` }}>
-                    <AdminPanelSettingsIcon fontSize="medium" />
-                  </Avatar>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="h4" fontWeight={900} sx={{ letterSpacing: -0.3 }}>กล่องควบคุมผู้ดูแลระบบ</Typography>
-                    <Typography variant="body2" color="text.secondary">จัดการกิจกรรม ผู้ใช้ และรายงานได้จากศูนย์กลาง</Typography>
-                  </Box>
-                </Stack>
-              </Box>
+    <div className="min-h-screen flex items-center py-12 px-4 bg-gradient-to-br from-slate-50 via-indigo-50/30 to-violet-50/20 relative overflow-hidden">
+      {/* Background decorations */}
+      <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-indigo-500/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
+      <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-violet-500/10 rounded-full blur-3xl translate-x-1/3 translate-y-1/3" />
 
-              <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
-                <Stack spacing={2.2}>
-                  <Box sx={{ p: 2.25, borderRadius: 3, border: `1px solid ${alpha(theme.palette.divider, 0.7)}`, backgroundColor: alpha(theme.palette.background.paper, 0.55) }}>
-                    <Typography variant="h6" fontWeight={800} gutterBottom>ไฮไลต์ความสามารถ</Typography>
-                    <Stack spacing={1.1}>
-                      <Typography variant="body2">• สร้าง/แก้ไขกิจกรรม พร้อม QR Code อัตโนมัติ</Typography>
-                      <Typography variant="body2">• เช็คอินตามพิกัด + กำหนดรัศมี</Typography>
-                      <Typography variant="body2">• รายงานภาพรวมแบบเรียลไทม์</Typography>
-                      <Typography variant="body2">• สิทธิ์การเข้าถึงตามบทบาท</Typography>
-                    </Stack>
-                    <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
-                      <Chip size="small" label="Role-based access" variant="outlined" />
-                      <Chip size="small" label="Realtime" variant="outlined" />
-                      <Chip size="small" label="Audit-friendly" variant="outlined" />
-                    </Stack>
-                  </Box>
-                  <Typography variant="caption" color="text.secondary">
-                    หากล็อกอินสำเร็จแต่ยังเข้าไม่ได้ ให้ติดต่อผู้ดูแลเพื่อเพิ่มสิทธิ์ในคอลเลกชัน <b>adminUsers</b>
-                  </Typography>
-                </Stack>
+      <div className="max-w-5xl mx-auto w-full relative z-10">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+          {/* Left — Feature Card */}
+          <motion.div
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <Card className="h-full border-0 bg-white/70 backdrop-blur-xl shadow-xl shadow-indigo-500/5">
+              <CardHeader className="bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-violet-500/10 border-b border-indigo-100/50">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary/15 border border-primary/20">
+                    <Shield className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 tracking-tight">กล่องควบคุมผู้ดูแลระบบ</h2>
+                    <p className="text-sm text-muted-foreground">จัดการกิจกรรม ผู้ใช้ และรายงานได้จากศูนย์กลาง</p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="rounded-xl border border-slate-200/80 bg-white/60 p-5">
+                  <h3 className="font-bold text-sm text-slate-800 mb-3">ไฮไลต์ความสามารถ</h3>
+                  <div className="space-y-3">
+                    {features.map((f, i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.3 + i * 0.1 }}
+                        className="flex items-center gap-3"
+                      >
+                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 shrink-0">
+                          <f.icon className="h-4 w-4 text-indigo-600" />
+                        </div>
+                        <span className="text-sm text-slate-700">{f.label}</span>
+                      </motion.div>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    <Badge variant="outline" className="text-xs">Role-based access</Badge>
+                    <Badge variant="outline" className="text-xs">Realtime</Badge>
+                    <Badge variant="outline" className="text-xs">Audit-friendly</Badge>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-4">
+                  หากล็อกอินสำเร็จแต่ยังเข้าไม่ได้ ให้ติดต่อผู้ดูแลเพื่อเพิ่มสิทธิ์ในคอลเลกชัน <strong>adminUsers</strong>
+                </p>
               </CardContent>
             </Card>
-          </Grid>
+          </motion.div>
 
-          {/* ✅ FIX: ใช้ size prop แทน xs/md และเอา item ออก */}
-          <Grid size={{ xs: 12, md: 6, lg: 5 }}>
-            <Card sx={{ height: '100%', ...glassCardSx, display: 'flex', alignItems: 'center' }}>
-              <CardContent sx={{ width: '100%', p: { xs: 3, md: 4 } }}>
-                <Box sx={{ textAlign: 'center', mb: 2.25 }}>
-                  <Avatar sx={{ width: 72, height: 72, mx: 'auto', mb: 1.5, bgcolor: alpha(theme.palette.primary.main, 0.12), color: theme.palette.primary.main, border: `1px solid ${alpha(theme.palette.primary.main, 0.22)}`, boxShadow: `0 10px 28px ${alpha('#000', 0.12)}` }}>
-                    <LockOpenIcon fontSize="large" />
-                  </Avatar>
-                  <Typography variant="h5" fontWeight={900} sx={{ letterSpacing: -0.2 }}>เข้าสู่ระบบผู้ดูแล</Typography>
-                  <Typography variant="body2" color="text.secondary">ใช้บัญชีที่ได้รับสิทธิ์ในระบบเท่านั้น</Typography>
-                </Box>
+          {/* Right — Login Card */}
+          <motion.div
+            initial={{ opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+          >
+            <Card className="h-full border-0 bg-white/70 backdrop-blur-xl shadow-xl shadow-indigo-500/5 flex items-center">
+              <CardContent className="w-full p-8">
+                <div className="text-center mb-6">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 shadow-lg shadow-primary/10 mb-4">
+                    <Lock className="h-7 w-7 text-primary" />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">เข้าสู่ระบบผู้ดูแล</h2>
+                  <p className="text-sm text-muted-foreground mt-1">ใช้บัญชีที่ได้รับสิทธิ์ในระบบเท่านั้น</p>
+                </div>
 
-                {err && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{err}</Alert>}
+                {err && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertDescription>{err}</AlertDescription>
+                  </Alert>
+                )}
 
-                <Button fullWidth size="large" onClick={handleGoogleLogin} disabled={loading} startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <GoogleIcon />} sx={{ borderRadius: 2.25, py: 1.35, fontWeight: 800, backgroundColor: theme.palette.common.white, color: theme.palette.text.primary, boxShadow: `0 10px 24px ${alpha('#000', 0.16)}`, border: `1px solid ${alpha(theme.palette.divider, 0.65)}`, '&:hover': { backgroundColor: alpha('#fff', 0.92) } }}>
-                  {loading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Google'}
+                <Button
+                  className="w-full h-12 text-sm font-bold bg-white text-slate-800 border border-slate-200 shadow-lg hover:bg-slate-50 hover:shadow-xl transition-all duration-200"
+                  onClick={handleGoogleLogin}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                      กำลังเข้าสู่ระบบ...
+                    </>
+                  ) : (
+                    <>
+                      <GoogleIcon />
+                      เข้าสู่ระบบด้วย Google
+                    </>
+                  )}
                 </Button>
 
-                <Stack direction="row" alignItems="center" spacing={2} sx={{ my: 2 }}>
-                  <Divider sx={{ flex: 1, opacity: 0.7 }} />
-                  <Typography variant="caption" color="text.secondary">ตัวช่วย</Typography>
-                  <Divider sx={{ flex: 1, opacity: 0.7 }} />
-                </Stack>
+                <div className="flex items-center gap-3 my-5">
+                  <Separator className="flex-1" />
+                  <span className="text-xs text-muted-foreground">ตัวช่วย</span>
+                  <Separator className="flex-1" />
+                </div>
 
-                <Button fullWidth size="small" variant="outlined" color="inherit" onClick={handleSignOut} startIcon={<LogoutIcon />} sx={{ borderRadius: 2 }}>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleSignOut}
+                  disabled={loading}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
                   ออกจากระบบ (เผื่อค้าง)
                 </Button>
 
-                <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 2, color: alpha(theme.palette.text.primary, 0.65) }}>
+                <p className="text-center text-xs text-muted-foreground mt-6 opacity-60">
                   v2.0 • Secure by Firebase Auth & Firestore
-                </Typography>
+                </p>
               </CardContent>
             </Card>
-          </Grid>
-        </Grid>
-      </Container>
-    </Box>
+          </motion.div>
+        </div>
+      </div>
+    </div>
   );
 };
 

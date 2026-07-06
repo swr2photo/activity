@@ -2,26 +2,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import {
-  Paper,
-  Typography,
-  TextField,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  Stack,
-  Button,
-  Alert,
-  Box,
-  CircularProgress,
-  IconButton,
-  Tooltip
-} from '@mui/material';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import DownloadIcon from '@mui/icons-material/Download';
+import { RefreshCw, Download, Search } from 'lucide-react';
 
 import type { AdminProfile } from '../../types/admin';
 import {
@@ -32,35 +13,45 @@ import {
   requireSuperAdmin,
 } from '../../lib/adminFirebase';
 
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from './shared/PageHeader';
+import { FileText } from 'lucide-react';
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip';
+
 type Props = {
   currentAdmin: AdminProfile;
 };
 
-// --- Utils ---
 function fmtDate(d?: Date) {
   if (!d) return '-';
   try {
-    return new Date(d).toLocaleString('th-TH', { 
-        year: 'numeric', month: 'short', day: 'numeric', 
-        hour: '2-digit', minute: '2-digit', second: '2-digit' 
+    return new Date(d).toLocaleString('th-TH', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
   } catch {
     return '-';
   }
 }
 
-// Function to safely stringify meta data (mask sensitive info if needed)
 function safeMetaString(meta: any): string {
-    if (!meta) return '{}';
-    try {
-        // Example: Mask sensitive keys if needed
-        const clone = { ...meta };
-        if (clone.password) clone.password = '***';
-        if (clone.token) clone.token = '***';
-        return JSON.stringify(clone);
-    } catch {
-        return String(meta);
-    }
+  if (!meta) return '{}';
+  try {
+    const clone = { ...meta };
+    if (clone.password) clone.password = '***';
+    if (clone.token) clone.token = '***';
+    return JSON.stringify(clone);
+  } catch {
+    return String(meta);
+  }
 }
 
 function toCsv(rows: AdminLogEntry[]) {
@@ -80,112 +71,73 @@ function toCsv(rows: AdminLogEntry[]) {
 }
 
 export default function AdminLogsPanel({ currentAdmin }: Props) {
-  // State
   const [logs, setLogs] = useState<AdminLogEntry[]>([]);
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  
-  // Refs
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const logSearchTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Security Gate
   const isSuper = useMemo(() => requireSuperAdmin(currentAdmin), [currentAdmin]);
   const accessError = isSuper ? '' : 'สิทธิ์ไม่เพียงพอ: เฉพาะผู้ดูแลสูงสุด (Super Admin) เท่านั้น';
 
-  // --- Effects ---
-
-  // 1. Log Access (Once per mount)
   useEffect(() => {
     if (isSuper) {
-      logAdminEvent('ADMIN_LOGS_OPEN', {}, { uid: currentAdmin.uid, email: currentAdmin.email })
-        .catch(console.warn);
+      logAdminEvent('ADMIN_LOGS_OPEN', {}, { uid: currentAdmin.uid, email: currentAdmin.email }).catch(console.warn);
     }
   }, [isSuper, currentAdmin]);
 
-  // 2. Fetch Data (Subscribe)
   useEffect(() => {
-    if (!isSuper) {
-      setLoading(false);
-      return;
-    }
-
+    if (!isSuper) { setLoading(false); return; }
     setLoading(true);
-    // Initial fetch
     getAdminLogs(100)
-        .then(setLogs)
-        .catch(() => setError('โหลดข้อมูลเบื้องต้นไม่สำเร็จ'))
-        .finally(() => setLoading(false));
-
-    // Realtime subscription
-    const unsub = subscribeAdminLogs((rows) => {
-        setLogs(rows);
-        setLoading(false);
-    }, 200);
-
+      .then(setLogs)
+      .catch(() => setError('โหลดข้อมูลเบื้องต้นไม่สำเร็จ'))
+      .finally(() => setLoading(false));
+    const unsub = subscribeAdminLogs((rows) => { setLogs(rows); setLoading(false); }, 200);
     return () => unsub();
   }, [isSuper]);
 
-  // 3. Debounce Search Input
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-        setTerm(q.trim().toLowerCase());
-        
-        // Log search event (Debounced heavily to avoid spam)
-        if (q.trim().length > 2) {
-            if (logSearchTimer.current) clearTimeout(logSearchTimer.current);
-            logSearchTimer.current = setTimeout(() => {
-                logAdminEvent(
-                    'ADMIN_LOGS_SEARCH',
-                    { query: q },
-                    { uid: currentAdmin.uid, email: currentAdmin.email }
-                ).catch(() => {});
-            }, 2000);
-        }
+      setTerm(q.trim().toLowerCase());
+      if (q.trim().length > 2) {
+        if (logSearchTimer.current) clearTimeout(logSearchTimer.current);
+        logSearchTimer.current = setTimeout(() => {
+          logAdminEvent('ADMIN_LOGS_SEARCH', { query: q }, { uid: currentAdmin.uid, email: currentAdmin.email }).catch(() => {});
+        }, 2000);
+      }
     }, 300);
-
-    return () => {
-        if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    };
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
   }, [q, currentAdmin]);
-
-  // --- Handlers ---
 
   const filtered = useMemo(() => {
     if (!term) return logs;
     return logs.filter((r) => {
-      const hay =
-        `${fmtDate(r.at)} ${r.action} ${r.actorUid ?? ''} ${r.actorEmail ?? ''} ${JSON.stringify(r.meta ?? {})}`.toLowerCase();
+      const hay = `${fmtDate(r.at)} ${r.action} ${r.actorUid ?? ''} ${r.actorEmail ?? ''} ${JSON.stringify(r.meta ?? {})}`.toLowerCase();
       return hay.includes(term);
     });
   }, [term, logs]);
 
   const handleExportCsv = useCallback(() => {
     if (filtered.length === 0) return;
-    
     try {
-        const csv = toCsv(filtered);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const ts = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
-        a.href = url;
-        a.download = `admin-logs-${ts}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        logAdminEvent(
-          'ADMIN_LOGS_EXPORT',
-          { count: filtered.length, query: term },
-          { uid: currentAdmin.uid, email: currentAdmin.email }
-        ).catch(() => {});
-    } catch (e) {
-        setError('เกิดข้อผิดพลาดในการส่งออกไฟล์');
+      const csv = toCsv(filtered);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
+      a.href = url;
+      a.download = `admin-logs-${ts}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      logAdminEvent('ADMIN_LOGS_EXPORT', { count: filtered.length, query: term }, { uid: currentAdmin.uid, email: currentAdmin.email }).catch(() => {});
+    } catch {
+      setError('เกิดข้อผิดพลาดในการส่งออกไฟล์');
     }
   }, [filtered, term, currentAdmin]);
 
@@ -195,136 +147,127 @@ export default function AdminLogsPanel({ currentAdmin }: Props) {
       setError('');
       const fresh = await getAdminLogs(200);
       setLogs(fresh);
-    } catch (e: any) {
+    } catch {
       setError('รีเฟรชข้อมูลไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // --- Render ---
-
   if (accessError) {
     return (
-      <Paper sx={{ p: 3, textAlign: 'center' }}>
-        <Alert severity="error" sx={{ mb: 2, display: 'inline-flex' }}>{accessError}</Alert>
-      </Paper>
+      <Card className="max-w-2xl mx-auto">
+        <CardContent className="p-8 text-center">
+          <Alert variant="destructive">
+            <AlertDescription>{accessError}</AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <Paper sx={{ p: 3, minHeight: 500 }}>
-      <Stack spacing={3}>
-        {/* Header */}
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center" justifyContent="space-between">
-            <Box>
-                <Typography variant="h5" fontWeight="bold">บันทึกการใช้งาน (Audit Logs)</Typography>
-                <Typography variant="body2" color="text.secondary">
-                    ติดตามกิจกรรมของผู้ดูแลระบบแบบเรียลไทม์
-                </Typography>
-            </Box>
-            
-            <Stack direction="row" spacing={1} sx={{ width: { xs: '100%', md: 'auto' } }}>
-                <TextField
-                    size="small"
-                    placeholder="ค้นหา..."
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    sx={{ minWidth: 250 }}
-                />
-                <Tooltip title="รีเฟรช">
-                    <IconButton onClick={handleRefresh} disabled={loading}>
-                        <RefreshIcon />
-                    </IconButton>
-                </Tooltip>
-                <Button 
-                    variant="outlined" 
-                    startIcon={<DownloadIcon />} 
-                    onClick={handleExportCsv}
-                    disabled={filtered.length === 0}
-                >
-                    CSV
-                </Button>
-            </Stack>
-        </Stack>
+    <div className="space-y-6 relative">
+      <PageHeader 
+        title="บันทึกการใช้งาน (Audit Logs)"
+        subtitle="ติดตามกิจกรรมของผู้ดูแลระบบแบบเรียลไทม์"
+        icon={<FileText className="h-6 w-6" />}
+        actions={
+          <>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="ค้นหา..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="pl-9 w-64"
+              />
+            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="icon" onClick={handleRefresh} disabled={loading}>
+                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>รีเฟรช</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Button variant="outline" onClick={handleExportCsv} disabled={filtered.length === 0}>
+              <Download className="h-4 w-4 mr-2" />
+              CSV
+            </Button>
+          </>
+        }
+      />
+      <Card className="min-h-[500px] border-0 shadow-sm">
+        <CardContent className="p-6 space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-        {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+        <div className="bg-muted/50 px-3 py-2 rounded-lg border text-xs text-muted-foreground">
+          แสดงผล {filtered.length} จากทั้งหมด {logs.length} รายการล่าสุด
+        </div>
 
-        {/* Stats */}
-        <Box sx={{ bgcolor: 'grey.50', p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-            <Typography variant="caption" color="text.secondary">
-                แสดงผล {filtered.length} จากทั้งหมด {logs.length} รายการล่าสุด
-            </Typography>
-        </Box>
-
-        {/* Table */}
-        <TableContainer sx={{ maxHeight: 600, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-          <Table stickyHeader size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell width="180">เวลา</TableCell>
-                <TableCell width="150">Action</TableCell>
-                <TableCell width="250">ผู้ดำเนินการ</TableCell>
-                <TableCell>รายละเอียด (Meta)</TableCell>
+        <div className="rounded-xl border overflow-hidden max-h-[600px] overflow-y-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead className="w-[180px]">เวลา</TableHead>
+                <TableHead className="w-[150px]">Action</TableHead>
+                <TableHead className="w-[250px]">ผู้ดำเนินการ</TableHead>
+                <TableHead>รายละเอียด (Meta)</TableHead>
               </TableRow>
-            </TableHead>
+            </TableHeader>
             <TableBody>
               {loading && logs.length === 0 ? (
-                 <TableRow>
-                    <TableCell colSpan={4} align="center" sx={{ py: 5 }}>
-                        <CircularProgress size={24} />
-                        <Typography variant="caption" display="block" sx={{ mt: 1 }}>กำลังโหลดข้อมูล...</Typography>
-                    </TableCell>
-                 </TableRow>
+                <TableRow>
+                  <TableCell colSpan={4} className="py-10 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      <span className="text-sm text-muted-foreground">กำลังโหลดข้อมูล...</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                  <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
                     ไม่พบข้อมูลที่ตรงกับคำค้นหา
                   </TableCell>
                 </TableRow>
               ) : (
                 filtered.map((r) => (
-                  <TableRow key={r.id} hover>
-                    <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary', fontSize: '0.85rem' }}>
-                        {fmtDate(r.at)}
+                  <TableRow key={r.id}>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {fmtDate(r.at)}
                     </TableCell>
                     <TableCell>
-                        <Typography variant="body2" fontWeight="bold" color="primary.main">
-                            {r.action}
-                        </Typography>
+                      <Badge variant="info" className="font-mono text-xs">
+                        {r.action}
+                      </Badge>
                     </TableCell>
                     <TableCell>
-                        <Stack spacing={0.5}>
-                            <Typography variant="body2" fontWeight="medium">
-                                {r.actorEmail || 'Unknown'}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                                {r.actorUid}
-                            </Typography>
-                        </Stack>
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-medium">{r.actorEmail || 'Unknown'}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{r.actorUid}</p>
+                      </div>
                     </TableCell>
                     <TableCell>
-                      <Box 
-                        component="pre" 
-                        sx={{ 
-                            m: 0, p: 1, 
-                            bgcolor: 'grey.100', 
-                            borderRadius: 1, 
-                            fontSize: '0.75rem', 
-                            overflowX: 'auto',
-                            maxWidth: 400
-                        }}
-                      >
+                      <pre className="text-xs bg-muted/50 rounded-md p-2 overflow-x-auto max-w-[400px] m-0">
                         {safeMetaString(r.meta)}
-                      </Box>
+                      </pre>
                     </TableCell>
                   </TableRow>
                 ))
               )}
             </TableBody>
           </Table>
-        </TableContainer>
-      </Stack>
-    </Paper>
+        </div>
+      </CardContent>
+    </Card>
+    </div>
   );
 }

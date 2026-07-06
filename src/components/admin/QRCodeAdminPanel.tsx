@@ -42,7 +42,25 @@ import {
   TableRow,
   TableCell,
   TableBody,
+  AppBar,
+  Toolbar,
+  Slide,
+  Autocomplete,
 } from '@mui/material';
+
+const LOCATION_OPTIONS = [
+  'หอประชุมใหญ่',
+  'ลานกิจกรรม',
+  'อาคารเรียนรวม 1',
+  'อาคารเรียนรวม 2',
+  'ห้องสมุด',
+  'ห้องประชุม',
+  'สนามกีฬา',
+  'โรงอาหาร',
+  'ออนไลน์ (Online)',
+];
+import type { TransitionProps } from '@mui/material/transitions';
+import { MonitorPlay } from 'lucide-react';
 
 import {
   QrCode2 as QrCodeIcon,
@@ -63,6 +81,7 @@ import {
   TableRows as TableIcon,
   MyLocation as MyLocationIcon,
   Badge as BadgeIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 
 import dayjs, { Dayjs } from 'dayjs';
@@ -79,6 +98,7 @@ import {
   type Activity,
 } from '../../lib/adminFirebase';
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
+import { ActivityTable } from './qr/ActivityTable';
 
 import {
   addDoc,
@@ -97,6 +117,7 @@ import { db, storage } from '../../lib/firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 import GeofenceMap from '../maps/GeofenceMap';
+import { PageHeader } from './shared/PageHeader';
 
 /* ===================== Small utils ===================== */
 const clean = <T extends Record<string, any>>(obj: T): T => {
@@ -296,6 +317,9 @@ type CreateForm = {
   regCodeTotal: number; // >= 0
   regCodeNext: number; // internal tracking (read-only for admin)
   regCodeAssigned: number; // internal tracking (read-only for admin)
+  
+  // Dynamic QR Code (Rolling QR)
+  dynamicQREnabled: boolean;
 };
 
 const defaultForm: CreateForm = {
@@ -329,9 +353,11 @@ const defaultForm: CreateForm = {
   regCodePrefix: 'CS',
   regCodeDigits: 2,
   regCodeStart: 1,
-  regCodeTotal: 92,
+  regCodeTotal: 0,
   regCodeNext: 1,
   regCodeAssigned: 0,
+  
+  dynamicQREnabled: false,
 };
 
 interface Props {
@@ -479,7 +505,20 @@ const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square')
 };
 
 /* ===================== Main ===================== */
-const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
+interface QRCodeAdminPanelProps {
+  currentAdmin: AdminProfile;
+}
+
+const Transition = React.forwardRef(function Transition(
+  props: TransitionProps & {
+    children: React.ReactElement;
+  },
+  ref: React.Ref<unknown>,
+) {
+  return <Slide direction="up" ref={ref} {...props} />;
+});
+
+const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -699,6 +738,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         registrationCodeNext: shouldSaveReg ? regStart : undefined,
         registrationCodeAssigned: shouldSaveReg ? 0 : undefined,
 
+        dynamicQREnabled: form.dynamicQREnabled,
+
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -796,6 +837,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
         regCodeTotal: regTotal,
         regCodeNext: regNext,
         regCodeAssigned: regAssigned,
+        
+        dynamicQREnabled: a.dynamicQREnabled ?? qr?.dynamicQREnabled ?? false,
       });
 
       setOpenEdit(true);
@@ -911,6 +954,8 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           // keep counters if enabled
           registrationCodeNext: shouldSaveReg ? regNext : undefined,
           registrationCodeAssigned: shouldSaveReg ? regAssigned : undefined,
+
+          dynamicQREnabled: form.dynamicQREnabled,
 
           updatedAt: serverTimestamp(),
           stateVersion: Date.now(),
@@ -1225,41 +1270,27 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
 
   /* ===================== Render ===================== */
   return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
-      {/* Header */}
-      <Box
-        sx={{
-          mb: 2.5,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 1.5,
-        }}
-      >
-        <Stack direction="row" alignItems="center" spacing={1.5}>
-          <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <QrCodeIcon /> จัดการ QR Code & กิจกรรม
-          </Typography>
-          <Chip size="small" label={`สังกัด: ${deptLabelOf(currentAdmin.department)}`} color="primary" variant="outlined" />
-          <Chip size="small" label={`ฐาน: ${getBaseUrl()}`} variant="outlined" />
-        </Stack>
-
-        <Stack direction="row" spacing={1}>
-          <Tabs
-            value={view === 'cards' ? 0 : 1}
-            onChange={(_, v) => setView(v === 0 ? 'cards' : 'table')}
-            sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36 } }}
-          >
-            <Tab icon={<GridIcon />} label="การ์ด" />
-            <Tab icon={<TableIcon />} label="ตาราง" />
-          </Tabs>
-
-          <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>
-            สร้างกิจกรรมใหม่
-          </Button>
-        </Stack>
-      </Box>
+    <div className="space-y-6 relative">
+      <PageHeader
+        title="จัดการ QR Code & กิจกรรม"
+        subtitle={`สังกัด: ${deptLabelOf(currentAdmin.department)} | ฐาน: ${getBaseUrl()}`}
+        icon={<QrCodeIcon className="h-6 w-6" />}
+        actions={
+          <div className="flex items-center gap-4">
+            <Tabs
+              value={view === 'cards' ? 0 : 1}
+              onChange={(_, v) => setView(v === 0 ? 'cards' : 'table')}
+              sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36 } }}
+            >
+              <Tab icon={<GridIcon />} label="การ์ด" />
+              <Tab icon={<TableIcon />} label="ตาราง" />
+            </Tabs>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>
+              สร้างกิจกรรมใหม่
+            </Button>
+          </div>
+        }
+      />
 
       {/* Stats */}
       <Grid container spacing={2} sx={{ mb: 2 }}>
@@ -1360,6 +1391,18 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                           <DeleteIcon />
                         </IconButton>
                       </Tooltip>
+
+                      {a.dynamicQREnabled && (
+                        <Tooltip title="เปิดหน้าจอ Dynamic QR">
+                          <IconButton
+                            color="secondary"
+                            size="small"
+                            onClick={() => window.open(`/admin/dynamic-qr/${a.activityCode}`, '_blank')}
+                          >
+                            <MonitorPlay size={20} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Stack>
 
                     <Box sx={{ mt: 1, textAlign: 'center' }}>
@@ -1370,80 +1413,17 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               })}
             </Grid>
           ) : (
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>กิจกรรม</TableCell>
-                    <TableCell>รหัส</TableCell>
-                    <TableCell>ช่วงเวลา</TableCell>
-                    <TableCell>สถานที่</TableCell>
-                    <TableCell align="center">สถานะ</TableCell>
-                    <TableCell align="right">จัดการ</TableCell>
-                  </TableRow>
-                </TableHead>
-
-                <TableBody>
-                  {activities.map((a) => {
-                    const st = statusOf(a);
-                    const when = `${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`;
-                    const bannerColor = (a as any).bannerColor as string | undefined;
-
-                    return (
-                      <TableRow key={a.id} hover>
-                        <TableCell>
-                          <Stack direction="row" spacing={1.5} alignItems="center">
-                            <Box
-                              sx={{
-                                width: 40,
-                                height: 28,
-                                borderRadius: 1,
-                                background: (a as any).bannerUrl
-                                  ? `url(${(a as any).bannerUrl}) center/cover no-repeat`
-                                  : bannerColor || 'linear-gradient(135deg,#4f46e5,#06b6d4)',
-                              }}
-                            />
-                            <Box>
-                              <Typography fontWeight={700}>{a.activityName || '-'}</Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {deptLabelOf((a as any).department ?? currentAdmin.department)}
-                              </Typography>
-                            </Box>
-                          </Stack>
-                        </TableCell>
-
-                        <TableCell sx={{ fontFamily: 'monospace' }}>{a.activityCode}</TableCell>
-                        <TableCell>{when}</TableCell>
-                        <TableCell>{(a as any).location || '-'}</TableCell>
-                        <TableCell align="center">
-                          <Chip size="small" label={st.label} color={st.color} />
-                        </TableCell>
-
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} justifyContent="flex-end">
-                            <Button size="small" variant="outlined" onClick={() => handleToggle(a)}>
-                              {a.isActive ? 'ปิด' : 'เปิด'}
-                            </Button>
-                            <IconButton size="small" color="primary" onClick={() => openEditDialog(a)}>
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                            <IconButton size="small" color="secondary" onClick={(e) => openDownloadMenu(e, a)}>
-                              <DownloadIcon fontSize="small" />
-                            </IconButton>
-                            <IconButton size="small" color="info" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}>
-                              <ViewIcon fontSize="small" />
-                            </IconButton>
-                            <IconButton size="small" color="error" onClick={() => handleDeleteActivity(a)}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            <ActivityTable
+              activities={activities}
+              onToggleStatus={handleToggle}
+              onEdit={openEditDialog}
+              onDelete={handleDeleteActivity}
+              onDownload={openDownloadMenu}
+              onViewParticipants={(code) => window.open(`/admin/records?activity=${encodeURIComponent(code)}`, '_blank')}
+              onViewRegistration={(code) => window.open(makeRegisterUrl(code), '_blank')}
+              isSuperAdmin={currentAdmin.role === 'super_admin'}
+              currentDept={currentAdmin.department}
+            />
           )}
         </CardContent>
       </Card>
@@ -1484,15 +1464,49 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       </Menu>
 
       {/* ===================== Create Dialog ===================== */}
-      <Dialog open={openCreate} onClose={handleCloseCreate} maxWidth="md" fullWidth>
-        <DialogTitle>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <QrCodeIcon />
-            <Typography variant="h6">สร้างกิจกรรม & QR Code</Typography>
-          </Stack>
-        </DialogTitle>
+      <Dialog 
+        fullScreen 
+        open={openCreate} 
+        onClose={handleCloseCreate}
+        TransitionComponent={Transition}
+      >
+        <AppBar position="sticky" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary' }}>
+          <Toolbar>
+            <IconButton edge="start" color="inherit" onClick={handleCloseCreate} aria-label="close">
+              <CloseIcon />
+            </IconButton>
+            <Typography sx={{ ml: 2, flex: 1, fontWeight: 600 }} variant="h6" component="div">
+              สร้างกิจกรรม & QR Code
+            </Typography>
+            <Button
+              startIcon={<PreviewIcon />}
+              variant="outlined"
+              sx={{ mr: 2 }}
+              onClick={async () => {
+                const code = form.activityCode.trim();
+                const url = code ? makeShortUrl(code) : '';
+                const data = url ? await generateQrPng(url, 600) : '';
+                updateForm('qrDataUrl', data as any);
+                setOpenPreview(true);
+              }}
+            >
+              พรีวิวหน้าลงทะเบียน
+            </Button>
+            <Button
+              autoFocus
+              variant="contained"
+              onClick={handleCreateSubmit}
+              disabled={saving}
+              startIcon={saving ? <CircularProgress size={18} /> : <AddIcon />}
+            >
+              บันทึก & สร้าง QR
+            </Button>
+          </Toolbar>
+        </AppBar>
 
-        <DialogContent dividers>
+        <DialogContent sx={{ bgcolor: 'grey.50', p: { xs: 2, md: 4 } }}>
+          <Container maxWidth="md" disableGutters>
+            <Paper elevation={0} sx={{ p: { xs: 2, md: 4 }, borderRadius: 3, border: 1, borderColor: 'divider' }}>
           {errMsg && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {errMsg}
@@ -1540,35 +1554,6 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                       onClick={async () => {
                         try {
                           await navigator.clipboard.writeText(form.activityCode);
-                        } catch {}
-                      }}
-                    >
-                      <CopyIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-              </Grid>
-
-              {/* userCode */}
-              <Grid size={{ xs: 12, md: 4 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField
-                    label="รหัสผู้ใช้ (userCode)"
-                    fullWidth
-                    value={form.userCode}
-                    onChange={(e) => updateForm('userCode', e.target.value as any)}
-                    placeholder="ว่างได้ / กดสุ่ม"
-                  />
-                  <Tooltip title="สุ่ม">
-                    <IconButton onClick={() => updateForm('userCode', randomUserCode() as any)}>
-                      <ShuffleIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="คัดลอก">
-                    <IconButton
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(form.userCode);
                         } catch {}
                       }}
                     >
@@ -1721,11 +1706,15 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Grid>
 
               <Grid size={{ xs: 12 }}>
-                <TextField
-                  label="สถานที่"
-                  fullWidth
-                  value={form.location}
-                  onChange={(e) => updateForm('location', e.target.value as any)}
+                <Autocomplete
+                  freeSolo
+                  options={LOCATION_OPTIONS}
+                  value={form.location || ''}
+                  onChange={(_, newValue) => updateForm('location', newValue as any)}
+                  onInputChange={(_, newInputValue) => updateForm('location', newInputValue as any)}
+                  renderInput={(params) => (
+                    <TextField {...params} label="สถานที่" fullWidth />
+                  )}
                 />
               </Grid>
 
@@ -1827,6 +1816,10 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                     control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked as any)} />}
                     label="Single-user mode"
                   />
+                  <FormControlLabel
+                    control={<Switch checked={form.dynamicQREnabled} onChange={(e) => updateForm('dynamicQREnabled', e.target.checked as any)} />}
+                    label="เปิดใช้งาน Dynamic QR (จอ Rolling QR)"
+                  />
                 </Stack>
               </Grid>
 
@@ -1853,32 +1846,9 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Grid>
             </Grid>
           </LocalizationProvider>
+            </Paper>
+          </Container>
         </DialogContent>
-
-        <DialogActions sx={{ justifyContent: 'space-between' }}>
-          <Button
-            startIcon={<PreviewIcon />}
-            variant="outlined"
-            onClick={async () => {
-              const code = form.activityCode.trim();
-              const url = code ? makeShortUrl(code) : '';
-              const data = url ? await generateQrPng(url, 600) : '';
-              updateForm('qrDataUrl', data as any);
-              setOpenPreview(true);
-            }}
-          >
-            พรีวิวหน้าลงทะเบียน
-          </Button>
-
-          <Box>
-            <Button onClick={handleCloseCreate} disabled={saving} sx={{ mr: 1 }}>
-              ยกเลิก
-            </Button>
-            <Button onClick={handleCreateSubmit} variant="contained" disabled={saving} startIcon={saving ? <CircularProgress size={18} /> : <AddIcon />}>
-              บันทึก & สร้าง QR
-            </Button>
-          </Box>
-        </DialogActions>
       </Dialog>
 
       {/* พรีวิวหน้าลงทะเบียน (mock) */}
@@ -1978,15 +1948,35 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       </Dialog>
 
       {/* ===================== Edit Dialog ===================== */}
-      <Dialog open={openEdit} onClose={handleCloseEdit} maxWidth="md" fullWidth>
-        <DialogTitle>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <EditIcon />
-            <Typography variant="h6">แก้ไขกิจกรรม</Typography>
-          </Stack>
-        </DialogTitle>
+      <Dialog 
+        fullScreen 
+        open={openEdit} 
+        onClose={handleCloseEdit}
+        TransitionComponent={Transition}
+      >
+        <AppBar position="sticky" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary' }}>
+          <Toolbar>
+            <IconButton edge="start" color="inherit" onClick={handleCloseEdit} aria-label="close">
+              <CloseIcon />
+            </IconButton>
+            <Typography sx={{ ml: 2, flex: 1, fontWeight: 600 }} variant="h6" component="div">
+              แก้ไขกิจกรรม
+            </Typography>
+            <Button
+              autoFocus
+              variant="contained"
+              onClick={handleEditSubmit}
+              disabled={editing}
+              startIcon={editing ? <CircularProgress size={18} /> : <EditIcon />}
+            >
+              บันทึกการแก้ไข
+            </Button>
+          </Toolbar>
+        </AppBar>
 
-        <DialogContent dividers>
+        <DialogContent sx={{ bgcolor: 'grey.50', p: { xs: 2, md: 4 } }}>
+          <Container maxWidth="md" disableGutters>
+            <Paper elevation={0} sx={{ p: { xs: 2, md: 4 }, borderRadius: 3, border: 1, borderColor: 'divider' }}>
           {errMsg && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {errMsg}
@@ -2006,34 +1996,6 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
 
               <Grid size={{ xs: 12, md: 4 }}>
                 <TextField label="รหัสกิจกรรม" fullWidth value={form.activityCode} disabled />
-              </Grid>
-
-              {/* userCode */}
-              <Grid size={{ xs: 12, md: 4 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField
-                    label="รหัสผู้ใช้ (userCode)"
-                    fullWidth
-                    value={form.userCode}
-                    onChange={(e) => updateForm('userCode', e.target.value as any)}
-                  />
-                  <Tooltip title="สุ่ม">
-                    <IconButton onClick={() => updateForm('userCode', randomUserCode() as any)}>
-                      <ShuffleIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="คัดลอก">
-                    <IconButton
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(form.userCode);
-                        } catch {}
-                      }}
-                    >
-                      <CopyIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
               </Grid>
 
               {/* ส่วนหัว */}
@@ -2174,7 +2136,16 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Grid>
 
               <Grid size={{ xs: 12 }}>
-                <TextField label="สถานที่" fullWidth value={form.location} onChange={(e) => updateForm('location', e.target.value as any)} />
+                <Autocomplete
+                  freeSolo
+                  options={LOCATION_OPTIONS}
+                  value={form.location || ''}
+                  onChange={(_, newValue) => updateForm('location', newValue as any)}
+                  onInputChange={(_, newInputValue) => updateForm('location', newInputValue as any)}
+                  renderInput={(params) => (
+                    <TextField {...params} label="สถานที่" fullWidth />
+                  )}
+                />
               </Grid>
 
               {/* แผนที่ */}
@@ -2265,6 +2236,10 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
                     control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked as any)} />}
                     label="Single-user mode"
                   />
+                  <FormControlLabel
+                    control={<Switch checked={form.dynamicQREnabled} onChange={(e) => updateForm('dynamicQREnabled', e.target.checked as any)} />}
+                    label="เปิดใช้งาน Dynamic QR (จอ Rolling QR)"
+                  />
                 </Stack>
               </Grid>
 
@@ -2272,18 +2247,11 @@ const QRCodeAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
               <RegistrationSeriesSection />
             </Grid>
           </LocalizationProvider>
+            </Paper>
+          </Container>
         </DialogContent>
-
-        <DialogActions>
-          <Button onClick={handleCloseEdit} disabled={editing}>
-            ยกเลิก
-          </Button>
-          <Button onClick={handleEditSubmit} variant="contained" disabled={editing} startIcon={editing ? <CircularProgress size={18} /> : <EditIcon />}>
-            บันทึกการแก้ไข
-          </Button>
-        </DialogActions>
       </Dialog>
-    </Container>
+    </div>
   );
 };
 

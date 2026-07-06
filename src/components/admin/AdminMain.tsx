@@ -2,8 +2,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Box, CircularProgress, Alert } from '@mui/material';
-// import { getAuth, onAuthStateChanged } from 'firebase/auth'; // ❌ เอาออกได้ถ้าไม่ใช้เช็ค Token
+import { Loader2 } from 'lucide-react';
 
 import { AdminLayout } from './AdminLayout';
 import { DepartmentDashboard } from './DepartmentDashboard';
@@ -18,12 +17,12 @@ import QRCodeAdminPanel from './QRCodeAdminPanel';
 import SystemSettingsPanel from './SystemSettingsPanel';
 import AdminProfileEditor from './AdminProfileEditor';
 import AdminLogsPanel from './AdminLogsPanel';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
-// กล่องห่อเล็ก ๆ ให้คอนเทนต์ดูสบายตาในมือถือ
-const ResponsiveContainer: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <Box sx={{ padding: { xs: 2, sm: 3, md: 4 }, maxWidth: '100%', overflow: 'hidden' }}>
+const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
     {children}
-  </Box>
+  </div>
 );
 
 type ActiveSection =
@@ -39,7 +38,6 @@ type ActiveSection =
 export interface AdminMainProps {
   currentAdmin: AdminProfile;
   onLogout: () => void;
-  /** หน้าเริ่มต้นหลังรีเฟรช เช่น 'dashboard', 'users', ... */
   initialSection?: ActiveSection;
 }
 
@@ -51,29 +49,10 @@ export const AdminMain: React.FC<AdminMainProps> = ({
   const [activeSection, setActiveSection] = useState<ActiveSection>(initialSection);
   const [loading, setLoading] = useState(false);
 
-  // sync ถ้า initialSection เปลี่ยน (เช่นตอนโหลดจาก localStorage)
   useEffect(() => {
     if (initialSection) setActiveSection(initialSection);
   }, [initialSection]);
 
-  // 🟢 ลบส่วนตรวจสอบ Role (Debug Mode) ที่แสดง Alert ออก 🟢
-  // หรือถ้าอยากเก็บไว้ Debug ให้เปลี่ยนเป็น console.log อย่างเดียว
-  /*
-  useEffect(() => {
-    const auth = getAuth();
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        user.getIdTokenResult(true).then((idTokenResult) => {
-            const role = idTokenResult.claims.role;
-            console.log("🔑 Token Role:", role); // Log เงียบๆ แทน
-        }).catch(console.error);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-  */
-
-  // เมื่อเปลี่ยนหน้า ให้บันทึกลง localStorage
   const handleSectionChange = (section: string) => {
     setActiveSection(section as ActiveSection);
     try {
@@ -96,18 +75,14 @@ export const AdminMain: React.FC<AdminMainProps> = ({
       case 'qr-generator':
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_activities">
-            <ResponsiveContainer>
-              <QRCodeAdminPanel currentAdmin={currentAdmin} />
-            </ResponsiveContainer>
+            <QRCodeAdminPanel currentAdmin={currentAdmin} />
           </AdminRoleGuard>
         );
 
       case 'users':
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_users">
-            <ResponsiveContainer>
-              <AdminUserManagement currentAdmin={currentAdmin} />
-            </ResponsiveContainer>
+            <AdminUserManagement currentAdmin={currentAdmin} />
           </AdminRoleGuard>
         );
 
@@ -117,42 +92,34 @@ export const AdminMain: React.FC<AdminMainProps> = ({
       case 'reports':
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="view_reports">
-            <ResponsiveContainer>
-              <AdminLogsPanel currentAdmin={currentAdmin} />
-            </ResponsiveContainer>
+            <AdminLogsPanel currentAdmin={currentAdmin} />
           </AdminRoleGuard>
         );
 
       case 'settings':
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="system_settings">
-            <ResponsiveContainer>
-              <SystemSettingsPanel currentAdmin={currentAdmin} />
-            </ResponsiveContainer>
+            <SystemSettingsPanel currentAdmin={currentAdmin} />
           </AdminRoleGuard>
         );
 
       case 'profile':
-        return (
-          <ResponsiveContainer>
-            <AdminProfileEditor currentAdmin={currentAdmin} />
-          </ResponsiveContainer>
-        );
+        return <AdminProfileEditor currentAdmin={currentAdmin} />;
 
       default:
         return (
-          <ResponsiveContainer>
-            <Alert severity="info">เลือกเมนูจากแถบด้านซ้าย</Alert>
-          </ResponsiveContainer>
+          <Alert variant="info">
+            <AlertDescription>เลือกเมนูจากแถบด้านซ้าย</AlertDescription>
+          </Alert>
         );
     }
   };
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-        <CircularProgress />
-      </Box>
+      <div className="flex justify-center items-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
     );
   }
 
@@ -163,7 +130,9 @@ export const AdminMain: React.FC<AdminMainProps> = ({
       onSectionChange={handleSectionChange}
       onLogout={onLogout}
     >
-      {renderContent()}
+      <PageWrapper>
+        {renderContent()}
+      </PageWrapper>
     </AdminLayout>
   );
 };

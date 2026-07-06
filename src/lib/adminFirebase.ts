@@ -220,6 +220,9 @@ export interface Activity {
   forceRefresh?: boolean;
   singleUserMode?: boolean;
   requiresUniversityLogin?: boolean;
+  dynamicQREnabled?: boolean;
+  dynamicToken?: string;
+  previousDynamicToken?: string;
 }
 
 export interface ActivityRecord {
@@ -330,6 +333,9 @@ export const getActivitiesByDepartment = async (
       forceRefresh: data.forceRefresh === true,
       singleUserMode: data.singleUserMode === true,
       requiresUniversityLogin: data.requiresUniversityLogin === true,
+      dynamicQREnabled: data.dynamicQREnabled === true,
+      dynamicToken: data.dynamicToken,
+      previousDynamicToken: data.previousDynamicToken,
     } as Activity;
   });
 };
@@ -363,6 +369,9 @@ export const subscribeActivities = (
       forceRefresh: data.forceRefresh === true,
       singleUserMode: data.singleUserMode === true,
       requiresUniversityLogin: data.requiresUniversityLogin === true,
+      dynamicQREnabled: data.dynamicQREnabled === true,
+      dynamicToken: data.dynamicToken,
+      previousDynamicToken: data.previousDynamicToken,
     } as Activity;
   };
 
@@ -476,6 +485,9 @@ export type CreateActivityInput = {
   registrationCodeTotal?: number;
   registrationCodeNext?: number;
   registrationCodeAssigned?: number;
+  dynamicQREnabled?: boolean;
+  dynamicToken?: string;
+  previousDynamicToken?: string;
 };
 
 export type UpdateActivityInput = Partial<CreateActivityInput> & {
@@ -490,6 +502,7 @@ export const createActivity = async (payload: CreateActivityInput) => {
     bannerAspect: payload.bannerAspect || 'cover',
     stateVersion: 1,
     closeReason: '',
+    dynamicQREnabled: payload.dynamicQREnabled ?? false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

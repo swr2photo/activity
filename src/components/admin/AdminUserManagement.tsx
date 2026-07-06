@@ -2,43 +2,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-
-
+import { doc, getDoc } from 'firebase/firestore';
 import {
-  Box,
-  Typography,
-  Tabs,
-  Tab,
-  Badge,
-  TextField,
-  InputAdornment,
-  Button,
-  ButtonGroup,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Avatar,
-  Chip,
-  IconButton,
-  Tooltip,
-  Card,
-  CardContent,
-  Container,
-  MenuItem,
-  Stack, 
-  Alert,
-} from '@mui/material';
-import {
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  Download as ExportIcon,
-  Person as PersonIcon,
-  CheckCircle as ApproveIcon,
-  Block as SuspendIcon,
-  Visibility as ViewIcon,
-  AdminPanelSettings as MakeAdminIcon,
-} from '@mui/icons-material';
+  Search, RefreshCw, Download, User as PersonIcon,
+  CheckCircle, Ban, Eye, ShieldAlert, Users,
+} from 'lucide-react';
 
 import {
   DEPARTMENT_LABELS,
@@ -61,9 +29,20 @@ import {
   logAdminEvent,
 } from '../../lib/adminFirebase';
 
-import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+import { PageHeader } from './shared/PageHeader';
 interface Props {
   currentAdmin: AdminProfile;
 }
@@ -127,7 +106,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   const [allUsers, setAllUsers] = useState<UnivUser[]>([]);
   const [pendingUsers, setPendingUsers] = useState<UnivUser[]>([]);
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(0); // 0: pending, 1: all
   const [loading, setLoading] = useState(false);
 
   // view dialog
@@ -224,13 +203,11 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     );
   };
 
-  // ——— promote helpers ———
   const openPromote = async (u: UnivUser) => {
     setPromoteErr('');
     setPromoteUser(u);
     setChosenRole(currentAdmin.role === 'super_admin' ? 'department_admin' : 'moderator');
     
-    // Safety check for department type
     let userDept = String(u.department || 'student_union');
     if (!Object.keys(DEPARTMENT_LABELS).includes(userDept)) {
         userDept = 'student_union';
@@ -243,7 +220,6 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     );
     setPromoteOpen(true);
 
-    // Check if already admin
     const ref = doc(db, 'adminUsers', u.uid);
     const snap = await getDoc(ref);
     setAlreadyAdmin(snap.exists());
@@ -259,23 +235,18 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
         setPromoteErr('ผู้ใช้นี้เป็นผู้ดูแลอยู่แล้ว');
         return;
       }
-
       if (currentAdmin.role !== 'super_admin' && chosenRole === 'super_admin') {
         setPromoteErr('คุณไม่มีสิทธิ์ตั้งบทบาทเป็นผู้ดูแลสูงสุด');
         return;
       }
-
       const dept: AdminDepartment =
         (currentAdmin.department === 'all' ? chosenDept : currentAdmin.department) as AdminDepartment;
-
-      // ใช้ photoURL หรือ profileImage (ถ้ามี)
       const userImage = promoteUser.photoURL || (promoteUser as any).profileImage || '';
 
       await createAdminUser({
         uid: promoteUser.uid,
         email: promoteUser.email || '',
-        displayName:
-          promoteUser.displayName || `${promoteUser.firstName || ''} ${promoteUser.lastName || ''}`.trim(),
+        displayName: promoteUser.displayName || `${promoteUser.firstName || ''} ${promoteUser.lastName || ''}`.trim(),
         firstName: promoteUser.firstName || promoteUser.displayName?.split(' ')[0] || '',
         lastName: promoteUser.lastName || promoteUser.displayName?.split(' ')[1] || '',
         role: chosenRole,
@@ -303,382 +274,365 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4">จัดการผู้ใช้มหาวิทยาลัย</Typography>
-        <Typography color="text.secondary">
-          สังกัด: {(DEPARTMENT_LABELS as any)[currentAdmin.department] || currentAdmin.department}
-        </Typography>
-      </Box>
+    <div className="space-y-6 relative">
+      <PageHeader 
+        title="จัดการผู้ใช้มหาวิทยาลัย"
+        subtitle={`สังกัด: ${(DEPARTMENT_LABELS as any)[currentAdmin.department] || currentAdmin.department}`}
+        icon={<Users className="h-6 w-6" />}
+      />
 
-      {/* ✅ REFACTOR 1: ใช้ Box + CSS Grid แทน Grid Component 
-        - xs (มือถือ): 1 คอลัมน์
-        - sm (แท็บเล็ต): 2 คอลัมน์
-        - md (จอใหญ่): 4 คอลัมน์
-      */}
-      <Box 
-        sx={{ 
-          display: 'grid', 
-          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, 
-          gap: 3, 
-          mb: 3 
-        }}
-      >
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
-          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar sx={{ bgcolor: 'primary.main' }}><PersonIcon /></Avatar>
-            <Box>
-              <Typography variant="h5">{allUsers.length.toLocaleString()}</Typography>
-              <Typography>ผู้ใช้ทั้งหมด</Typography>
-            </Box>
+          <CardContent className="flex items-center gap-4 p-6">
+            <div className="p-3 bg-primary/10 text-primary rounded-full">
+              <PersonIcon className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{allUsers.length.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">ผู้ใช้ทั้งหมด</p>
+            </div>
           </CardContent>
         </Card>
-
         <Card>
-          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar sx={{ bgcolor: 'warning.main' }}><PersonIcon /></Avatar>
-            <Box>
-              <Typography variant="h5">{pendingUsers.length.toLocaleString()}</Typography>
-              <Typography>รออนุมัติ</Typography>
-            </Box>
+          <CardContent className="flex items-center gap-4 p-6">
+            <div className="p-3 bg-amber-500/10 text-amber-600 rounded-full">
+              <PersonIcon className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{pendingUsers.length.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">รออนุมัติ</p>
+            </div>
           </CardContent>
         </Card>
-
         <Card>
-          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar sx={{ bgcolor: 'success.main' }}><PersonIcon /></Avatar>
-            <Box>
-              <Typography variant="h5">{allUsers.filter((u) => u.isVerified).length.toLocaleString()}</Typography>
-              <Typography>อนุมัติแล้ว</Typography>
-            </Box>
+          <CardContent className="flex items-center gap-4 p-6">
+            <div className="p-3 bg-emerald-500/10 text-emerald-600 rounded-full">
+              <PersonIcon className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{allUsers.filter(u => u.isVerified).length.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">อนุมัติแล้ว</p>
+            </div>
           </CardContent>
         </Card>
-
         <Card>
-          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar sx={{ bgcolor: 'error.main' }}><PersonIcon /></Avatar>
-            <Box>
-              <Typography variant="h5">{allUsers.filter((u) => !u.isActive).length.toLocaleString()}</Typography>
-              <Typography>ถูกระงับ</Typography>
-            </Box>
+          <CardContent className="flex items-center gap-4 p-6">
+            <div className="p-3 bg-rose-500/10 text-rose-600 rounded-full">
+              <PersonIcon className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{allUsers.filter(u => !u.isActive).length.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">ถูกระงับ</p>
+            </div>
           </CardContent>
         </Card>
-      </Box>
+      </div>
 
-      {/* Controls */}
-      <Card sx={{ mb: 2 }}>
-        <CardContent sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-          <TextField
-            size="small"
-            label="ค้นหาผู้ใช้"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ minWidth: { xs: '100%', md: 360 } }}
-          />
-          <Box sx={{ flex: 1 }} />
-          <ButtonGroup>
-            <Button onClick={async () => { await load(); }} disabled={loading} startIcon={<RefreshIcon />}>
+      <Card>
+        <CardContent className="flex flex-col md:flex-row gap-4 items-center p-4">
+          <div className="relative w-full md:w-96">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="ค้นหาผู้ใช้..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <div className="flex-1" />
+          <div className="flex gap-2 w-full md:w-auto">
+            <Button variant="outline" onClick={load} disabled={loading} className="flex-1 md:flex-none">
+              <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
               รีเฟรช
             </Button>
-            <Button color="success" onClick={exportCSV} startIcon={<ExportIcon />} disabled={filtered.length === 0}>
+            <Button variant="outline" onClick={exportCSV} disabled={filtered.length === 0} className="flex-1 md:flex-none text-emerald-600">
+              <Download className="h-4 w-4 mr-2" />
               ส่งออก
             </Button>
-          </ButtonGroup>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Tabs & List */}
       <Card>
-        <CardContent>
-          <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-            <Tab label={<Badge badgeContent={pendingUsers.length} color="warning">รออนุมัติ</Badge>} />
-            <Tab label={`ผู้ใช้ทั้งหมด (${allUsers.length})`} />
-          </Tabs>
+        <CardHeader className="p-0 border-b">
+          <div className="flex gap-4 px-4 pt-4">
+            <button
+              className={cn("pb-3 text-sm font-medium border-b-2 transition-colors", tab === 0 ? "border-primary text-primary" : "border-transparent text-muted-foreground")}
+              onClick={() => setTab(0)}
+            >
+              รออนุมัติ {pendingUsers.length > 0 && <span className="ml-1 bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{pendingUsers.length}</span>}
+            </button>
+            <button
+              className={cn("pb-3 text-sm font-medium border-b-2 transition-colors", tab === 1 ? "border-primary text-primary" : "border-transparent text-muted-foreground")}
+              onClick={() => setTab(1)}
+            >
+              ผู้ใช้ทั้งหมด ({allUsers.length})
+            </button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          {filtered.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              {tab === 0 ? 'ไม่มีผู้ใช้ที่รออนุมัติ' : 'ไม่มีผู้ใช้ในระบบ'}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filtered.map((u) => (
+                <div key={u.uid} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border bg-card hover:shadow-sm transition-shadow">
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={u.photoURL} />
+                    <AvatarFallback>{(u.firstName || u.displayName || 'U').charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  
+                  <div className="min-w-[200px]">
+                    <p className="font-semibold">{u.firstName} {u.lastName}</p>
+                    <p className="text-xs text-muted-foreground">{u.email}</p>
+                  </div>
 
-          <Box sx={{ mt: 2 }}>
-            {filtered.length === 0 ? (
-              <Typography color="text.secondary" sx={{ textAlign: 'center', py: 6 }}>
-                {tab === 0 ? 'ไม่มีผู้ใช้ที่รออนุมัติ' : 'ไม่มีผู้ใช้ในระบบ'}
-              </Typography>
-            ) : (
-              // ✅ REFACTOR 2: ใช้ Stack แทน Grid สำหรับรายการแนวตั้ง (Vertical List)
-              <Stack spacing={1}>
-                {filtered.map((u) => (
-                  <Card key={u.uid} variant="outlined">
-                    <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                      <Avatar src={u.photoURL}>{(u.firstName || u.displayName || 'U').charAt(0)}</Avatar>
+                  <div className="min-w-[180px]">
+                    <p className="text-sm">รหัส: <b>{u.studentId || '-'}</b></p>
+                    <p className="text-xs text-muted-foreground">{u.faculty} • {String(u.department || '')}</p>
+                  </div>
 
-                      <Box sx={{ minWidth: 220 }}>
-                        <Typography fontWeight={600}>{u.firstName} {u.lastName}</Typography>
-                        <Typography variant="caption" color="text.secondary">{u.email}</Typography>
-                      </Box>
+                  <div className="flex gap-2">
+                    <Badge variant={u.isVerified ? 'success' : 'warning'}>
+                      {u.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'}
+                    </Badge>
+                    <Badge variant={u.isActive ? 'success' : 'destructive'}>
+                      {u.isActive ? 'ใช้งานได้' : 'ถูกระงับ'}
+                    </Badge>
+                  </div>
 
-                      <Box sx={{ minWidth: 180 }}>
-                        <Typography variant="body2">
-                          รหัส: <b>{u.studentId || '-'}</b>
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {u.faculty} • {String(u.department || '')}
-                        </Typography>
-                      </Box>
+                  <div className="flex-1" />
 
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        <Chip size="small" label={u.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'} color={u.isVerified ? 'success' : 'warning'} />
-                        <Chip size="small" label={u.isActive ? 'ใช้งานได้' : 'ถูกระงับ'} color={u.isActive ? 'success' : 'error'} />
-                      </Box>
-
-                      <Box sx={{ flex: 1 }} />
-
-                      {/* view */}
-                      <Tooltip title="ดูรายละเอียด">
-                        <IconButton
-                          color="info"
-                          onClick={async () => {
-                            setSel(u);
-                            setOpen(true);
-                            await logAdminEvent('VIEW_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
-                          }}
-                        >
-                          <ViewIcon />
-                        </IconButton>
+                  <div className="flex gap-1 mt-3 sm:mt-0">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" onClick={() => { setSel(u); setOpen(true); }}>
+                            <Eye className="h-4 w-4 text-blue-500" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>ดูรายละเอียด</TooltipContent>
                       </Tooltip>
+                    </TooltipProvider>
 
-                      {/* approve */}
-                      {!u.isVerified && (
-                        <Tooltip title="อนุมัติ">
-                          <IconButton
-                            color="success"
-                            onClick={async () => {
+                    {!u.isVerified && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={async () => {
                               await approveUser(u.uid);
                               await logAdminEvent('APPROVE_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
                               await load();
-                            }}
-                          >
-                            <ApproveIcon />
-                          </IconButton>
+                            }}>
+                              <CheckCircle className="h-4 w-4 text-emerald-500" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>อนุมัติ</TooltipContent>
                         </Tooltip>
-                      )}
+                      </TooltipProvider>
+                    )}
 
-                      {/* suspend */}
-                      {u.isActive && (
-                        <Tooltip title="ระงับการใช้งาน">
-                          <IconButton
-                            color="error"
-                            onClick={async () => {
+                    {u.isActive && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={async () => {
                               await suspendUser(u.uid);
                               await logAdminEvent('SUSPEND_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
                               await load();
-                            }}
-                          >
-                            <SuspendIcon />
-                          </IconButton>
+                            }}>
+                              <Ban className="h-4 w-4 text-rose-500" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>ระงับการใช้งาน</TooltipContent>
                         </Tooltip>
-                      )}
+                      </TooltipProvider>
+                    )}
 
-                      {/* promote to admin */}
-                      <Tooltip title="ตั้งเป็นแอดมิน">
-                        <IconButton color="primary" onClick={() => openPromote(u)}>
-                          <MakeAdminIcon />
-                        </IconButton>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" onClick={() => openPromote(u)}>
+                            <ShieldAlert className="h-4 w-4 text-indigo-500" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>ตั้งเป็นแอดมิน</TooltipContent>
                       </Tooltip>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Stack>
-            )}
-          </Box>
+                    </TooltipProvider>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* View Dialog */}
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="md" fullWidth>
-        {sel && (
-          <>
-            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Avatar src={sel.photoURL}>{(sel.firstName || 'U').charAt(0)}</Avatar>
-              รายละเอียดผู้ใช้: {sel.firstName} {sel.lastName}
-            </DialogTitle>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl">
+          {sel && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3">
+                  <Avatar>
+                    <AvatarImage src={sel.photoURL} />
+                    <AvatarFallback>{(sel.firstName || 'U').charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  รายละเอียดผู้ใช้: {sel.firstName} {sel.lastName}
+                </DialogTitle>
+              </DialogHeader>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">อีเมล</p>
+                  <p className="text-sm font-medium">{sel.email}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">รหัสนักศึกษา</p>
+                  <p className="text-sm font-medium">{sel.studentId || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">คณะ</p>
+                  <p className="text-sm font-medium">{sel.faculty || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">สาขา</p>
+                  <p className="text-sm font-medium">{String(sel.department || '-')}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">ระดับปริญญา</p>
+                  <p className="text-sm font-medium">{sel.degreeLevel || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">สร้างเมื่อ</p>
+                  <p className="text-sm font-medium">{sel.createdAt ? new Date(sel.createdAt).toLocaleDateString('th-TH') : '-'}</p>
+                </div>
+              </div>
 
-            <DialogContent>
-              {/* ✅ REFACTOR 3: ใช้ Box + CSS Grid สำหรับเนื้อหาใน Dialog */}
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, pt: 1 }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">อีเมล</Typography>
-                  <Typography>{sel.email}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">รหัสนักศึกษา</Typography>
-                  <Typography>{sel.studentId || '-'}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">คณะ</Typography>
-                  <Typography>{sel.faculty || '-'}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">สาขา</Typography>
-                  <Typography>{String(sel.department || '-')}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">ระดับปริญญา</Typography>
-                  <Typography>{sel.degreeLevel || '-'}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">สร้างเมื่อ</Typography>
-                  <Typography>{sel.createdAt ? new Date(sel.createdAt).toLocaleDateString('th-TH') : '-'}</Typography>
-                </Box>
-              </Box>
-            </DialogContent>
-
-            <DialogActions>
-              <Button onClick={() => setOpen(false)}>ปิด</Button>
-              {!sel.isVerified && (
-                <Button
-                  variant="contained"
-                  color="success"
-                  startIcon={<ApproveIcon />}
-                  onClick={async () => {
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button>
+                {!sel.isVerified && (
+                  <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => {
                     await approveUser(sel.uid);
                     await logAdminEvent('APPROVE_USER', { targetUid: sel.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
                     setOpen(false);
                     await load();
-                  }}
-                >
-                  อนุมัติ
-                </Button>
-              )}
-              {sel.isActive && (
-                <Button
-                  variant="contained"
-                  color="error"
-                  startIcon={<SuspendIcon />}
-                  onClick={async () => {
+                  }}>
+                    <CheckCircle className="h-4 w-4 mr-2" /> อนุมัติ
+                  </Button>
+                )}
+                {sel.isActive && (
+                  <Button variant="destructive" onClick={async () => {
                     await suspendUser(sel.uid);
                     await logAdminEvent('SUSPEND_USER', { targetUid: sel.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
                     setOpen(false);
                     await load();
-                  }}
-                >
-                  ระงับ
-                </Button>
-              )}
-            </DialogActions>
-          </>
-        )}
+                  }}>
+                    <Ban className="h-4 w-4 mr-2" /> ระงับ
+                  </Button>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
       </Dialog>
 
-      {/* Promote-to-admin Dialog */}
-      <Dialog open={promoteOpen} onClose={() => setPromoteOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <MakeAdminIcon /> ตั้งผู้ใช้งานให้เป็น “แอดมิน”
-        </DialogTitle>
-
-        <DialogContent dividers>
+      <Dialog open={promoteOpen} onOpenChange={setPromoteOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-indigo-500" /> ตั้งผู้ใช้งานให้เป็น "แอดมิน"
+            </DialogTitle>
+          </DialogHeader>
+          
           {promoteUser && (
-            <Stack spacing={2}>
-              {alreadyAdmin && <Alert severity="warning">ผู้ใช้นี้เป็นผู้ดูแลอยู่แล้ว</Alert>}
+            <div className="space-y-6 py-4">
+              {alreadyAdmin && (
+                <Alert variant="warning">
+                  <AlertDescription>ผู้ใช้นี้เป็นผู้ดูแลอยู่แล้ว</AlertDescription>
+                </Alert>
+              )}
 
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Avatar src={promoteUser.photoURL}>{(promoteUser.firstName || 'U').charAt(0)}</Avatar>
-                <Box>
-                  <Typography fontWeight={700}>{promoteUser.firstName} {promoteUser.lastName}</Typography>
-                  <Typography variant="body2" color="text.secondary">{promoteUser.email}</Typography>
-                </Box>
-              </Stack>
+              <div className="flex items-center gap-3">
+                <Avatar className="h-12 w-12">
+                  <AvatarImage src={promoteUser.photoURL} />
+                  <AvatarFallback>{(promoteUser.firstName || 'U').charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-bold">{promoteUser.firstName} {promoteUser.lastName}</p>
+                  <p className="text-sm text-muted-foreground">{promoteUser.email}</p>
+                </div>
+              </div>
 
-              <Box>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>บทบาท</Typography>
-                <ButtonGroup>
-                  <Button variant={chosenRole === 'moderator' ? 'contained' : 'outlined'} onClick={() => setChosenRole('moderator')}>
+              <div className="space-y-3">
+                <Label className="text-base font-semibold">บทบาท</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant={chosenRole === 'moderator' ? 'default' : 'outline'} onClick={() => setChosenRole('moderator')}>
                     ผู้ช่วย (Moderator)
                   </Button>
-                  <Button
-                    variant={chosenRole === 'department_admin' ? 'contained' : 'outlined'}
-                    onClick={() => setChosenRole('department_admin')}
-                  >
+                  <Button variant={chosenRole === 'department_admin' ? 'default' : 'outline'} onClick={() => setChosenRole('department_admin')}>
                     แอดมินสังกัด (Dept Admin)
                   </Button>
                   {currentAdmin.role === 'super_admin' && (
-                    <Button
-                      variant={chosenRole === 'super_admin' ? 'contained' : 'outlined'}
-                      color="error"
-                      onClick={() => setChosenRole('super_admin')}
-                    >
+                    <Button variant={chosenRole === 'super_admin' ? 'destructive' : 'outline'} onClick={() => setChosenRole('super_admin')}>
                       ผู้ดูแลสูงสุด (Super Admin)
                     </Button>
                   )}
-                </ButtonGroup>
-              </Box>
+                </div>
+              </div>
 
-              <Box>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>สังกัด</Typography>
-                <TextField
-                  select
-                  fullWidth
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">สังกัด</Label>
+                <select
                   disabled={currentAdmin.department !== 'all'}
                   value={chosenDept}
                   onChange={(e) => setChosenDept(e.target.value as AdminDepartment)}
+                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background disabled:opacity-50"
                 >
                   {Object.entries(DEPARTMENT_LABELS).map(([k, v]) =>
-                    k !== 'all' ? <MenuItem key={k} value={k}>{v as any}</MenuItem> : null
+                    k !== 'all' ? <option key={k} value={k}>{v as any}</option> : null
                   )}
-                </TextField>
-
+                </select>
                 {currentAdmin.department !== 'all' && (
-                  <Typography variant="caption" color="text.secondary">
-                    * คุณไม่ได้เป็นผู้ดูแลสูงสุด จึงไม่สามารถเปลี่ยนสังกัดได้ (ระบบจะใช้สังกัดของคุณ)
-                  </Typography>
+                  <p className="text-xs text-muted-foreground">* คุณไม่ได้เป็นผู้ดูแลสูงสุด จึงไม่สามารถเปลี่ยนสังกัดได้ (ระบบจะใช้สังกัดของคุณ)</p>
                 )}
-              </Box>
+              </div>
 
-              <Box>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>ชุดสิทธิ์ที่จะได้ (Permissions)</Typography>
-                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              <div className="space-y-3">
+                <Label className="text-base font-semibold">ชุดสิทธิ์ที่จะได้ (Permissions)</Label>
+                <div className="flex flex-wrap gap-2">
                   {(ROLE_PERMISSIONS[chosenRole] ?? []).map((p) => (
-                    <Tooltip
-                      key={p}
-                      title={
-                        <Box>
-                          <b>{PERMISSION_META[p]?.th} / {PERMISSION_META[p]?.en}</b>
-                          <br />
-                          <small>
-                            {PERMISSION_META[p]?.descTh}
-                            <br />
-                            {PERMISSION_META[p]?.descEn}
-                          </small>
-                        </Box>
-                      }
-                    >
-                      <Chip label={`${PERMISSION_META[p]?.th || p} / ${PERMISSION_META[p]?.en || p}`} />
-                    </Tooltip>
+                    <TooltipProvider key={p}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="secondary" className="cursor-help">
+                            {PERMISSION_META[p]?.th || p}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="font-semibold">{PERMISSION_META[p]?.th}</p>
+                          <p className="text-xs">{PERMISSION_META[p]?.descTh}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   ))}
-                </Stack>
-              </Box>
+                </div>
+              </div>
 
-              {promoteErr && <Alert severity="error">{promoteErr}</Alert>}
-            </Stack>
+              {promoteErr && <Alert variant="destructive"><AlertDescription>{promoteErr}</AlertDescription></Alert>}
+            </div>
           )}
-        </DialogContent>
 
-        <DialogActions>
-          <Button onClick={() => setPromoteOpen(false)}>ยกเลิก</Button>
-          <Button
-            variant="contained"
-            startIcon={<MakeAdminIcon />}
-            disabled={promoteBusy || alreadyAdmin}
-            onClick={doPromote}
-          >
-            ตั้งเป็นแอดมิน
-          </Button>
-        </DialogActions>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPromoteOpen(false)}>ยกเลิก</Button>
+            <Button disabled={promoteBusy || alreadyAdmin} onClick={doPromote} className="gap-2">
+              <ShieldAlert className="h-4 w-4" /> ตั้งเป็นแอดมิน
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
-    </Container>
+    </div>
   );
 };
 
