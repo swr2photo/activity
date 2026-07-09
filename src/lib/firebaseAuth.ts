@@ -33,6 +33,7 @@ export interface UniversityUserProfile {
   degreeLevel: string;
   department: string;
   faculty: string;
+  username?: string;
   photoURL?: string;
   isActive: boolean;
   /** kept for compatibility; no longer used for gating */
@@ -53,49 +54,57 @@ export interface AuthState {
 /** อนุญาตเฉพาะโดเมน PSU */
 export const AUTH_ALLOWED_DOMAINS = ['@psu.ac.th'] as const;
 
+export const facultyMap: Record<string, string> = {
+  '01': 'คณะวิศวกรรมศาสตร์',
+  '02': 'คณะวิทยาศาสตร์',
+  '03': 'คณะมนุษยศาสตร์และสังคมศาสตร์',
+  '04': 'คณะแพทยศาสตร์',
+  '05': 'คณะพยาบาลศาสตร์',
+  '06': 'คณะเทคโนโลยีสารสนเทศ',
+  '07': 'คณะบริหารธุรกิจ',
+  '08': 'คณะศิลปกรรมศาสตร์',
+  '09': 'คณะเกษตรศาสตร์',
+  '10': 'คณะวิทยาศาสตร์',
+};
+
+export const departmentMap: Record<string, Record<string, string>> = {
+  '01': {
+    '01': 'วิศวกรรมคอมพิวเตอร์',
+    '02': 'วิศวกรรมไฟฟ้า',
+    '03': 'วิศวกรรมเครื่องกล',
+    '04': 'วิศวกรรมโยธา',
+    '05': 'วิศวกรรมเคมี',
+    '06': 'วิศวกรรมอุตสาหการ',
+  },
+  '02': {
+    '01': 'คณิตศาสตร์',
+    '02': 'ฟิสิกส์',
+    '03': 'เคมี',
+    '04': 'ชีววิทยา',
+    '05': 'วิทยาการคอมพิวเตอร์',
+    '06': 'สถิติ',
+  },
+  '10': {
+    '01': 'คณิตศาสตร์',
+    '02': 'ฟิสิกส์',
+    '03': 'เคมี',
+    '04': 'ชีววิทยา',
+    '05': 'วิทยาการคอมพิวเตอร์',
+    '06': 'สถิติ',
+  },
+  '03': {
+    '01': 'ภาษาไทย',
+    '02': 'ภาษาอังกฤษ',
+    '03': 'ประวัติศาสตร์',
+    '04': 'รัฐศาสตร์',
+    '05': 'สังคมวิทยา',
+    '06': 'จิตวิทยา',
+  },
+};
+
 /** แมปข้อมูลจากอีเมลนักศึกษาเป็น faculty/department/degree */
 export const parseStudentInfo = (email: string) => {
   const studentId = email.split('@')[0];
-
-  const facultyMap: Record<string, string> = {
-    '01': 'คณะวิศวกรรมศาสตร์',
-    '02': 'คณะวิทยาศาสตร์',
-    '03': 'คณะมนุษยศาสตร์และสังคมศาสตร์',
-    '04': 'คณะแพทยศาสตร์',
-    '05': 'คณะพยาบาลศาสตร์',
-    '06': 'คณะเทคโนโลยีสารสนเทศ',
-    '07': 'คณะบริหารธุรกิจ',
-    '08': 'คณะศิลปกรรมศาสตร์',
-    '09': 'คณะเกษตรศาสตร์',
-    '10': 'คณะสัตวแพทยศาสตร์',
-  };
-
-  const departmentMap: Record<string, Record<string, string>> = {
-    '01': {
-      '01': 'วิศวกรรมคอมพิวเตอร์',
-      '02': 'วิศวกรรมไฟฟ้า',
-      '03': 'วิศวกรรมเครื่องกล',
-      '04': 'วิศวกรรมโยธา',
-      '05': 'วิศวกรรมเคมี',
-      '06': 'วิศวกรรมอุตสาหการ',
-    },
-    '02': {
-      '01': 'คณิตศาสตร์',
-      '02': 'ฟิสิกส์',
-      '03': 'เคมี',
-      '04': 'ชีววิทยา',
-      '05': 'วิทยาการคอมพิวเตอร์',
-      '06': 'สถิติ',
-    },
-    '03': {
-      '01': 'ภาษาไทย',
-      '02': 'ภาษาอังกฤษ',
-      '03': 'ประวัติศาสตร์',
-      '04': 'รัฐศาสตร์',
-      '05': 'สังคมวิทยา',
-      '06': 'จิตวิทยา',
-    },
-  };
 
   let degreeLevel = 'ไม่ระบุ';
   let faculty = 'ไม่ระบุ';
@@ -178,9 +187,20 @@ export const signInWithMicrosoft = async (): Promise<{
 
   const { studentId, degreeLevel, department, faculty } = parseStudentInfo(firebaseUser.email);
   const displayName = firebaseUser.displayName || '';
-  const nameParts = displayName.trim().split(/\s+/);
-  const firstName = nameParts[0] || 'ไม่ระบุ';
-  const lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
+  
+  let firstName = 'ไม่ระบุ';
+  let lastName = 'ไม่ระบุ';
+
+  const thaiMatch = displayName.match(/\(([\u0E00-\u0E7F\s]+)\)/);
+  if (thaiMatch && thaiMatch[1]) {
+    const nameParts = thaiMatch[1].trim().split(/\s+/);
+    firstName = nameParts[0] || 'ไม่ระบุ';
+    lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
+  } else {
+    const nameParts = displayName.trim().split(/\s+/);
+    firstName = nameParts[0] || 'ไม่ระบุ';
+    lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
+  }
 
   const userDocRef = doc(db, 'universityUsers', firebaseUser.uid);
   const existing = await getDoc(userDocRef);

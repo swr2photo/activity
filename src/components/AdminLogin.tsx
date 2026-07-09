@@ -23,12 +23,12 @@ type Props = {
   onLoginSuccess: (adminUser: AdminProfile) => void;
 };
 
-const GoogleIcon = () => (
-  <svg viewBox="0 0 48 48" className="w-5 h-5 mr-2 shrink-0">
-    <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.657 31.987 29.223 35 24 35 16.82 35 11 29.18 11 22S16.82 9 24 9c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 3.02 30.2 1 24 1 10.745 1 0 11.745 0 25s10.745 24 24 24 24-10.745 24-24c0-1.603-.166-3.169-.389-4.917z" />
-    <path fill="#FF3D00" d="M6.306 14.691l6.571 4.817C14.3 16.012 18.78 13 24 13c3.59 0 6.84 1.35 9.34 3.56l5.66-5.66C35.89 7.02 30.2 5 24 5 15.317 5 7.985 9.936 6.306 14.691z" />
-    <path fill="#4CAF50" d="M24 45c5.135 0 9.773-1.982 13.286-5.214l-6.131-5.182C28.827 35.517 26.518 36 24 36c-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.793 39.985 15.124 45 24 45z" />
-    <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-1.368 3.254-4.713 7-11.303 7-5.199 0-9.62-3.001-11.274-7.279l-6.56 5.056C7.985 38.064 15.317 43 24 43c11.223 0 19-7.5 19-18 0-1.603-.166-3.169-.389-4.917z" />
+const MicrosoftIcon = () => (
+  <svg viewBox="0 0 21 21" className="w-5 h-5 mr-2 shrink-0">
+    <path fill="#f25022" d="M1 1h9v9H1z"/>
+    <path fill="#00a4ef" d="M1 11h9v9H1z"/>
+    <path fill="#7fba00" d="M11 1h9v9h-9z"/>
+    <path fill="#ffb900" d="M11 11h9v9h-9z"/>
   </svg>
 );
 
@@ -52,7 +52,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
     return message || 'ไม่สามารถเข้าสู่ระบบได้';
   };
 
-  const handleGoogleLogin = async () => {
+  const handleMicrosoftLogin = async () => {
     setErr(null);
     setLoading(true);
     try {
@@ -174,7 +174,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
 
                 <Button
                   className="w-full h-12 text-sm font-bold bg-white text-slate-800 border border-slate-200 shadow-lg hover:bg-slate-50 hover:shadow-xl transition-all duration-200"
-                  onClick={handleGoogleLogin}
+                  onClick={handleMicrosoftLogin}
                   disabled={loading}
                 >
                   {loading ? (
@@ -184,8 +184,8 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
                     </>
                   ) : (
                     <>
-                      <GoogleIcon />
-                      เข้าสู่ระบบด้วย Google
+                      <MicrosoftIcon />
+                      เข้าสู่ระบบด้วย Microsoft
                     </>
                   )}
                 </Button>

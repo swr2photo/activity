@@ -29,6 +29,7 @@ import {
   type AdminInvite,
   logAdminEvent,
 } from '../../lib/adminFirebase';
+import { auth } from '../../lib/firebase';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -310,8 +311,13 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
         }
         const dept: AdminDepartment = isSuper ? inviteDept : (currentAdmin.department as AdminDepartment);
 
+        const token = await auth.currentUser?.getIdToken();
         const res = await fetch('/api/invites/send', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
+          method: 'POST', 
+          headers: { 
+            'content-type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
           body: JSON.stringify({
             email: inviteEmail.trim(), role: inviteRole, department: dept,
             permissions: invitePerms.length ? invitePerms : ROLE_PERMISSIONS[inviteRole] || [],
@@ -369,8 +375,13 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
       onConfirm: async () => {
         confirm.setBusy(true);
         try {
+          const token = await auth.currentUser?.getIdToken();
           const res = await fetch('/api/invites/cancel', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
+            method: 'POST', 
+            headers: { 
+              'content-type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({ id: inv.id }),
           });
           const data = await res.json();
@@ -396,8 +407,13 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
       onConfirm: async () => {
         confirm.setBusy(true);
         try {
+          const token = await auth.currentUser?.getIdToken();
           const res = await fetch('/api/invites/delete', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
+            method: 'POST', 
+            headers: { 
+              'content-type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({ id: inv.id }),
           });
           const data = await res.json();

@@ -1,6 +1,7 @@
 // src/app/api/invites/list/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '../../../../lib/firebaseAdmin';
+import { verifyAdminToken } from '../../../../lib/apiAuth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,7 @@ function toMs(ts: any) {
 
 export async function GET(req: NextRequest) {
   try {
+    const adminUser = await verifyAdminToken(req);
     const adminDb = getAdminDb(); // ✅ lazy init ที่ runtime
     const limit = Number(req.nextUrl.searchParams.get('limit') ?? 100);
 

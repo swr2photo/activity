@@ -32,6 +32,7 @@ type ActivityCardProps = {
   status: { key: string; label: string; tone: string };
   canOpen: boolean;
   bannerAspect?: string;
+  department?: string;
 };
 
 const formatDateTime = (d: any) => {
@@ -58,7 +59,8 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
   bannerColor,
   status,
   canOpen,
-  bannerAspect = 'cover'
+  bannerAspect = 'cover',
+  department
 }) => {
   const theme = useTheme();
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -113,7 +115,7 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
       }}
     >
       {/* Banner Section */}
-      <Box sx={{ position: 'relative', height: { xs: 180, md: 220 }, bgcolor: bannerColor || 'grey.100', overflow: 'hidden' }}>
+      <Box sx={{ position: 'relative', height: { xs: 140, md: 160 }, bgcolor: bannerColor || 'grey.100', overflow: 'hidden' }}>
         {bannerUrl ? (
           <>
             <Box
@@ -152,24 +154,44 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
             top: 16,
             left: 16,
             fontWeight: 800,
-            fontSize: '0.8rem',
+            fontSize: '0.75rem',
             px: 1,
-            py: 1.5,
+            py: 1,
             backdropFilter: 'blur(12px)',
             boxShadow: '0 8px 16px rgba(0,0,0,0.15)',
             border: '1px solid rgba(255,255,255,0.2)',
           }}
         />
+
+        {department && (
+          <Chip
+            label={department}
+            size="small"
+            sx={{
+              position: 'absolute',
+              top: 16,
+              right: 16,
+              fontWeight: 700,
+              fontSize: '0.7rem',
+              px: 0.5,
+              py: 0.5,
+              bgcolor: 'rgba(255,255,255,0.85)',
+              color: 'text.primary',
+              backdropFilter: 'blur(8px)',
+              boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+            }}
+          />
+        )}
       </Box>
 
       {/* Content Section */}
-      <CardContent sx={{ p: { xs: 3, md: 4 }, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+      <CardContent sx={{ p: { xs: 2, md: 2.5 }, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         <Typography
           variant="h6"
           sx={{
             fontWeight: 800,
-            fontSize: { xs: '1.2rem', md: '1.3rem' },
-            mb: 1,
+            fontSize: { xs: '1.05rem', md: '1.15rem' },
+            mb: 0.5,
             lineHeight: 1.3,
             display: '-webkit-box',
             WebkitLineClamp: 2,
@@ -183,13 +205,13 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
         </Typography>
 
         {location && (
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2.5, color: '#86868b' }}>
-            <LocationOn sx={{ fontSize: 18 }} />
-            <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{location}</Typography>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, color: '#86868b' }}>
+            <LocationOn sx={{ fontSize: 16 }} />
+            <Typography variant="body2" noWrap sx={{ fontWeight: 600, fontSize: '0.85rem' }}>{location}</Typography>
           </Stack>
         )}
 
-        <Stack spacing={2} sx={{ mb: 4, bgcolor: '#f5f5f7', p: 2, borderRadius: '16px' }}>
+        <Stack spacing={1.5} sx={{ mb: 2.5, bgcolor: '#f5f5f7', p: 1.5, borderRadius: '12px' }}>
           <Stack spacing={0.5}>
             <Stack direction="row" alignItems="center" spacing={1} sx={{ color: 'text.secondary' }}>
               <AccessTime sx={{ fontSize: 16 }} />
@@ -235,11 +257,11 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
           disabled={!canOpen}
           fullWidth
           sx={{
-            borderRadius: '16px',
-            py: 1.5,
+            borderRadius: '12px',
+            py: 1,
             fontWeight: 700,
             textTransform: 'none',
-            fontSize: '1rem',
+            fontSize: '0.95rem',
             backgroundColor: canOpen ? '#0071e3' : 'transparent',
             color: canOpen ? '#ffffff' : 'text.secondary',
             border: canOpen ? 'none' : '1px solid rgba(0,0,0,0.1)',

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getAdminDb, FieldValue, Timestamp } from '../../../../lib/firebaseAdmin';
 import { sendMail } from '../../../../lib/email';
+import { verifyAdminToken } from '../../../../lib/apiAuth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,7 @@ function buildAcceptUrl(req: NextRequest, token: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    const adminUser = await verifyAdminToken(req);
     const adminDb = getAdminDb(); // ✅ lazy init ใช้ตอน runtime
 
     // ---- อ่านและตรวจ body ----

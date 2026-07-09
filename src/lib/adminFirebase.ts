@@ -25,7 +25,7 @@ import {
 import { db, auth } from '@/lib/firebase';
 import {
   onAuthStateChanged,
-  GoogleAuthProvider,
+  OAuthProvider,
   signInWithPopup,
   signOut as fbSignOut,
   type User,
@@ -1017,7 +1017,11 @@ export async function getCurrentAdmin(): Promise<AdminProfile | null> {
 }
 
 export async function signInAdmin(): Promise<AdminProfile> {
-  const provider = new GoogleAuthProvider();
+  const provider = new OAuthProvider('microsoft.com');
+  provider.addScope('openid');
+  provider.addScope('email');
+  provider.addScope('profile');
+  provider.setCustomParameters({ prompt: 'select_account' });
   const cred = await signInWithPopup(auth, provider);
   const user = cred.user;
 

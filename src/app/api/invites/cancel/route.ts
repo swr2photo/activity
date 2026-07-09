@@ -1,12 +1,14 @@
 // src/app/api/invites/cancel/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, FieldValue } from '../../../../lib/firebaseAdmin';
+import { verifyAdminToken } from '../../../../lib/apiAuth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    const adminUser = await verifyAdminToken(req);
     const { id } = (await req.json()) as { id?: string };
     if (!id) {
       return NextResponse.json({ ok: false, error: 'Missing id' }, { status: 400 });

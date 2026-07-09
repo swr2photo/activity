@@ -19,6 +19,7 @@ import {
   Divider,
   CircularProgress,
   InputAdornment,
+  IconButton,
 } from '@mui/material';
 
 // ✅ Grid import แบบชัดเจน
@@ -32,10 +33,18 @@ import {
   Badge as BadgeIcon,
   Email as EmailIcon,
   Info as InfoIcon,
+  PhotoCamera,
+  AccountCircle as AccountCircleIcon,
 } from '@mui/icons-material';
 
-import { UniversityUserProfile } from '../../lib/firebaseAuth';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../../lib/firebase';
+
+import { UniversityUserProfile, parseStudentInfo, facultyMap, departmentMap } from '../../lib/firebaseAuth';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
+import Autocomplete from '@mui/material/Autocomplete';
+import Cropper from 'react-easy-crop';
+import getCroppedImg from '../../utils/cropImage';
 
 interface ProfileEditDialogProps {
   open: boolean;
@@ -65,13 +74,22 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     displayName: '',
     firstName: '',
     lastName: '',
+    username: '',
     photoURL: '',
     department: '',
     faculty: '',
     studentId: '',
   });
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState('');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  // Crop State
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  const [cropModalOpen, setCropModalOpen] = useState(false);
 
   const extractInfoFromEmail = (email: string) => {
     const username = email.split('@')[0];
@@ -81,14 +99,35 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   useEffect(() => {
     if (open && user) {
       const emailInfo = extractInfoFromEmail(user.email || '');
+      const parsedInfo = parseStudentInfo(user.email || '');
+      const rawDisplayName = user?.displayName || userData?.displayName || '';
+
+      let derivedFirstName = userData?.firstName || '';
+      let derivedLastName = userData?.lastName || '';
+
+      // หากยังไม่มีชื่อ, ชื่อเป็น 'ไม่ระบุ' หรือนามสกุลมีวงเล็บติดมา (เช่น Kaewkham (วีรชาติ แก้วปา)) ให้ดึงใหม่จากวงเล็บภาษาไทย
+      if (!derivedFirstName || derivedFirstName === 'ไม่ระบุ' || derivedLastName.includes('(') || derivedLastName.includes(')')) {
+        const thaiMatch = rawDisplayName.match(/\(([\u0E00-\u0E7F\s]+)\)/);
+        if (thaiMatch && thaiMatch[1]) {
+          const nameParts = thaiMatch[1].trim().split(/\s+/);
+          derivedFirstName = nameParts[0] || '';
+          derivedLastName = nameParts.slice(1).join(' ') || '';
+        } else {
+          const nameParts = rawDisplayName.trim().split(/\s+/);
+          derivedFirstName = nameParts[0] || '';
+          derivedLastName = nameParts.slice(1).join(' ') || '';
+        }
+      }
+
       setFormData({
-        displayName: userData?.displayName || user?.displayName || emailInfo.displayName,
-        firstName: userData?.firstName || '',
-        lastName: userData?.lastName || '',
+        displayName: userData?.displayName || rawDisplayName || emailInfo.displayName,
+        firstName: derivedFirstName,
+        lastName: derivedLastName,
+        username: userData?.username || '',
         photoURL: userData?.photoURL || user?.photoURL || '',
-        department: userData?.department || '',
-        faculty: userData?.faculty || '',
-        studentId: userData?.studentId || emailInfo.studentId,
+        department: (userData?.department && userData?.department !== 'ไม่ระบุ') ? userData.department : parsedInfo.department,
+        faculty: (userData?.faculty && userData?.faculty !== 'ไม่ระบุ') ? userData.faculty : parsedInfo.faculty,
+        studentId: userData?.studentId || parsedInfo.studentId,
       });
       setError('');
       setValidationErrors({});
@@ -112,8 +151,58 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
       }
     }
 
+    if (formData.username.trim() && formData.username.trim().length < 3) {
+      errors.username = 'Username ต้องมีอย่างน้อย 3 ตัวอักษร';
+    }
+
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const currentFacultyCode = Object.keys(facultyMap).find(key => facultyMap[key] === formData.faculty);
+  const availableDepartments = currentFacultyCode && departmentMap[currentFacultyCode]
+    ? Object.values(departmentMap[currentFacultyCode])
+    : [];
+
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.addEventListener('load', () => {
+      setImageToCrop(reader.result?.toString() || null);
+      setCropModalOpen(true);
+    });
+    reader.readAsDataURL(file);
+    // Reset file input
+    event.target.value = '';
+  };
+
+  const onCropComplete = (croppedArea: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  };
+
+  const handleCropConfirm = async () => {
+    if (!imageToCrop || !user?.uid) return;
+
+    try {
+      setUploadingImage(true);
+      setError('');
+      
+      const croppedBlob = await getCroppedImg(imageToCrop, croppedAreaPixels);
+      const storageRef = ref(storage, `profiles/${user.uid}_${Date.now()}`);
+      
+      await uploadBytes(storageRef, croppedBlob);
+      const url = await getDownloadURL(storageRef);
+      
+      setFormData(prev => ({ ...prev, photoURL: url }));
+      setCropModalOpen(false);
+      setImageToCrop(null);
+    } catch (err: any) {
+      setError('ไม่สามารถอัปโหลดรูปภาพได้: ' + err.message);
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleInputChange = (field: string, value: string) => {
@@ -143,6 +232,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         displayName: fullDisplayName,
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
+        username: formData.username.trim() || formData.studentId.trim(),
         department: formData.department.trim(),
         faculty: formData.faculty.trim(),
         studentId: formData.studentId.trim(),
@@ -175,6 +265,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     Object.keys(validationErrors).length === 0;
 
   return (
+    <>
     <Dialog
       open={open}
       onClose={onClose}
@@ -251,23 +342,42 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
 
           {/* Avatar Preview */}
           <Box sx={{ textAlign: 'center' }}>
-            <Avatar
-              src={getPreviewAvatar() || undefined}
-              sx={{
-                width: 100,
-                height: 100,
-                mx: 'auto',
-                mb: 2,
-                border: `4px solid ${alpha(theme.palette.common.white, 0.8)}`,
-                boxShadow: `
-                  0 14px 36px ${alpha('#000', 0.22)},
-                  inset 0 1px 0 ${alpha('#fff', 0.4)}
-                `,
-                fontSize: '2rem',
-              }}
-            >
-              {!getPreviewAvatar() && getPreviewAvatarLetter()}
-            </Avatar>
+            <Box sx={{ position: 'relative', display: 'inline-block' }}>
+              <Avatar
+                src={getPreviewAvatar() || undefined}
+                sx={{
+                  width: 100,
+                  height: 100,
+                  mx: 'auto',
+                  mb: 2,
+                  border: `4px solid ${alpha(theme.palette.common.white, 0.8)}`,
+                  boxShadow: `
+                    0 14px 36px ${alpha('#000', 0.22)},
+                    inset 0 1px 0 ${alpha('#fff', 0.4)}
+                  `,
+                  fontSize: '2rem',
+                }}
+              >
+                {!getPreviewAvatar() && getPreviewAvatarLetter()}
+              </Avatar>
+              <IconButton
+                color="primary"
+                aria-label="upload picture"
+                component="label"
+                disabled={uploadingImage}
+                sx={{
+                  position: 'absolute',
+                  bottom: 12,
+                  right: -8,
+                  bgcolor: 'background.paper',
+                  boxShadow: 2,
+                  '&:hover': { bgcolor: 'grey.100' },
+                }}
+              >
+                <input hidden accept="image/*" type="file" onChange={handleImageSelect} />
+                {uploadingImage ? <CircularProgress size={20} /> : <PhotoCamera fontSize="small" />}
+              </IconButton>
+            </Box>
             <Typography variant="body2" color="text.secondary">
               รูปโปรไฟล์จะแสดงตัวอักษรแรกของชื่อหากไม่มีรูป
             </Typography>
@@ -318,40 +428,65 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
 
             {/* คณะ - สาขา */}
             <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                label="คณะ"
-                value={formData.faculty}
-                onChange={(e) => handleInputChange('faculty', e.target.value)}
-                fullWidth
-                variant="outlined"
-                placeholder="เช่น วิศวกรรมศาสตร์"
-                helperText="คณะที่คุณศึกษาหรือทำงาน"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SchoolIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
+              <Autocomplete
+                freeSolo
+                options={Array.from(new Set(Object.values(facultyMap)))}
+                value={formData.faculty === 'ไม่ระบุ' ? '' : formData.faculty}
+                onChange={(_, newValue) => {
+                  handleInputChange('faculty', newValue || 'ไม่ระบุ');
+                  handleInputChange('department', 'ไม่ระบุ');
                 }}
+                onInputChange={(_, newInputValue) => handleInputChange('faculty', newInputValue || 'ไม่ระบุ')}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="คณะ"
+                    variant="outlined"
+                    placeholder="เช่น วิศวกรรมศาสตร์"
+                    helperText="คณะที่คุณศึกษาหรือทำงาน"
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: (
+                        <>
+                          <InputAdornment position="start">
+                            <SchoolIcon sx={{ color: 'text.secondary' }} />
+                          </InputAdornment>
+                          {params.InputProps.startAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
               />
             </Grid>
 
             <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                label="สาขา/หน่วยงาน"
-                value={formData.department}
-                onChange={(e) => handleInputChange('department', e.target.value)}
-                fullWidth
-                variant="outlined"
-                placeholder="เช่น วิศวกรรมคอมพิวเตอร์"
-                helperText="สาขาวิชาหรือหน่วยงานที่สังกัด"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <BadgeIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
+              <Autocomplete
+                freeSolo
+                options={availableDepartments}
+                value={formData.department === 'ไม่ระบุ' ? '' : formData.department}
+                onChange={(_, newValue) => handleInputChange('department', newValue || 'ไม่ระบุ')}
+                onInputChange={(_, newInputValue) => handleInputChange('department', newInputValue || 'ไม่ระบุ')}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="สาขา/หน่วยงาน"
+                    variant="outlined"
+                    placeholder="เช่น วิศวกรรมคอมพิวเตอร์"
+                    helperText="สาขาวิชาหรือหน่วยงานที่สังกัด"
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: (
+                        <>
+                          <InputAdornment position="start">
+                            <BadgeIcon sx={{ color: 'text.secondary' }} />
+                          </InputAdornment>
+                          {params.InputProps.startAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
               />
             </Grid>
 
@@ -368,6 +503,27 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                   startAdornment: (
                     <InputAdornment position="start">
                       <PersonIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+
+            {/* Username */}
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                label="Username"
+                value={formData.username}
+                onChange={(e) => handleInputChange('username', e.target.value)}
+                fullWidth
+                variant="outlined"
+                placeholder={formData.studentId || "ตั้งชื่อผู้ใช้ของคุณ"}
+                helperText={validationErrors.username || 'ใช้สำหรับแสดงในระบบ (เว้นว่างเพื่อใช้รหัสนักศึกษา)'}
+                error={!!validationErrors.username}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <AccountCircleIcon sx={{ color: 'text.secondary' }} />
                     </InputAdornment>
                   ),
                 }}
@@ -470,6 +626,40 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         </Button>
       </DialogActions>
     </Dialog>
+
+    {/* Crop Modal */}
+    <Dialog open={cropModalOpen} onClose={() => !uploadingImage && setCropModalOpen(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>ปรับขนาดรูปโปรไฟล์</DialogTitle>
+      <DialogContent sx={{ position: 'relative', height: 400, bgcolor: '#333', p: 0 }}>
+        {imageToCrop && (
+          <Cropper
+            image={imageToCrop}
+            crop={crop}
+            zoom={zoom}
+            aspect={1}
+            cropShape="round"
+            showGrid={false}
+            onCropChange={setCrop}
+            onCropComplete={onCropComplete}
+            onZoomChange={setZoom}
+          />
+        )}
+      </DialogContent>
+      <DialogActions sx={{ p: 2 }}>
+        <Button onClick={() => setCropModalOpen(false)} disabled={uploadingImage} variant="outlined">
+          ยกเลิก
+        </Button>
+        <Button
+          onClick={handleCropConfirm}
+          disabled={uploadingImage}
+          variant="contained"
+          startIcon={uploadingImage && <CircularProgress size={16} />}
+        >
+          {uploadingImage ? 'กำลังอัปโหลด...' : 'ยืนยันและอัปโหลด'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 };
 
