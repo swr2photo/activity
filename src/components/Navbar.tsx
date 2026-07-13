@@ -38,6 +38,8 @@ import {
   Home,
   AdminPanelSettings,
   Settings as SettingsIcon,
+  HistoryOutlined,
+  History as HistoryActiveIcon,
 } from '@mui/icons-material';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { useAuth, updateUserProfile } from '../lib/firebaseAuth';
@@ -77,6 +79,7 @@ const Navbar: React.FC = () => {
 
   const navLinks = [
     { label: 'หน้าแรก', path: '/', icon: <HomeOutlined />, activeIcon: <Home color="primary" /> },
+    ...(user ? [{ label: 'ประวัติ', path: '/my-history', icon: <HistoryOutlined />, activeIcon: <HistoryActiveIcon color="primary" /> }] : []),
     ...(currentAdmin ? [{ label: 'Admin', path: '/admin', icon: <AdminPanelSettingsOutlined />, activeIcon: <AdminPanelSettings color="primary" /> }] : []),
   ];
 
@@ -215,82 +218,7 @@ const Navbar: React.FC = () => {
                     </IconButton>
                   </Tooltip>
 
-                  <Menu
-                    anchorEl={anchorEl}
-                    open={Boolean(anchorEl)}
-                    onClose={handleMenuClose}
-                    onClick={handleMenuClose}
-                    PaperProps={{
-                      elevation: 0,
-                      sx: {
-                        overflow: 'visible',
-                        mt: 1.5,
-                        minWidth: { xs: 260, sm: 300 },
-                        borderRadius: 2,
-                        backdropFilter: 'blur(16px) saturate(180%)',
-                        backgroundColor: 'rgba(255,255,255,0.9)',
-                        border: '1px solid rgba(255,255,255,0.25)',
-                        boxShadow:
-                          '0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.15)',
-                        '&:before': {
-                          content: '""',
-                          display: 'block',
-                          position: 'absolute',
-                          top: 0,
-                          right: 18,
-                          width: 10,
-                          height: 10,
-                          bgcolor: 'background.paper',
-                          transform: 'translateY(-50%) rotate(45deg)',
-                          zIndex: 0,
-                        },
-                      },
-                    }}
-                    transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-                    anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-                  >
-                    <Box sx={{ px: 2, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar src={getAvatarSrc()} sx={{ width: 48, height: 48, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-                          {!getAvatarSrc() && getAvatarLetter()}
-                        </Avatar>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography variant="subtitle1" fontWeight="bold" sx={{ lineHeight: 1.2 }}>
-                            {getDisplayName()}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem', wordBreak: 'break-all', lineHeight: 1.1 }}>
-                            {user.email}
-                          </Typography>
-                          {userData?.faculty && (
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.1 }}>
-                              {userData.faculty}
-                              {userData.department && ` - ${userData.department}`}
-                            </Typography>
-                          )}
-                          {userData?.studentId && (
-                            <Typography variant="caption" color="primary.main" sx={{ display: 'block', fontFamily: 'monospace', mt: 0.5, fontWeight: 'bold' }}>
-                              รหัส: {userData.studentId}
-                            </Typography>
-                          )}
-                        </Box>
-                      </Box>
-                    </Box>
 
-                    <MenuItem onClick={() => { handleMenuClose(); setProfileDialogOpen(true); }} sx={{ py: 1.25, mt: 1 }}>
-                      <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
-                      <ListItemText primary="ตั้งค่าโปรไฟล์" primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 'medium' }} />
-                    </MenuItem>
-                    <Divider />
-                    <MenuItem onClick={() => { handleMenuClose(); setLogoutDialogOpen(true); }} sx={{ py: 1.25 }}>
-                      <ListItemIcon><LogoutOutlined fontSize="small" color="error" /></ListItemIcon>
-                      <ListItemText
-                        primary="ออกจากระบบ"
-                        secondary="ออกจากบัญชีปัจจุบัน"
-                        primaryTypographyProps={{ color: 'error.main', fontSize: '0.92rem', fontWeight: 'medium' }}
-                        secondaryTypographyProps={{ fontSize: '0.75rem' }}
-                      />
-                    </MenuItem>
-                  </Menu>
                 </Box>
               ) : (
                 <Button 
@@ -370,7 +298,9 @@ const Navbar: React.FC = () => {
                   }}
                 >
                   <IconButton color="inherit" sx={{ p: 0.5 }}>
-                    <Avatar src={user.photoURL || undefined} sx={{ width: 28, height: 28 }} />
+                    <Avatar src={getAvatarSrc()} sx={{ width: 28, height: 28 }}>
+                      {!getAvatarSrc() && getAvatarLetter()}
+                    </Avatar>
                   </IconButton>
                   <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, opacity: 0.7 }}>
                     โปรไฟล์
@@ -400,6 +330,99 @@ const Navbar: React.FC = () => {
           )}
         </Toolbar>
       </Container>
+
+      {/* User Profile Menu (Shared between Desktop and Mobile) */}
+      {user && (
+        <Menu
+          anchorEl={anchorEl}
+          open={Boolean(anchorEl)}
+          onClose={handleMenuClose}
+          onClick={handleMenuClose}
+          PaperProps={{
+            elevation: 0,
+            sx: {
+              overflow: 'visible',
+              mt: 1.5,
+              minWidth: { xs: 260, sm: 300 },
+              borderRadius: 2,
+              backdropFilter: 'blur(16px) saturate(180%)',
+              backgroundColor: 'rgba(255,255,255,0.9)',
+              border: '1px solid rgba(255,255,255,0.25)',
+              boxShadow:
+                '0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.15)',
+              '&:before': {
+                content: '""',
+                display: 'block',
+                position: 'absolute',
+                top: 0,
+                right: isTabletOrMobile ? 'calc(50% - 5px)' : 18,
+                bottom: isTabletOrMobile ? -5 : 'auto',
+                width: 10,
+                height: 10,
+                bgcolor: 'background.paper',
+                transform: 'rotate(45deg)',
+                zIndex: 0,
+              },
+            },
+          }}
+          transformOrigin={
+            isTabletOrMobile 
+              ? { horizontal: 'center', vertical: 'bottom' } 
+              : { horizontal: 'right', vertical: 'top' }
+          }
+          anchorOrigin={
+            isTabletOrMobile 
+              ? { horizontal: 'center', vertical: 'top' } 
+              : { horizontal: 'right', vertical: 'bottom' }
+          }
+        >
+          <Box sx={{ px: 2, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Avatar src={getAvatarSrc()} sx={{ width: 48, height: 48, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+                {!getAvatarSrc() && getAvatarLetter()}
+              </Avatar>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="subtitle1" fontWeight="bold" sx={{ lineHeight: 1.2 }}>
+                  {getDisplayName()}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem', wordBreak: 'break-all', lineHeight: 1.1 }}>
+                  {user.email}
+                </Typography>
+                {userData?.faculty && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.1 }}>
+                    {userData.faculty}
+                    {userData.department && ` - ${userData.department}`}
+                  </Typography>
+                )}
+                {userData?.studentId && (
+                  <Typography variant="caption" color="primary.main" sx={{ display: 'block', fontFamily: 'monospace', mt: 0.5, fontWeight: 'bold' }}>
+                    รหัส: {userData.studentId}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          </Box>
+
+          <MenuItem component="a" href="/my-history" onClick={handleMenuClose} sx={{ py: 1.25, mt: 1 }}>
+            <ListItemIcon><HistoryOutlined fontSize="small" /></ListItemIcon>
+            <ListItemText primary="ประวัติการลงทะเบียน" primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 'medium' }} />
+          </MenuItem>
+          <MenuItem onClick={() => { handleMenuClose(); setProfileDialogOpen(true); }} sx={{ py: 1.25 }}>
+            <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
+            <ListItemText primary="ตั้งค่าโปรไฟล์" primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 'medium' }} />
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={() => { handleMenuClose(); setLogoutDialogOpen(true); }} sx={{ py: 1.25 }}>
+            <ListItemIcon><LogoutOutlined fontSize="small" color="error" /></ListItemIcon>
+            <ListItemText
+              primary="ออกจากระบบ"
+              secondary="ออกจากบัญชีปัจจุบัน"
+              primaryTypographyProps={{ color: 'error.main', fontSize: '0.92rem', fontWeight: 'medium' }}
+              secondaryTypographyProps={{ fontSize: '0.75rem' }}
+            />
+          </MenuItem>
+        </Menu>
+      )}
 
       {/* Logout Confirmation Dialog */}
       <Dialog

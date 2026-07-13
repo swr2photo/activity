@@ -7,6 +7,7 @@ import {
   Typography,
   Chip
 } from '@mui/material';
+import Image from 'next/image';
 import {
   CheckCircle as CheckIcon,
   Cancel as CancelIcon,
@@ -90,11 +91,8 @@ const ActivityBanner: React.FC<ActivityBannerProps> = ({ activity }) => {
         sx={{
           position: 'relative',
           height: { xs: 200, sm: 250, md: 300 },
-          background: activity.bannerUrl && !imageError 
-            ? `url(${activity.bannerUrl})` 
-            : getGradient(),
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
+          height: { xs: 200, sm: 250, md: 300 },
+          background: getGradient(),
           display: 'flex',
           alignItems: 'flex-end',
           '&::before': {
@@ -109,14 +107,17 @@ const ActivityBanner: React.FC<ActivityBannerProps> = ({ activity }) => {
           }
         }}
       >
-        {/* Hidden image for error detection */}
-        {activity.bannerUrl && (
-          <img
+        {/* Image for banner */}
+        {activity.bannerUrl && !imageError && (
+          <Image
             src={activity.bannerUrl}
-            alt=""
-            style={{ display: 'none' }}
+            alt={activity.activityName}
+            fill
+            sizes="100vw"
+            style={{ objectFit: 'cover' }}
             onError={() => setImageError(true)}
             onLoad={() => setImageError(false)}
+            priority
           />
         )}
 

@@ -3,6 +3,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   Box,
   Button,
@@ -119,21 +120,26 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
         {bannerUrl ? (
           <>
             <Box
-              component="img"
-              src={bannerUrl}
-              alt={activityName}
-              onLoad={() => setImageLoaded(true)}
               sx={{
+                position: 'absolute',
                 width: '100%',
                 height: '100%',
-                objectFit: bannerAspect as any,
                 opacity: imageLoaded ? 1 : 0,
                 transition: 'transform 0.7s ease, opacity 0.5s ease',
                 '.MuiCard-root:hover &': {
                   transform: 'scale(1.08)' // Image zoom effect on card hover
                 }
               }}
-            />
+            >
+              <Image
+                src={bannerUrl}
+                alt={activityName}
+                fill
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                style={{ objectFit: bannerAspect as any }}
+                onLoad={() => setImageLoaded(true)}
+              />
+            </Box>
             {!imageLoaded && <Skeleton variant="rectangular" width="100%" height="100%" sx={{ position: 'absolute', top: 0 }} />}
           </>
         ) : (

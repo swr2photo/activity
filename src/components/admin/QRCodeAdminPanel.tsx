@@ -1,3 +1,4 @@
+
 // components/admin/QRCodeAdminPanel.tsx
 'use client';
 

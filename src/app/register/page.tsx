@@ -55,6 +55,7 @@ import ActivityRegistrationForm from '../../components/ActivityRegistrationForm'
 import GeofenceMap from '../../components/maps/GeofenceMap';
 import Footer from '../../components/Footer';
 import { glassCardSx, pageColors, pageLayoutSx } from '../../lib/uiTheme';
+import Image from 'next/image';
 
 // Firebase helpers
 import { db } from '../../lib/firebase';
@@ -268,17 +269,21 @@ const ModernActivityBanner: React.FC<{
         {hasImage && (
           <>
             <Box
-              component="img"
-              src={activity.bannerUrl!}
-              alt={activity.activityName}
-              loading="lazy"
               sx={{
+                position: 'absolute',
                 width: '100%',
                 height: '100%',
-                objectFit: activity.bannerAspect === 'contain' ? 'contain' : 'cover',
-                display: 'block',
               }}
-            />
+            >
+              <Image
+                src={activity.bannerUrl!}
+                alt={activity.activityName}
+                fill
+                sizes="100vw"
+                style={{ objectFit: activity.bannerAspect === 'contain' ? 'contain' : 'cover' }}
+                priority
+              />
+            </Box>
             <Box
               sx={{
                 position: 'absolute',

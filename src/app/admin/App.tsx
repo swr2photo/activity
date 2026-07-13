@@ -24,6 +24,7 @@ const VALID_SECTIONS = [
   'users',
   'admin-management',
   'reports',
+  'registration-history',
   'settings',
   'profile',
 ] as const;

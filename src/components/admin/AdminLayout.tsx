@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, CalendarDays, QrCode, Users, BarChart3,
   ShieldCheck, Settings, LogOut, Bell, ChevronDown, ChevronRight,
-  Menu, X, UserCircle, PanelLeftClose, PanelLeft, Shield,
+  Menu, X, UserCircle, PanelLeftClose, PanelLeft, Shield, ClipboardList
 } from 'lucide-react';
 
 import { auth, db } from '@/lib/firebase';
@@ -57,6 +57,7 @@ const SECTION_PERM_REQUIRED: Record<string, AdminPermission | undefined> = {
   activities: 'manage_activities',
   users: 'manage_users',
   reports: 'view_reports',
+  'registration-history': 'view_reports',
   'admin-management': 'manage_admins',
   settings: 'system_settings',
   profile: undefined,
@@ -147,6 +148,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     },
     { id: 'users', label: 'จัดการผู้ใช้', icon: <Users className="h-5 w-5" />, permission: 'manage_users' },
     { id: 'reports', label: 'รายงาน', icon: <BarChart3 className="h-5 w-5" />, permission: 'view_reports' },
+    { id: 'registration-history', label: 'ประวัติลงทะเบียน', icon: <ClipboardList className="h-5 w-5" />, permission: 'view_reports' },
     { id: 'admin-management', label: 'จัดการแอดมิน', icon: <ShieldCheck className="h-5 w-5" />, permission: 'manage_admins' },
     { id: 'settings', label: 'ตั้งค่าระบบ', icon: <Settings className="h-5 w-5" />, permission: 'system_settings' },
   ];

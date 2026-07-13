@@ -17,6 +17,7 @@ import QRCodeAdminPanel from './QRCodeAdminPanel';
 import SystemSettingsPanel from './SystemSettingsPanel';
 import AdminProfileEditor from './AdminProfileEditor';
 import AdminLogsPanel from './AdminLogsPanel';
+import AdminRegistrationHistory from './AdminRegistrationHistory';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -32,6 +33,7 @@ type ActiveSection =
   | 'users'
   | 'admin-management'
   | 'reports'
+  | 'registration-history'
   | 'settings'
   | 'profile';
 
@@ -93,6 +95,13 @@ export const AdminMain: React.FC<AdminMainProps> = ({
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="view_reports">
             <AdminLogsPanel currentAdmin={currentAdmin} />
+          </AdminRoleGuard>
+        );
+
+      case 'registration-history':
+        return (
+          <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="view_reports">
+            <AdminRegistrationHistory currentAdmin={currentAdmin} />
           </AdminRoleGuard>
         );
 
