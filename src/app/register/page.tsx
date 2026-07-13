@@ -24,6 +24,9 @@ import {
   GpsFixed as GpsFixedIcon,
   CheckCircle as CheckIcon,
   Error as ErrorIcon,
+  Lock as LockIcon,
+  Info as InfoIcon,
+  AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
 import {
   addDoc,
@@ -58,7 +61,7 @@ import { glassCardSx, pageColors, pageLayoutSx } from '../../lib/uiTheme';
 import Image from 'next/image';
 
 // Firebase helpers
-import { db } from '../../lib/firebase';
+import { db, auth } from '../../lib/firebase';
 import { useAuth, UniversityUserProfile } from '../../lib/firebaseAuth';
 import { SessionManager } from '../../lib/sessionManager';
 import { AdminSettings } from '../../types';
@@ -94,6 +97,8 @@ interface ActivityData {
   dynamicQREnabled?: boolean;
   dynamicToken?: string;
   previousDynamicToken?: string;
+  sessions?: any[];
+  surveyConfig?: any;
 }
 
 interface IPLoginRecord {
@@ -198,6 +203,51 @@ const getActivityStatus = (activity: ActivityData): ActivityStatusInfo => {
   if (!activity.isActive)
     return { status: 'inactive', message: activity.closeReason || 'กิจกรรมนี้ถูกปิดใช้งานแล้ว' };
 
+  if (activity.maxParticipants > 0 && activity.currentParticipants >= activity.maxParticipants)
+    return { status: 'full', message: 'กิจกรรมนี้มีผู้สมัครครบจำนวนแล้ว' };
+
+  if (activity.sessions && activity.sessions.length > 0) {
+    // Sort sessions by start time
+    const sortedSessions = [...activity.sessions].sort((a, b) => {
+      const aTime = a.startDateTime?.toDate?.()?.getTime() || new Date(a.startDateTime as any).getTime();
+      const bTime = b.startDateTime?.toDate?.()?.getTime() || new Date(b.startDateTime as any).getTime();
+      return aTime - bTime;
+    });
+
+    const activeSession = sortedSessions.find(s => {
+      const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime as any);
+      const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime as any);
+      return now >= sStart && now <= sEnd;
+    });
+
+    if (activeSession) {
+      return { status: 'active', message: `รอบ: ${activeSession.name}` };
+    }
+
+    const nextSession = sortedSessions.find(s => {
+      const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime as any);
+      return now < sStart;
+    });
+
+    if (nextSession) {
+      const nStart = nextSession.startDateTime?.toDate?.() || new Date(nextSession.startDateTime as any);
+      return {
+        status: 'upcoming',
+        message: `รอบถัดไป (${nextSession.name}) จะเปิดในวันที่ ${formatDateTime(nStart)}`,
+        startTime: nStart,
+      };
+    }
+
+    const lastSession = sortedSessions[sortedSessions.length - 1];
+    const lEnd = lastSession.endDateTime?.toDate?.() || new Date(lastSession.endDateTime as any);
+    return {
+      status: 'ended',
+      message: `กิจกรรมสิ้นสุดแล้วเมื่อวันที่ ${formatDateTime(lEnd)}`,
+      endTime: lEnd,
+    };
+  }
+
+  // Fallback to main activity time
   if (now < startTime)
     return {
       status: 'upcoming',
@@ -211,9 +261,6 @@ const getActivityStatus = (activity: ActivityData): ActivityStatusInfo => {
       message: `กิจกรรมสิ้นสุดแล้วเมื่อวันที่ ${formatDateTime(endTime)}`,
       endTime,
     };
-
-  if (activity.maxParticipants > 0 && activity.currentParticipants >= activity.maxParticipants)
-    return { status: 'full', message: 'กิจกรรมนี้มีผู้สมัครครบจำนวนแล้ว' };
 
   return { status: 'active', message: '' };
 };
@@ -251,10 +298,21 @@ const ModernActivityBanner: React.FC<{
       ? 'สิ้นสุดแล้ว'
       : 'ปิดใช้งาน';
 
-  const statusChipSx =
-    status.status === 'active'
-      ? { bgcolor: pageColors.appleGreenBg, color: pageColors.appleGreen, fontWeight: 700, borderRadius: '10px' }
-      : undefined;
+  const statusChipSx = {
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    fontWeight: 600,
+    borderRadius: '12px',
+    border: '1px solid rgba(255,255,255,0.2)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    ...(status.status === 'active'
+      ? { bgcolor: 'rgba(52, 199, 89, 0.3)', color: '#fff' }
+      : status.status === 'upcoming'
+      ? { bgcolor: 'rgba(0, 122, 255, 0.3)', color: '#fff' }
+      : status.status === 'full'
+      ? { bgcolor: 'rgba(255, 149, 0, 0.3)', color: '#fff' }
+      : { bgcolor: 'rgba(0, 0, 0, 0.4)', color: '#fff' }),
+  };
 
   return (
     <Card elevation={0} sx={{ ...glassCardSx, mb: 3, overflow: 'hidden', p: 0 }}>
@@ -340,6 +398,104 @@ const ModernActivityBanner: React.FC<{
   );
 };
 
+const SessionCard: React.FC<{ session: any; isCheckedIn: boolean }> = ({ session, isCheckedIn }) => {
+  const [timeLeft, setTimeLeft] = useState<{ d: number; h: number; m: number; s: number } | null>(null);
+
+  const sStart = useMemo(() => session.startDateTime?.toDate?.() || new Date(session.startDateTime), [session.startDateTime]);
+  const sEnd = useMemo(() => session.endDateTime?.toDate?.() || new Date(session.endDateTime), [session.endDateTime]);
+  
+  useEffect(() => {
+    const updateCountdown = () => {
+      const now = new Date();
+      if (now < sStart) {
+        const diff = sStart.getTime() - now.getTime();
+        const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+        const m = Math.floor((diff / 1000 / 60) % 60);
+        const s = Math.floor((diff / 1000) % 60);
+        setTimeLeft({ d, h, m, s });
+      } else {
+        setTimeLeft(null);
+      }
+    };
+    
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [sStart]);
+
+  const now = new Date();
+  const isActive = now >= sStart && now <= sEnd;
+  const isUpcoming = now < sStart;
+
+  const getStatusDisplay = () => {
+    if (isCheckedIn) return { label: 'เช็คอินแล้ว', color: 'success' as const, variant: 'filled' as const, icon: <CheckIcon fontSize="small" /> };
+    if (isActive) return { label: 'กำลังเปิด', color: 'primary' as const, variant: 'filled' as const };
+    if (isUpcoming) return { label: '', color: 'info' as const, variant: 'outlined' as const, icon: <LockIcon fontSize="small" color="action" /> };
+    return { label: 'สิ้นสุดแล้ว', color: 'default' as const, variant: 'outlined' as const, icon: <LockIcon fontSize="small" /> };
+  };
+
+  const status = getStatusDisplay();
+
+  return (
+    <Card variant="outlined" sx={{ 
+      bgcolor: isCheckedIn ? 'success.50' : isActive ? 'primary.50' : 'action.hover',
+      borderColor: isCheckedIn ? 'success.main' : isActive ? 'primary.main' : 'divider',
+      opacity: (isActive || isCheckedIn || isUpcoming) ? 1 : 0.65,
+      position: 'relative',
+      overflow: 'hidden'
+    }}>
+      {/* Loading animation for upcoming session */}
+      {isUpcoming && timeLeft && (
+        <Box sx={{ position: 'absolute', bottom: 0, left: 0, height: 3, bgcolor: 'info.main', width: '100%', opacity: 0.3 }}>
+          <Box sx={{ 
+            height: '100%', bgcolor: 'info.main', width: '30%',
+            animation: 'slide 2s infinite ease-in-out',
+            '@keyframes slide': {
+              '0%': { transform: 'translateX(-100%)' },
+              '100%': { transform: 'translateX(400%)' }
+            }
+          }} />
+        </Box>
+      )}
+      
+      <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
+          <Box>
+            <Typography variant="body2" fontWeight="bold" color={isCheckedIn ? 'success.main' : isActive ? 'primary.main' : 'text.primary'} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {!isActive && !isCheckedIn && <LockIcon fontSize="small" color="inherit" />}
+              {session.name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {formatDateTime(sStart)} - {formatDateTime(sEnd)}
+            </Typography>
+            
+            {isUpcoming && timeLeft && (
+              <Typography variant="caption" color="info.main" sx={{ display: 'block', mt: 0.5, fontWeight: 500 }}>
+                เปิดให้เช็คอินในอีก {timeLeft.d > 0 ? `${timeLeft.d} วัน ` : ''}{timeLeft.h > 0 ? `${timeLeft.h} ชม. ` : ''}{timeLeft.m} นาที {timeLeft.s} วินาที
+              </Typography>
+            )}
+          </Box>
+          {status.label ? (
+            <Chip 
+              size="small" 
+              label={status.label}
+              color={status.color}
+              variant={status.variant}
+              icon={status.icon}
+              sx={{ fontWeight: 600 }}
+            />
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0.5 }}>
+              {status.icon}
+            </Box>
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+};
+
 /* ============================= Main content ============================= */
 const RegisterPageContent: React.FC = () => {
   const searchParams = useSearchParams();
@@ -367,6 +523,8 @@ const RegisterPageContent: React.FC = () => {
 
   // Duplicate
   const [isDuplicateRegistration, setIsDuplicateRegistration] = useState(false);
+  const [checkedInSessions, setCheckedInSessions] = useState<string[]>([]);
+  const [hasRegisteredRecord, setHasRegisteredRecord] = useState(false);
 
   // Profile
   const [showProfileDialog, setShowProfileDialog] = useState(false);
@@ -438,12 +596,12 @@ const RegisterPageContent: React.FC = () => {
   }, [user, sessionExpired]);
 
   useEffect(() => {
-    if (user && activityCode && !isDuplicateRegistration && !sessionExpired && !sessionValidating) {
+    if (user && activityCode && activityData && !sessionExpired && !sessionValidating) {
       checkForDuplicateRegistration();
       checkForSingleUserMode();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, activityCode, sessionExpired, sessionValidating]);
+  }, [user, activityCode, activityData, sessionExpired, sessionValidating]);
 
   useEffect(() => {
     if (user && userData !== null && !sessionExpired && !sessionValidating) {
@@ -492,6 +650,9 @@ const RegisterPageContent: React.FC = () => {
           bannerColor: data.bannerColor ?? prev.bannerColor,
           bannerTintColor: data.bannerTintColor ?? prev.bannerTintColor,
           bannerTintOpacity: typeof data.bannerTintOpacity === 'number' ? data.bannerTintOpacity : prev.bannerTintOpacity,
+          // ฟีเจอร์ใหม่
+          sessions: data.sessions ?? prev.sessions,
+          surveyConfig: data.surveyConfig ?? (prev as any).surveyConfig,
         };
 
         const s = getActivityStatus(updated);
@@ -519,6 +680,15 @@ const RegisterPageContent: React.FC = () => {
     });
     return () => unsubscribe();
   }, [activityData?.id]);
+
+  useEffect(() => {
+    if (hasRegisteredRecord && activityData) {
+      if (!activityData.sessions || activityData.sessions.length === 0) {
+        setIsDuplicateRegistration(true);
+        setError('บัญชีนี้เคยลงทะเบียนกิจกรรมนี้แล้ว');
+      }
+    }
+  }, [hasRegisteredRecord, activityData]);
 
   // countdown ≤ 5 นาที (urgent)
   useEffect(() => {
@@ -649,8 +819,27 @@ const RegisterPageContent: React.FC = () => {
       const recId = `${activityCode}_${user.uid}`;
       const snap = await getDoc(doc(db, 'activityRecords', recId));
       const dup = snap.exists();
-      setIsDuplicateRegistration(dup);
-      if (dup) setError('บัญชีนี้เคยลงทะเบียนกิจกรรมนี้แล้ว');
+      
+      if (dup) {
+        setHasRegisteredRecord(true);
+        const data = snap.data();
+        if (data.checkedInSessions) {
+          setCheckedInSessions(data.checkedInSessions);
+        }
+        
+        // ถ้ามี sessions → ตรวจว่าเช็กอินครบทุก session หรือยัง
+        const hasSessions = activityData?.sessions && activityData.sessions.length > 0;
+        if (hasSessions) {
+          const allCheckedIn = activityData.sessions.every(
+            (s: any) => (data.checkedInSessions || []).includes(s.id)
+          );
+          // ถ้ายังเช็กอินไม่ครบ → ไม่บล็อก ให้เข้าฟอร์มเช็กอินรอบที่เหลือได้
+          setIsDuplicateRegistration(allCheckedIn);
+        } else {
+          // ไม่มี sessions → บล็อกซ้ำเหมือนเดิม
+          setIsDuplicateRegistration(true);
+        }
+      }
     } catch {}
   };
 
@@ -668,17 +857,32 @@ const RegisterPageContent: React.FC = () => {
       if (!regSnap.empty) {
         const existing = regSnap.docs[0].data() as any;
         if (existing.email && existing.email !== user.email) {
+          // คนอื่นลงทะเบียนไปแล้ว → บล็อกเสมอ
           setSingleUserBlocked(true);
           const msg = `กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียว และมีผู้ใช้ ${existing.email} ลงทะเบียนไปแล้ว`;
           setSingleUserMessage(msg);
           setError(msg);
         } else if (existing.email === user.email) {
-          setSingleUserBlocked(true);
-          setSingleUserMessage('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
-          setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+          // เป็นคนเดียวกัน → ถ้ามี sessions ให้เช็กว่าครบหรือยัง
+          const hasSessions = activityData?.sessions && activityData.sessions.length > 0;
+          if (hasSessions) {
+            const allCheckedIn = activityData.sessions.every(
+              (s: any) => (existing.checkedInSessions || []).includes(s.id)
+            );
+            if (allCheckedIn) {
+              setSingleUserBlocked(true);
+              setSingleUserMessage('คุณได้เช็กอินครบทุกรอบกิจกรรมแล้ว');
+              setError('คุณได้เช็กอินครบทุกรอบกิจกรรมแล้ว');
+            }
+            // ถ้ายังไม่ครบ → ไม่บล็อก
+          } else {
+            setSingleUserBlocked(true);
+            setSingleUserMessage('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+            setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+          }
         }
       }
-    } catch {}
+    } catch {};
   };
 
   /* ============================= GEOLOCATION ============================= */
@@ -737,8 +941,7 @@ const RegisterPageContent: React.FC = () => {
     try {
       const result = await SessionManager.validateSession(user.uid);
       if (!result.isValid) {
-        setSessionExpired(true);
-        setError(result.message || 'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
+        await auth.signOut();
         return;
       }
       if (result.remainingTime && result.remainingTime <= 5)
@@ -755,9 +958,7 @@ const RegisterPageContent: React.FC = () => {
     try {
       const result = await SessionManager.validateSession(user.uid);
       if (!result.isValid) {
-        setSessionExpired(true);
-        setError(result.message || 'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่');
-        setSessionWarning('');
+        await auth.signOut();
         return;
       }
       if (result.remainingTime && result.remainingTime <= 5)
@@ -804,7 +1005,7 @@ const RegisterPageContent: React.FC = () => {
       setSessionExpired(false);
       setSessionWarning('');
       setError('');
-      if (activityCode)
+      if (activityCode && activityData)
         setTimeout(() => {
           checkForDuplicateRegistration();
           checkForSingleUserMode();
@@ -843,8 +1044,12 @@ const RegisterPageContent: React.FC = () => {
 
   const handleSaveProfile = async (updatedData: Partial<UniversityUserProfile>) => {
     if (!user?.uid) throw new Error('ไม่พบข้อมูลผู้ใช้');
+    // Save to universityUsers (which useAuth/getUserProfile reads from)
+    await setDoc(doc(db, 'universityUsers', user.uid), { ...updatedData, updatedAt: new Date() }, { merge: true });
+    // Also save to users for backward compatibility
     await setDoc(doc(db, 'users', user.uid), { ...updatedData, updatedAt: new Date() }, { merge: true });
     setNeedsProfileSetup(false);
+    setShowProfileDialog(false);
     setSuccessMessage('บันทึกข้อมูลเรียบร้อยแล้ว');
     setTimeout(() => setSuccessMessage(''), 3000);
   };
@@ -972,6 +1177,59 @@ const RegisterPageContent: React.FC = () => {
 
           {isDuplicateRegistration && user && !sessionExpired && !singleUserBlocked && <DuplicateRegistrationAlert />}
 
+          {/* Banner สำหรับรอบถัดไป หากเช็กอินรอบปัจจุบันแล้ว แต่ยังไม่ครบทุกรอบ */}
+          {activityData && !isDuplicateRegistration && hasRegisteredRecord && !singleUserBlocked && !sessionExpired && (() => {
+            const now = new Date();
+            const activeSession = activityData.sessions?.find((s: any) => {
+              const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+              const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime);
+              return now >= sStart && now <= sEnd;
+            });
+            const isActiveCheckedIn = activeSession && checkedInSessions.includes(activeSession.id);
+            
+            if (isActiveCheckedIn) {
+              const sorted = [...activityData.sessions].sort((a, b) => {
+                const aTime = a.startDateTime?.toDate?.()?.getTime() || new Date(a.startDateTime).getTime();
+                const bTime = b.startDateTime?.toDate?.()?.getTime() || new Date(b.startDateTime).getTime();
+                return aTime - bTime;
+              });
+              const nextSession = sorted.find((s: any) => {
+                const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+                return now < sStart;
+              });
+              
+              if (nextSession) {
+                const nStart = nextSession.startDateTime?.toDate?.() || new Date(nextSession.startDateTime);
+                return (
+                  <Alert 
+                    severity="info" 
+                    icon={<AccessTimeIcon />}
+                    sx={{ 
+                      mb: 3, 
+                      background: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', 
+                      border: '1px solid #0284c7',
+                      borderRadius: 3
+                    }}
+                  >
+                    <Typography variant="body1" gutterBottom fontWeight="bold" color="info.dark">
+                      เช็กอินรอบปัจจุบันเรียบร้อยแล้ว
+                    </Typography>
+                    <Typography variant="body2" color="text.primary">
+                      รอบถัดไป: <b>{nextSession.name}</b> จะเปิดให้เช็กอินในวันที่ {nStart.toLocaleString('th-TH', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })} น.
+                    </Typography>
+                  </Alert>
+                );
+              }
+            }
+            return null;
+          })()}
+
           {activityData && statusInfo && statusInfo.status !== 'active' && !ipBlocked && !singleUserBlocked && (
             <ActivityStatusAlert
               status={statusInfo.status}
@@ -1052,49 +1310,66 @@ const RegisterPageContent: React.FC = () => {
                     </Grid>
                   </CardContent>
                 </Card>
-
-                {/* รายละเอียดกิจกรรม */}
-                <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
-                      รายละเอียดกิจกรรม
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-
-                    <Grid container spacing={2}>
-                      {/* ✅ Grid v2 */}
-                      <Grid size={{ xs: 12, md: 6 }}>
-                        <Stack spacing={0.5}>
-                          <Typography variant="overline">วันที่เริ่ม</Typography>
-                          <Typography variant="body2">{formatDateTime(activityData.startDateTime)}</Typography>
-                        </Stack>
-                      </Grid>
-
-                      {/* ✅ Grid v2 */}
-                      <Grid size={{ xs: 12, md: 6 }}>
-                        <Stack spacing={0.5}>
-                          <Typography variant="overline">วันที่สิ้นสุด</Typography>
-                          <Typography variant="body2">{formatDateTime(activityData.endDateTime)}</Typography>
-                        </Stack>
-                      </Grid>
-
-                      {/* ✅ Grid v2 */}
-                      <Grid size={{ xs: 12 }}>
-                        <Stack spacing={0.5}>
-                          <Typography variant="overline">คำอธิบาย</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {activityData.description || '-'}
-                          </Typography>
-                        </Stack>
-                      </Grid>
-                    </Grid>
-                  </CardContent>
-                </Card>
               </>
             )}
 
-          {/* Microsoft login — แสดงเฉพาะเมื่อกิจกรรม Active */}
-          {shouldShowMicrosoftLogin() && activityData && statusInfo?.status === 'active' && (
+          {/* รายละเอียดกิจกรรม (แสดงเสมอ ไม่ขึ้นกับสถานะ login หรือ active) */}
+          {activityData && !ipBlocked && !singleUserBlocked && (
+            <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
+              <CardContent>
+                <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
+                  รายละเอียดกิจกรรม
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Stack spacing={0.5}>
+                      <Typography variant="overline">วันที่เริ่ม</Typography>
+                      <Typography variant="body2">{formatDateTime(activityData.startDateTime)}</Typography>
+                    </Stack>
+                  </Grid>
+
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Stack spacing={0.5}>
+                      <Typography variant="overline">วันที่สิ้นสุด</Typography>
+                      <Typography variant="body2">{formatDateTime(activityData.endDateTime)}</Typography>
+                    </Stack>
+                  </Grid>
+
+                  <Grid size={{ xs: 12 }}>
+                    <Stack spacing={0.5}>
+                      <Typography variant="overline">คำอธิบาย</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {activityData.description || '-'}
+                      </Typography>
+                    </Stack>
+                  </Grid>
+
+                  {activityData.sessions && activityData.sessions.length > 0 && (
+                    <Grid size={{ xs: 12 }}>
+                      <Stack spacing={1} sx={{ mt: 2 }}>
+                        <Typography variant="overline" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          รอบกิจกรรมย่อย ({activityData.sessions.length} รอบ)
+                        </Typography>
+                        <Typography variant="caption" color="warning.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1, fontWeight: 500 }}>
+                          <InfoIcon fontSize="inherit" />
+                          กรุณาเช็กอินให้ครบตาม section
+                        </Typography>
+                        {activityData.sessions.map((session: any, index: number) => {
+                          const isCheckedIn = checkedInSessions.includes(session.id);
+                          return <SessionCard key={session.id || index} session={session} isCheckedIn={isCheckedIn} />;
+                        })}
+                      </Stack>
+                    </Grid>
+                  )}
+                </Grid>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Microsoft login — แสดงเสมอเพื่อให้เข้าสู่ระบบรอได้ */}
+          {shouldShowMicrosoftLogin() && activityData && (
             <MicrosoftAuthSection
               activityData={activityData}
               onLoginSuccess={handleLoginSuccess}
@@ -1119,6 +1394,7 @@ const RegisterPageContent: React.FC = () => {
               activityCode={activityCode}
               activityDocId={activityData.id}
               adminSettings={adminSettings}
+              checkedInSessions={checkedInSessions}
               existingAuthStatus={isAuthed}
               existingUserProfile={
                 user
@@ -1128,11 +1404,15 @@ const RegisterPageContent: React.FC = () => {
                       displayName: user.displayName || '',
                       givenName: userData?.firstName || '',
                       surname: userData?.lastName || '',
+                      department: userData?.department || '',
+                      faculty: userData?.faculty || '',
                     }
                   : undefined
               }
               onSuccess={handleRegistrationSuccess}
               onLogout={handleLogout}
+              surveyConfig={(activityData as any).surveyConfig}
+              sessions={activityData.sessions}
             />
           )}
 
@@ -1140,12 +1420,13 @@ const RegisterPageContent: React.FC = () => {
           <ProfileEditDialog
             open={showProfileDialog}
             onClose={() => {
+              if (needsProfileSetup) return; // prevent close if profile is mandatory
               setShowProfileDialog(false);
-              if (needsProfileSetup && !sessionExpired && !sessionValidating) setTimeout(() => setShowProfileDialog(true), 500);
             }}
             user={user}
             userData={userData}
             onSave={handleSaveProfile}
+            isFirstTimeSetup={needsProfileSetup}
           />
 
           {/* (สำรอง) Snackbar เดิม */}

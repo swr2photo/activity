@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   CalendarDays, TrendingUp, Users, Activity, BarChart3, Clock,
+  ArrowUpRight, Sparkles
 } from 'lucide-react';
 
 import { AdminProfile, DEPARTMENT_LABELS, type AdminDepartment } from '../../types/admin';
@@ -19,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from './shared/PageHeader';
 
 interface DepartmentDashboardProps {
@@ -97,33 +99,44 @@ function AnimatedCounter({ value }: { value: number }) {
 
 // ─── KPI Card ───
 function KPICard({
-  title, value, icon: Icon, gradient, delay,
+  title, value, icon: Icon, gradient, delay, trend,
 }: {
   title: string;
   value: number;
   icon: React.ElementType;
   gradient: string;
   delay: number;
+  trend?: { value: number; label: string; isPositive: boolean };
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.4, ease: 'easeOut' }}
+      transition={{ delay, duration: 0.6, type: 'spring', stiffness: 200, damping: 20 }}
+      className="group"
     >
-      <Card className="relative overflow-hidden hover:shadow-lg transition-shadow duration-300 border-0">
-        <div className={`absolute inset-0 opacity-[0.07] ${gradient}`} />
-        <CardContent className="p-5 relative">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">{title}</p>
-              <p className="text-3xl font-bold tracking-tight">
-                <AnimatedCounter value={value} />
-              </p>
+      <Card className="relative overflow-hidden transition-all duration-500 border border-white/40 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] hover:-translate-y-1 rounded-3xl h-full">
+        <div className={`absolute inset-0 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity duration-500 ${gradient}`} />
+        <div className={`absolute -right-8 -top-8 w-32 h-32 rounded-full blur-3xl opacity-20 group-hover:opacity-40 transition-opacity duration-700 ${gradient}`} />
+        
+        <CardContent className="p-6 relative z-10 flex flex-col h-full justify-between">
+          <div className="flex justify-between items-start mb-6">
+            <div className={`flex items-center justify-center w-12 h-12 rounded-2xl ${gradient} shadow-lg ring-4 ring-white/50 relative overflow-hidden group-hover:scale-110 transition-transform duration-500`}>
+              <div className="absolute inset-0 bg-gradient-to-tr from-black/10 to-transparent" />
+              <Icon className="h-6 w-6 text-white drop-shadow-md relative z-10" />
             </div>
-            <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${gradient} shadow-lg`}>
-              <Icon className="h-6 w-6 text-white" />
-            </div>
+            {trend && (
+              <Badge variant={trend.isPositive ? 'success' : 'secondary'} className="font-bold text-xs py-1 px-2 bg-white/80 backdrop-blur-sm border-white/50 shadow-sm">
+                {trend.isPositive ? '↑' : '↓'} {trend.value}%
+              </Badge>
+            )}
+          </div>
+          
+          <div>
+            <p className="text-4xl font-extrabold tracking-tight text-slate-800 mb-1 drop-shadow-sm">
+              <AnimatedCounter value={value} />
+            </p>
+            <p className="text-sm font-semibold text-slate-500">{title}</p>
           </div>
         </CardContent>
       </Card>
@@ -189,22 +202,42 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-8 pb-10">
+      {/* Premium Hero Header */}
       <motion.div
-        initial={{ opacity: 0, y: -10 }}
+        initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="relative overflow-hidden rounded-[2rem] bg-slate-900 text-white p-8 md:p-10 shadow-2xl"
       >
-        <PageHeader 
-          title={`แดชบอร์ด ${DEPARTMENT_LABELS[currentAdmin.department] ?? currentAdmin.department}`}
-          subtitle="ภาพรวมกิจกรรมและผู้เข้าร่วมในสังกัดของคุณ"
-          icon={<BarChart3 className="h-6 w-6" />}
-        />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay" />
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-500 rounded-full blur-[100px] opacity-40 animate-pulse" />
+        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-purple-500 rounded-full blur-[100px] opacity-30" />
+        
+        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-sm font-medium mb-4">
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>อัปเดตข้อมูลล่าสุดเมื่อสักครู่</span>
+            </div>
+            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">
+              แดชบอร์ด <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">{DEPARTMENT_LABELS[currentAdmin.department] ?? currentAdmin.department}</span>
+            </h1>
+            <p className="text-slate-300 max-w-xl text-base md:text-lg">
+              ภาพรวมกิจกรรมและผู้เข้าร่วมในสังกัดของคุณ ตรวจสอบสถิติและแนวโน้มการเข้าร่วมกิจกรรมได้ที่นี่
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="secondary" className="rounded-xl font-semibold bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-md">
+              <ArrowUpRight className="w-4 h-4 mr-2" />
+              ดูรายงานทั้งหมด
+            </Button>
+          </div>
+        </div>
       </motion.div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard
           title="กิจกรรมทั้งหมด"
           value={data.totalActivities}
@@ -236,43 +269,55 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
       </div>
 
       {/* Activity Lists */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         {/* Recent Activities */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4, duration: 0.4 }}
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.4, duration: 0.5 }}
         >
-          <Card className="h-full">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Clock className="h-5 w-5 text-primary" />
-                กิจกรรมล่าสุด
+          <Card className="h-full border-0 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-4 pt-6 px-8">
+              <CardTitle className="flex items-center justify-between text-lg font-bold text-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-blue-100 rounded-xl text-blue-600">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                  กิจกรรมล่าสุด
+                </div>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {data.recentActivities.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">ยังไม่มีกิจกรรม</p>
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                  <Activity className="w-12 h-12 mb-3 opacity-20" />
+                  <p>ยังไม่มีกิจกรรมล่าสุด</p>
+                </div>
               ) : (
-                <div className="space-y-1">
+                <div className="divide-y divide-slate-100">
                   {data.recentActivities.map((a, i) => (
-                    <div
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.5 + i * 0.1 }}
                       key={a.id}
-                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 transition-colors"
+                      className="group flex items-center gap-4 p-6 hover:bg-slate-50 transition-all duration-300"
                     >
-                      <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 text-primary font-bold text-sm shrink-0">
+                      <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold text-lg shadow-md group-hover:scale-110 transition-transform">
                         {(a.activityName || '?').charAt(0)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{a.activityName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {a.currentParticipants ?? 0} คน • {a.createdAt?.toLocaleDateString('th-TH') ?? 'ไม่ระบุ'}
+                        <p className="text-base font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{a.activityName}</p>
+                        <p className="text-sm font-medium text-slate-500 flex items-center gap-2 mt-1">
+                          <Users className="w-4 h-4" /> {a.currentParticipants ?? 0} คน 
+                          <span className="text-slate-300">•</span> 
+                          {a.createdAt?.toLocaleDateString('th-TH') ?? 'ไม่ระบุ'}
                         </p>
                       </div>
-                      <Badge variant={a.isActive ? 'success' : 'secondary'} className="shrink-0">
-                        {a.isActive ? 'เปิด' : 'ปิด'}
+                      <Badge variant={a.isActive ? 'success' : 'secondary'} className="px-3 py-1 rounded-full text-xs font-bold shadow-sm">
+                        {a.isActive ? 'เปิดลงทะเบียน' : 'ปิดแล้ว'}
                       </Badge>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               )}
@@ -282,43 +327,72 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
 
         {/* Top Activities */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.4 }}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.5, duration: 0.5 }}
         >
-          <Card className="h-full">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <TrendingUp className="h-5 w-5 text-emerald-600" />
-                กิจกรรมยอดนิยม
+          <Card className="h-full border-0 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-4 pt-6 px-8">
+              <CardTitle className="flex items-center justify-between text-lg font-bold text-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  กิจกรรมยอดนิยม
+                </div>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-6">
               {data.topActivities.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">ยังไม่มีกิจกรรม</p>
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                  <BarChart3 className="w-12 h-12 mb-3 opacity-20" />
+                  <p>ยังไม่มีข้อมูลกิจกรรมยอดนิยม</p>
+                </div>
               ) : (
-                <div className="space-y-1">
-                  {data.topActivities.map((a, i) => (
-                    <div
-                      key={a.id}
-                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 transition-colors"
-                    >
-                      <div className={`flex items-center justify-center w-9 h-9 rounded-lg font-bold text-sm shrink-0 ${
-                        i === 0 ? 'bg-amber-100 text-amber-700' :
-                        i === 1 ? 'bg-slate-200 text-slate-600' :
-                        i === 2 ? 'bg-orange-100 text-orange-700' :
-                        'bg-slate-100 text-slate-500'
-                      }`}>
-                        #{i + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{a.activityName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {a.participantCount} ผู้เข้าร่วม
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                <div className="space-y-6">
+                  {data.topActivities.map((a, i) => {
+                    const maxParticipants = data.topActivities[0].participantCount || 1;
+                    const percent = Math.min(100, Math.round((a.participantCount / maxParticipants) * 100));
+                    return (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.6 + i * 0.1 }}
+                        key={a.id}
+                        className="group"
+                      >
+                        <div className="flex items-center gap-4 mb-2">
+                          <div className={`flex items-center justify-center w-8 h-8 rounded-full font-black text-sm shrink-0 shadow-sm ${
+                            i === 0 ? 'bg-gradient-to-br from-amber-300 to-orange-500 text-white' :
+                            i === 1 ? 'bg-gradient-to-br from-slate-300 to-slate-500 text-white' :
+                            i === 2 ? 'bg-gradient-to-br from-orange-300 to-red-400 text-white' :
+                            'bg-slate-100 text-slate-500'
+                          }`}>
+                            {i + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-center mb-1">
+                              <p className="text-sm font-bold text-slate-700 truncate">{a.activityName}</p>
+                              <p className="text-sm font-black text-slate-900">{a.participantCount.toLocaleString()} <span className="text-xs font-semibold text-slate-500">คน</span></p>
+                            </div>
+                            <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                              <motion.div 
+                                initial={{ width: 0 }}
+                                animate={{ width: `${percent}%` }}
+                                transition={{ duration: 1, delay: 0.8 + i * 0.1, type: 'spring' }}
+                                className={`h-full rounded-full ${
+                                  i === 0 ? 'bg-gradient-to-r from-amber-400 to-orange-500' :
+                                  i === 1 ? 'bg-gradient-to-r from-slate-400 to-slate-600' :
+                                  i === 2 ? 'bg-gradient-to-r from-orange-400 to-red-500' :
+                                  'bg-gradient-to-r from-blue-400 to-indigo-500'
+                                }`} 
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

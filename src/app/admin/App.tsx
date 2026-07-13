@@ -167,10 +167,27 @@ function App() {
 
   if (loading || !authChecked) {
     return (
-      <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-violet-700">
-        <div className="text-center text-white">
-          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 opacity-80" />
-          <p className="text-lg font-semibold tracking-wide">กำลังโหลดระบบ...</p>
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        <div className="h-16 bg-white border-b border-slate-200 flex items-center px-6">
+          <div className="h-8 w-48 bg-slate-200 rounded animate-pulse" />
+        </div>
+        <div className="flex flex-1">
+          <div className="w-64 bg-white border-r border-slate-200 p-6 hidden md:block">
+            <div className="space-y-4">
+              <div className="h-10 w-full bg-slate-100 rounded animate-pulse" />
+              <div className="h-10 w-full bg-slate-100 rounded animate-pulse" />
+              <div className="h-10 w-full bg-slate-100 rounded animate-pulse" />
+            </div>
+          </div>
+          <div className="flex-1 p-8">
+            <div className="h-8 w-64 bg-slate-200 rounded animate-pulse mb-8" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="h-32 bg-slate-200 rounded-xl animate-pulse" />
+              <div className="h-32 bg-slate-200 rounded-xl animate-pulse" />
+              <div className="h-32 bg-slate-200 rounded-xl animate-pulse" />
+            </div>
+            <div className="h-64 bg-slate-200 rounded-xl animate-pulse mt-6" />
+          </div>
         </div>
       </div>
     );

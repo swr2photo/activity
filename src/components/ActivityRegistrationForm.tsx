@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -25,6 +25,7 @@ import {
   Chip,
   Stack,
   LinearProgress,
+  Autocomplete,
 } from '@mui/material';
 
 import {
@@ -58,6 +59,7 @@ import {
 import { db, auth } from '../lib/firebase';
 import LocationChecker from './LocationChecker';
 import { AdminSettings } from '../types';
+import SurveyForm from './activity/SurveyForm';
 import { validateStudentId, validateThaiName } from '../utils/validation';
 import { accentCardSx, glassCardSx, pageColors } from '../lib/uiTheme';
 
@@ -85,6 +87,8 @@ interface UserProfile {
   displayName: string;
   givenName?: string;
   surname?: string;
+  department?: string;
+  faculty?: string;
 }
 
 interface ActivityRegistrationFormProps {
@@ -95,6 +99,9 @@ interface ActivityRegistrationFormProps {
   existingUserProfile?: UserProfile;
   existingAuthStatus: boolean;
   onLogout?: () => Promise<void>;
+  surveyConfig?: any;
+  sessions?: any[];
+  checkedInSessions?: string[];
 }
 
 /** =========================
@@ -215,13 +222,69 @@ function extractAndGenerateUserData(profile?: UserProfile) {
     studentId,
     firstName: extracted.firstName || 'ไม่ระบุ',
     lastName: extracted.lastName || 'ไม่ระบุ',
-    department: 'วิทยาการคอมพิวเตอร์',
-    faculty: detected.faculty,
+    department: profile.department || 'วิทยาการคอมพิวเตอร์',
+    faculty: profile.faculty || detected.faculty,
     degree: detected.degree,
     englishName: extracted.englishName,
     isAutoFilled: true,
   };
 }
+
+const NextSessionCountdown: React.FC<{ nextSession: any }> = ({ nextSession }) => {
+  const [timeLeft, setTimeLeft] = useState<{ d: number; h: number; m: number; s: number } | null>(null);
+
+  const sStart = useMemo(() => nextSession.startDateTime?.toDate?.() || new Date(nextSession.startDateTime), [nextSession.startDateTime]);
+
+  useEffect(() => {
+    const updateCountdown = () => {
+      const now = new Date();
+      if (now < sStart) {
+        const diff = sStart.getTime() - now.getTime();
+        const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+        const m = Math.floor((diff / 1000 / 60) % 60);
+        const s = Math.floor((diff / 1000) % 60);
+        setTimeLeft({ d, h, m, s });
+      } else {
+        setTimeLeft(null);
+      }
+    };
+    
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [sStart]);
+
+  if (!timeLeft) {
+    return (
+      <Chip 
+        label="กำลังจะเริ่มเร็วๆ นี้" 
+        color="info" 
+        variant="outlined" 
+        sx={{ fontWeight: 600, mt: 1.5 }} 
+      />
+    );
+  }
+
+  return (
+    <Chip 
+      label={`เปิดให้เช็กอินในอีก ${timeLeft.d > 0 ? `${timeLeft.d} วัน ` : ''}${timeLeft.h > 0 ? `${timeLeft.h} ชม. ` : ''}${timeLeft.m} นาที ${timeLeft.s} วินาที`}
+      color="info"
+      variant="filled"
+      sx={{ 
+        fontWeight: 600, 
+        mt: 1.5,
+        px: 2,
+        py: 2.2,
+        borderRadius: '12px',
+        background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+        boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)',
+        color: '#fff',
+        fontSize: '0.9rem'
+      }}
+    />
+  );
+};
 
 /** =========================
  * Component
@@ -234,13 +297,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   existingUserProfile,
   existingAuthStatus,
   onLogout,
+  surveyConfig,
+  sessions,
+  checkedInSessions = [],
 }) => {
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const [activityStatusLoading, setActivityStatusLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<{ id: string; name: string; faculty: string; isActive: boolean }[]>(
     []
   );
@@ -273,9 +340,47 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     userCode: '',
     email: existingUserProfile?.email || '',
     microsoftId: existingUserProfile?.id || '',
+    selectedSessionId: '', // For session selection
   });
 
-  const [autoFilledData] = useState({
+  // Calculate active sessions
+  const activeSessions = useMemo(() => {
+    if (!sessions || sessions.length === 0) return [];
+    const now = new Date();
+    return sessions.filter((s) => {
+      const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+      const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime);
+      return now >= sStart && now <= sEnd;
+    });
+  }, [sessions]);
+
+  const nextSession = useMemo(() => {
+    if (!sessions || sessions.length === 0) return null;
+    const sorted = [...sessions].sort((a, b) => {
+      const aTime = a.startDateTime?.toDate?.()?.getTime() || new Date(a.startDateTime).getTime();
+      const bTime = b.startDateTime?.toDate?.()?.getTime() || new Date(b.startDateTime).getTime();
+      return aTime - bTime;
+    });
+    const nowTime = new Date();
+    return sorted.find((s) => {
+      const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+      return nowTime < sStart;
+    });
+  }, [sessions]);
+
+  const nextSessionStart = useMemo(() => {
+    if (!nextSession) return null;
+    return nextSession.startDateTime?.toDate?.() || new Date(nextSession.startDateTime);
+  }, [nextSession]);
+
+  // Auto-select if there's exactly one active session
+  useEffect(() => {
+    if (activeSessions.length === 1 && !formData.selectedSessionId) {
+      setFormData((prev) => ({ ...prev, selectedSessionId: activeSessions[0].id }));
+    }
+  }, [activeSessions, formData.selectedSessionId]);
+
+  const [autoFilledData, setAutoFilledData] = useState({
     firstName: initialData.firstName,
     lastName: initialData.lastName,
     englishName: initialData.englishName,
@@ -284,6 +389,30 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     degree: initialData.degree,
     isAutoFilled: initialData.isAutoFilled,
   });
+
+  useEffect(() => {
+    if (existingUserProfile) {
+      const updatedData = extractAndGenerateUserData(existingUserProfile);
+      setFormData((prev) => ({
+        ...prev,
+        department: updatedData.department,
+        faculty: updatedData.faculty,
+        firstName: updatedData.firstName,
+        lastName: updatedData.lastName,
+        studentId: updatedData.studentId,
+        degree: updatedData.degree,
+      }));
+      setAutoFilledData({
+        firstName: updatedData.firstName,
+        lastName: updatedData.lastName,
+        englishName: updatedData.englishName,
+        studentId: updatedData.studentId,
+        faculty: updatedData.faculty,
+        degree: updatedData.degree,
+        isAutoFilled: updatedData.isAutoFilled,
+      });
+    }
+  }, [existingUserProfile?.department, existingUserProfile?.faculty]);
 
   // 👉 แอนิเมชันเตรียมก่อนตรวจตำแหน่ง
   const [locStage, setLocStage] = useState<'pre' | 'verify'>('pre');
@@ -333,8 +462,25 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           setError(`กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียว และมีผู้ใช้ ${registeredEmail} ลงทะเบียนไปแล้ว`);
           return false;
         } else if (registeredEmail === existingUserProfile.email) {
-          setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
-          return false;
+          // ถ้ามี sessions → ตรวจว่าเช็กอินรอบปัจจุบันหรือยัง
+          if (sessions && sessions.length > 0) {
+            const now = new Date();
+            const currentSession = sessions.find((s: any) => {
+              const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+              const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime);
+              return now >= sStart && now <= sEnd;
+            });
+            if (currentSession && data.checkedInSessions?.includes(currentSession.id)) {
+              setError('คุณได้เช็กอินรอบนี้แล้ว');
+              return false;
+            }
+            // ยังไม่เช็กอินรอบนี้ → ให้ผ่าน
+            return true;
+          } else {
+            // ไม่มี sessions → บล็อกซ้ำเหมือนเดิม
+            setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+            return false;
+          }
         }
       }
       return true;
@@ -496,7 +642,14 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
     const filtered = departments.filter((d) => d.faculty === selectedFaculty);
     setFilteredDepartments(filtered);
-    if ((formData as any).department && !filtered.some((d) => d.name === (formData as any).department)) {
+    
+    // Only clear if departments are fully loaded, we have a list, and it's not autofilled from profile
+    if (
+      departments.length > 0 && 
+      (formData as any).department && 
+      !filtered.some((d) => d.name === (formData as any).department) &&
+      !(autoFilledData as any).isAutoFilled
+    ) {
       setFormData((prev) => ({ ...prev, department: '' }));
     }
   };
@@ -528,6 +681,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     if (forceRefreshEnabled) return;
     setFormData({ ...formData, [field]: event.target.value });
     setError('');
+    setFieldErrors((prev) => ({ ...prev, [field]: '' }));
   };
 
   const handleSelectChange = (field: string) => (event: SelectChangeEvent<string>) => {
@@ -536,14 +690,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     setFormData({ ...formData, [field]: val });
     if (field === 'faculty') updateFilteredDepartments(val);
     setError('');
+    setFieldErrors((prev) => ({ ...prev, [field]: '' }));
   };
 
-  const validateNewStudentId = (studentId: string) =>
-    /^\d{10}$/.test(studentId) &&
-    (() => {
-      const prefix = parseInt(studentId.substring(0, 2), 10);
-      return prefix >= 64 && prefix <= 69;
-    })();
+  const validateNewStudentId = (studentId: string) => /^\d{10}$/.test(studentId);
 
   const isFieldReadOnly = (field: string): boolean => {
     if (!(autoFilledData as any).isAutoFilled) return false;
@@ -562,26 +712,25 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
 
     if (!validateNewStudentId((formData as any).studentId)) {
-      setError('รหัสนักศึกษาไม่ถูกต้อง (ต้องเป็นตัวเลข 10 หลัก และขึ้นต้นด้วย 64-69)');
+      setFieldErrors({ studentId: 'รหัสนักศึกษาไม่ถูกต้อง (ต้องเป็นตัวเลข 10 หลัก)' });
       return false;
     }
     if (!validateThaiName((formData as any).firstName)) {
-      setError('ชื่อไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)');
+      setFieldErrors({ firstName: 'ชื่อไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)' });
       return false;
     }
     if (!validateThaiName((formData as any).lastName)) {
-      setError('นามสกุลไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)');
+      setFieldErrors({ lastName: 'นามสกุลไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)' });
       return false;
     }
     if (!(formData as any).faculty) {
-      setError('กรุณาเลือกคณะ');
+      setFieldErrors({ faculty: 'กรุณาเลือกคณะ' });
       return false;
     }
     if (!(formData as any).department) {
-      setError('กรุณาเลือกสาขา');
+      setFieldErrors({ department: 'กรุณาเลือกสาขา' });
       return false;
     }
-    // Removed userCode check
 
     // กันลงทะเบียนซ้ำด้วย studentId (เร็ว)
     try {
@@ -592,8 +741,25 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       );
       const s1 = await getDocs(qBySid);
       if (!s1.empty) {
-        setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
-        return false;
+        const existingRecord = s1.docs[0].data();
+        // ถ้ามี sessions → ตรวจว่า session ปัจจุบันเคยเช็กอินหรือยัง
+        if (sessions && sessions.length > 0) {
+          const now = new Date();
+          const currentSession = sessions.find((s: any) => {
+            const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+            const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime);
+            return now >= sStart && now <= sEnd;
+          });
+          if (currentSession && existingRecord.checkedInSessions?.includes(currentSession.id)) {
+            setError('คุณได้เช็กอินรอบนี้แล้ว');
+            return false;
+          }
+          // ยังไม่เช็กอินรอบนี้ → ให้ผ่าน
+        } else {
+          // ไม่มี sessions → บล็อกซ้ำเหมือนเดิม
+          setError('คุณได้ลงทะเบียนกิจกรรมนี้แล้ว');
+          return false;
+        }
       }
     } catch {}
 
@@ -642,10 +808,28 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         // ปิดฟอร์มหรือหมดเวลา → ปฏิเสธ
         const now = new Date();
         const isActive = act.isActive !== false;
-        const inWindow =
-          act.startDateTime?.toDate?.() && act.endDateTime?.toDate?.()
+        
+        let sessionId: string | undefined;
+        let sessionName: string | undefined;
+        let inWindow = false;
+
+        if (act.sessions && act.sessions.length > 0) {
+          const activeSession = act.sessions.find((s: any) => {
+            const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime as any);
+            const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime as any);
+            return now >= sStart && now <= sEnd;
+          });
+          if (activeSession) {
+            inWindow = true;
+            sessionId = activeSession.id;
+            sessionName = activeSession.name;
+          }
+        } else {
+          inWindow = act.startDateTime?.toDate?.() && act.endDateTime?.toDate?.()
             ? now >= act.startDateTime.toDate() && now <= act.endDateTime.toDate()
             : true;
+        }
+
         if (!isActive || !inWindow) throw new Error('FORM_CLOSED');
 
         // เต็มแล้ว → ปฏิเสธ
@@ -657,10 +841,22 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         const recordId = `${activityCode}_${uid}`;
         const recordRef = doc(db, 'activityRecords', recordId);
         const recordSnap = await tx.get(recordRef);
-        if (recordSnap.exists()) throw new Error('ALREADY_REGISTERED');
+        
+        let isNewRecord = true;
+        if (recordSnap.exists()) {
+          const data = recordSnap.data();
+          if (sessionId) {
+            if (data.checkedInSessions?.includes(sessionId)) {
+              throw new Error('ALREADY_REGISTERED');
+            }
+            isNewRecord = false;
+          } else {
+            throw new Error('ALREADY_REGISTERED');
+          }
+        }
 
-        // single user mode claim
-        if (act.singleUserMode === true) {
+        // single user mode claim (only for new records)
+        if (isNewRecord && act.singleUserMode === true) {
           const claimRef = doc(db, 'activityClaims', activityCode);
           const claimSnap = await tx.get(claimRef);
           const requester = existingUserProfile?.email || (formData as any).email || uid;
@@ -670,8 +866,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           tx.set(claimRef, { email: requester, claimedAt: serverTimestamp(), uid }, { merge: false });
         }
 
-        // payload (ตัด university ออก)
-        const payload: any = {
+        const basePayload: any = {
           userId: uid,
           email: existingUserProfile?.email || (formData as any).email || '',
           microsoftId: existingUserProfile?.id || (formData as any).MicrosoftId || '',
@@ -686,19 +881,42 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           location,
           userCode: activityStatus.userCode || '',
           transcriptSaved: true,
-          timestamp: serverTimestamp(),
+          timestamp: serverTimestamp(), // latest check-in time
+          sessionId,
+          sessionName,
         };
 
-        tx.set(recordRef, payload, { merge: false });
-        tx.update(activityRef, {
-          currentParticipants: increment(1)
-        });
+        if (isNewRecord) {
+          if (sessionId) {
+            basePayload.checkedInSessions = [sessionId];
+            basePayload.sessionsDetails = [{ sessionId, sessionName, timestamp: new Date() }];
+          }
+          tx.set(recordRef, basePayload, { merge: false });
+          tx.update(activityRef, { currentParticipants: increment(1) });
+        } else {
+          // Add to existing array using arrayUnion for safety, but we can't easily append to array of objects with arrayUnion for sessionsDetails.
+          // Wait, we can just do arrayUnion for checkedInSessions and replace sessionsDetails if we want, or just maintain it in the app code. 
+          // Since we are in a transaction, we have the current data.
+          const currentSessions = recordSnap.data()?.checkedInSessions || [];
+          const currentDetails = recordSnap.data()?.sessionsDetails || [];
+          
+          tx.update(recordRef, {
+            ...basePayload,
+            checkedInSessions: [...currentSessions, sessionId],
+            sessionsDetails: [...currentDetails, { sessionId, sessionName, timestamp: new Date() }]
+          });
+        }
       });
 
-      setActiveStep(2);
-      setSuccess(true);
       setLoading(false);
       if (onSuccess) await onSuccess(); // ให้หน้า parent อัปเดตสถานะ (เช่น counter)
+      
+      const config = surveyConfig;
+      if (config?.enabled && config.questions?.length > 0) {
+        setActiveStep(2);
+      } else {
+        setSuccess(true);
+      }
     } catch (e: any) {
       const map: Record<string, string> = {
         FORM_CLOSED: 'กิจกรรมปิดรับข้อมูลแล้ว',
@@ -706,6 +924,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         ALREADY_REGISTERED: 'คุณได้ลงทะเบียนกิจกรรมนี้แล้ว',
         SINGLE_USER_TAKEN: 'กิจกรรมนี้อนุญาตผู้ใช้เดียว และถูกลงทะเบียนไปแล้ว',
         ACT_NOT_FOUND: 'ไม่พบข้อมูลกิจกรรม',
+        SESSION_CLOSED: 'รอบกิจกรรมที่คุณเลือกได้ปิดรับข้อมูลแล้ว',
+        INVALID_SESSION: 'ไม่พบรอบกิจกรรมที่คุณเลือก',
       };
       setError(map[e?.message] || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       setLoading(false);
@@ -763,11 +983,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             <Typography variant="h5" sx={{ fontWeight: 800, color: pageColors.textPrimary }}>
               กำลังตรวจสอบสถานะกิจกรรม...
             </Typography>
-            <Chip
-              label={`รหัสกิจกรรม: ${activityCode}`}
-              variant="outlined"
-              sx={{ mt: 2, fontFamily: 'monospace', fontWeight: 600, borderRadius: '10px' }}
-            />
           </CardContent>
         </Card>
       </Fade>
@@ -784,9 +999,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
               ไม่พบกิจกรรมนี้
             </Typography>
             <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
-              ไม่พบกิจกรรมที่มีรหัส
+              ไม่พบกิจกรรมที่คุณกำลังค้นหา
             </Typography>
-            <Chip label={activityCode} sx={{ fontFamily: 'monospace', fontWeight: 600, borderRadius: '10px' }} />
           </CardContent>
         </Card>
       </Grow>
@@ -909,6 +1123,74 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     );
   }
 
+  const now = new Date();
+  let currentActiveSessionId: string | null = null;
+  let currentActiveSessionName: string | null = null;
+  if (sessions && sessions.length > 0) {
+    const active = sessions.find((s: any) => {
+      const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+      const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime);
+      return now >= sStart && now <= sEnd;
+    });
+    if (active) {
+      currentActiveSessionId = active.id;
+      currentActiveSessionName = active.name;
+    }
+  }
+
+
+
+  const isCurrentSessionAlreadyCheckedIn = currentActiveSessionId && checkedInSessions.includes(currentActiveSessionId);
+
+  if (isCurrentSessionAlreadyCheckedIn) {
+    return (
+      <Fade in>
+        <Card elevation={0} sx={accentCardSx(pageColors.accentSuccess)}>
+          <CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <CheckCircleIcon sx={{ fontSize: 72, mb: 2, color: 'success.main' }} />
+            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
+              เช็คอินเรียบร้อย
+            </Typography>
+            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary, mb: 3 }}>
+              คุณได้เช็คอินรอบ <b>{currentActiveSessionName}</b> เรียบร้อยแล้ว
+            </Typography>
+
+            {nextSession && (
+              <Box sx={{ 
+                mt: 3, 
+                p: 3, 
+                bgcolor: 'rgba(2, 132, 199, 0.05)', 
+                border: '1px solid rgba(2, 132, 199, 0.15)', 
+                borderRadius: '16px',
+                textAlign: 'center',
+                maxWidth: '450px',
+                mx: 'auto',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
+              }}>
+                <Stack spacing={1.5} alignItems="center">
+                  <AccessTimeIcon sx={{ color: 'info.main', fontSize: 32 }} />
+                  <Typography variant="subtitle1" fontWeight="bold" color="info.main">
+                    รอบถัดไป: {nextSession.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    เปิดให้เช็คอินวันที่: {nextSessionStart?.toLocaleString('th-TH', { 
+                      day: 'numeric', 
+                      month: 'long', 
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })} น.
+                  </Typography>
+                  <NextSessionCountdown nextSession={nextSession} />
+                </Stack>
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      </Fade>
+    );
+  }
+
   /** =========================
    * Main form
    * =======================*/
@@ -996,8 +1278,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           {activeStep === 0 && (
             <Fade in>
               <Box>
-                {/* Organizer code bar removed */}
-
+                {(autoFilledData as any).isAutoFilled && (
+                  <Alert 
+                    icon={<VerifiedIcon />} 
+                    severity="info" 
+                    sx={{ mb: 3, borderRadius: 3, bgcolor: 'primary.50', color: 'primary.900', border: '1px solid', borderColor: 'primary.100' }}
+                  >
+                    ข้อมูลส่วนใหญ่ถูกดึงมาจากระบบของมหาวิทยาลัยและได้รับการยืนยันแล้ว
+                  </Alert>
+                )}
                 <Grid container spacing={2.5}>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
@@ -1011,12 +1300,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <BadgeIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('studentId') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
                         ),
+                        endAdornment: isFieldReadOnly('studentId') && (
+                          <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
+                        )
                       }}
-                      helperText={isFieldReadOnly('studentId') ? 'ข้อมูลจาก Microsoft' : 'เช่น 6421021234 (10 หลัก, ขึ้นต้นด้วย 64-69)'}
-                      sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+                      error={!!fieldErrors.studentId}
+                      helperText={fieldErrors.studentId || (!isFieldReadOnly('studentId') && 'เช่น 6421021234 (10 หลัก)')}
+                      sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' }, ...(isFieldReadOnly('studentId') && { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } }) }}
                     />
                   </Grid>
 
@@ -1032,11 +1324,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <PersonIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('firstName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
                         ),
+                        endAdornment: isFieldReadOnly('firstName') && (
+                          <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
+                        )
                       }}
-                      helperText={isFieldReadOnly('firstName') ? 'ข้อมูลจาก Microsoft' : 'ชื่อจริงเป็นภาษาไทย'}
+                      error={!!fieldErrors.firstName}
+                      helperText={fieldErrors.firstName || (!isFieldReadOnly('firstName') && 'ชื่อจริงเป็นภาษาไทย')}
+                      sx={isFieldReadOnly('firstName') ? { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } } : {}}
                     />
                   </Grid>
 
@@ -1052,76 +1348,100 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
                             <PersonIcon sx={{ color: 'text.secondary' }} />
-                            {isFieldReadOnly('lastName') && <VerifiedIcon sx={{ color: 'primary.main', ml: 0.5, fontSize: 16 }} />}
                           </Box>
                         ),
+                        endAdornment: isFieldReadOnly('lastName') && (
+                          <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
+                        )
                       }}
-                      helperText={isFieldReadOnly('lastName') ? 'ข้อมูลจาก Microsoft' : 'นามสกุลเป็นภาษาไทย'}
+                      error={!!fieldErrors.lastName}
+                      helperText={fieldErrors.lastName || (!isFieldReadOnly('lastName') && 'นามสกุลเป็นภาษาไทย')}
+                      sx={isFieldReadOnly('lastName') ? { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } } : {}}
                     />
                   </Grid>
 
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl fullWidth required disabled={isFieldReadOnly('faculty') || loading || forceRefreshEnabled}>
+                    <FormControl fullWidth required error={!!fieldErrors.faculty} disabled={isFieldReadOnly('faculty') || loading || forceRefreshEnabled}>
                       <InputLabel>คณะ</InputLabel>
-                      <Select value={(formData as any).faculty} onChange={handleSelectChange('faculty')} label="คณะ">
+                      <Select 
+                        value={(formData as any).faculty} 
+                        onChange={handleSelectChange('faculty')} 
+                        label="คณะ"
+                        sx={isFieldReadOnly('faculty') ? { bgcolor: 'grey.50' } : {}}
+                        endAdornment={isFieldReadOnly('faculty') ? (
+                          <Box sx={{ display: 'flex', mr: 3 }}>
+                            <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
+                          </Box>
+                        ) : null}
+                      >
                         {PSU_FACULTIES.map((f) => (
                           <MenuItem key={f.code} value={f.name}>
                             {f.name}
                           </MenuItem>
                         ))}
                       </Select>
-                      {isFieldReadOnly('faculty') && (
-                        <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, ml: 1 }}>
-                          ข้อมูลจาก Microsoft
-                        </Typography>
-                      )}
                     </FormControl>
                   </Grid>
 
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl
-                      fullWidth
-                      required
+                    <Autocomplete
+                      freeSolo
+                      options={filteredDepartments.map((d) => d.name)}
+                      value={(formData as any).department || null}
+                      onChange={(event, newValue) => {
+                        if (forceRefreshEnabled) return;
+                        setFormData({ ...formData, department: newValue || '' });
+                        setError('');
+                        setFieldErrors((prev) => ({ ...prev, department: '' }));
+                      }}
+                      onInputChange={(event, newInputValue) => {
+                        if (forceRefreshEnabled) return;
+                        setFormData({ ...formData, department: newInputValue });
+                      }}
                       disabled={departmentsLoading || loading || forceRefreshEnabled || !(formData as any).faculty}
-                    >
-                      <InputLabel>สาขาวิชา</InputLabel>
-                      <Select value={(formData as any).department} onChange={handleSelectChange('department')} label="สาขาวิชา">
-                        {filteredDepartments.map((d) => (
-                          <MenuItem key={d.id} value={d.name}>
-                            {d.name}
-                          </MenuItem>
-                        ))}
-                        {filteredDepartments.length === 0 && (formData as any).faculty && !departmentsLoading && (
-                          <MenuItem disabled>ไม่พบสาขาสำหรับคณะนี้</MenuItem>
-                        )}
-                      </Select>
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1 }}>
-                        {departmentsLoading
-                          ? 'กำลังโหลดข้อมูลสาขา...'
-                          : !(formData as any).faculty
-                          ? 'เลือกคณะก่อน'
-                          : filteredDepartments.length === 0
-                          ? 'ไม่พบสาขาสำหรับคณะนี้'
-                          : `พบ ${filteredDepartments.length} สาขา`}
-                      </Typography>
-                    </FormControl>
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="สาขาวิชา"
+                          required
+                          error={!!fieldErrors.department}
+                          helperText={
+                            fieldErrors.department || (
+                            departmentsLoading
+                              ? 'กำลังโหลดข้อมูลสาขา...'
+                              : !(formData as any).faculty
+                              ? 'เลือกคณะก่อน'
+                              : filteredDepartments.length === 0
+                              ? 'ไม่พบสาขาสำหรับคณะนี้'
+                              : `พบ ${filteredDepartments.length} สาขา`
+                            )
+                          }
+                        />
+                      )}
+                      noOptionsText="ไม่พบสาขาวิชา"
+                    />
                   </Grid>
 
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <FormControl fullWidth required disabled={isFieldReadOnly('degree') || loading || forceRefreshEnabled}>
                       <InputLabel>ระดับการศึกษา</InputLabel>
-                      <Select value={(formData as any).degree} onChange={handleSelectChange('degree')} label="ระดับการศึกษา">
+                      <Select 
+                        value={(formData as any).degree} 
+                        onChange={handleSelectChange('degree')} 
+                        label="ระดับการศึกษา"
+                        sx={isFieldReadOnly('degree') ? { bgcolor: 'grey.50' } : {}}
+                        endAdornment={isFieldReadOnly('degree') ? (
+                          <Box sx={{ display: 'flex', mr: 3 }}>
+                            <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
+                          </Box>
+                        ) : null}
+                      >
                         {DEGREE_LEVELS.map((d) => (
                           <MenuItem key={d.code} value={d.name}>
                             {d.name}
                           </MenuItem>
                         ))}
                       </Select>
-                      {isFieldReadOnly('degree') && (
-                        <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, ml: 1 }}>
-                          ข้อมูลจาก Microsoft
-                        </Typography>
-                      )}
                     </FormControl>
                   </Grid>
 
@@ -1139,17 +1459,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     justifyContent: 'space-between',
                   }}
                 >
-                  <Chip
-                    label={`รหัสกิจกรรม: ${activityCode}`}
-                    variant="outlined"
-                    sx={{
-                      fontFamily: 'monospace',
-                      fontWeight: 600,
-                      borderColor: 'primary.main',
-                      color: 'primary.main',
-                      alignSelf: { xs: 'stretch', sm: 'flex-start' },
-                    }}
-                  />
+                  <Box sx={{ flex: 1 }} />
                   <Button
                     variant="contained"
                     size="large"
@@ -1165,7 +1475,14 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       px: 4,
                       py: 1.5,
                       borderRadius: 3,
-                      background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
+                      bgcolor: '#007aff',
+                      boxShadow: '0 4px 14px 0 rgba(0,122,255,0.39)',
+                      transition: 'all 0.2s ease-in-out',
+                      '&:hover': {
+                        bgcolor: '#005bb5',
+                        boxShadow: '0 6px 20px rgba(0,122,255,0.23)',
+                        transform: 'translateY(-2px)'
+                      }
                     }}
                   >
                     {loading ? (
@@ -1219,6 +1536,23 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     />
                   </>
                 )}
+              </Box>
+            </Fade>
+          )}
+
+          {/* Step 3: Survey */}
+          {activeStep === 2 && surveyConfig && (
+            <Fade in>
+              <Box>
+                <SurveyForm
+                  activityCode={activityCode}
+                  activityDocId={activityDocId}
+                  surveyConfig={surveyConfig}
+                  userId={existingUserProfile?.id || (formData as any).userId || ''}
+                  onCompleted={() => {
+                    setSuccess(true);
+                  }}
+                />
               </Box>
             </Fade>
           )}

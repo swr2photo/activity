@@ -96,13 +96,7 @@ const Footer: React.FC = () => {
                   </IconButton>
                 ))}
               </Stack>
-              <Typography 
-                variant="caption" 
-                color="text.disabled"
-                sx={{ textAlign: { xs: 'center', md: 'right' } }}
-              >
-                ติดต่อเจ้าหน้าที่: 081-234-5678 (ในเวลาราชการ)
-              </Typography>
+
             </Stack>
           </Grid>
         </Grid>

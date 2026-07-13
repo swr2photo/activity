@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import NotificationBell from './NotificationBell';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -450,12 +451,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           </h1>
 
           {/* Notification */}
-          <Button variant="ghost" size="icon" className="relative text-slate-600">
-            <Bell className="h-5 w-5" />
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white">
-              4
-            </span>
-          </Button>
+          <NotificationBell currentAdmin={liveAdmin} />
 
           {/* Profile dropdown */}
           <DropdownMenu>

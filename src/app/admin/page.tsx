@@ -7,10 +7,27 @@ import dynamic from 'next/dynamic';
 const App = dynamic(() => import('./App'), {
   ssr: false,
   loading: () => (
-    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-violet-700">
-      <div className="text-center text-white">
-        <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-base font-medium opacity-90">กำลังโหลดระบบแอดมิน...</p>
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="h-16 bg-white border-b border-slate-200 flex items-center px-6">
+        <div className="h-8 w-48 bg-slate-200 rounded animate-pulse" />
+      </div>
+      <div className="flex flex-1">
+        <div className="w-64 bg-white border-r border-slate-200 p-6 hidden md:block">
+          <div className="space-y-4">
+            <div className="h-10 w-full bg-slate-100 rounded animate-pulse" />
+            <div className="h-10 w-full bg-slate-100 rounded animate-pulse" />
+            <div className="h-10 w-full bg-slate-100 rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="flex-1 p-8">
+          <div className="h-8 w-64 bg-slate-200 rounded animate-pulse mb-8" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="h-32 bg-slate-200 rounded-xl animate-pulse" />
+            <div className="h-32 bg-slate-200 rounded-xl animate-pulse" />
+            <div className="h-32 bg-slate-200 rounded-xl animate-pulse" />
+          </div>
+          <div className="h-64 bg-slate-200 rounded-xl animate-pulse mt-6" />
+        </div>
       </div>
     </div>
   ),

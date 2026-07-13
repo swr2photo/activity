@@ -197,6 +197,26 @@ export const deleteAdminUser = async (uid: string) => {
 /* =========================
  * Activities
  * ========================= */
+export interface SurveyQuestion {
+  id: string;
+  type: 'text' | 'choice' | 'rating';
+  question: string;
+  options?: string[]; // สำหรับ type 'choice'
+  required?: boolean;
+}
+
+export interface SurveyConfig {
+  enabled: boolean;
+  questions: SurveyQuestion[];
+}
+
+export interface ActivitySession {
+  id: string;
+  name: string;
+  startDateTime?: Date;
+  endDateTime?: Date;
+}
+
 export interface Activity {
   id: string;
   activityName: string;
@@ -223,6 +243,8 @@ export interface Activity {
   dynamicQREnabled?: boolean;
   dynamicToken?: string;
   previousDynamicToken?: string;
+  sessions?: ActivitySession[]; // กิจกรรมย่อย
+  surveyConfig?: SurveyConfig;  // แบบประเมิน
 }
 
 export interface ActivityRecord {
@@ -234,6 +256,8 @@ export interface ActivityRecord {
   department: AdminDepartment | string;
   activityCode: string;
   faculty?: string;
+  sessionId?: string; // ถ้าเช็คอินแบบเลือก session
+  sessionName?: string;
 }
 
 export interface UnivUser {

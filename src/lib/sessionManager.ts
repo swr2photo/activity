@@ -12,7 +12,7 @@ interface LoginSession {
   lastActivity: Timestamp;
 }
 
-const SESSION_DURATION_MINUTES = 30;
+const SESSION_DURATION_MINUTES = 30 * 24 * 60; // 30 days
 
 export class SessionManager {
   static async createSession(
@@ -66,7 +66,7 @@ export class SessionManager {
         } catch (e) {
           console.warn('destroy expired session failed:', e);
         }
-        return { isValid: false, message: 'เซสชันหมดอายุแล้ว (30 นาที) กรุณาเข้าสู่ระบบใหม่' };
+        return { isValid: false, message: 'เซสชันหมดอายุแล้ว (30 วัน) กรุณาเข้าสู่ระบบใหม่' };
       }
 
       const remainingMs = expiresAt.getTime() - now.getTime();

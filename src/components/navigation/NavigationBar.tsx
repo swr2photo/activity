@@ -329,11 +329,11 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
 
   /* ---------- display helpers ---------- */
   const getDisplayName = () => {
-    if (userData?.displayName) return userData.displayName;
     if (userData?.firstName && userData?.lastName) return `${userData.firstName} ${userData.lastName}`;
+    if (userData?.firstName) return userData.firstName;
     if (user?.displayName) {
       const e = extractMicrosoftUserInfo(user.displayName);
-      return `${e.firstName} ${e.lastName}`.trim();
+      if (e.firstName) return `${e.firstName} ${e.lastName}`.trim();
     }
     if (user?.email) return user.email.split('@')[0];
     return 'ผู้ใช้';

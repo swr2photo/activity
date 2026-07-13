@@ -52,6 +52,8 @@ interface ProfileEditDialogProps {
   user: any;
   userData: UniversityUserProfile | null;
   onSave: (updatedData: Partial<UniversityUserProfile>) => Promise<void>;
+  /** When true, user cannot close dialog — must complete profile first */
+  isFirstTimeSetup?: boolean;
 }
 
 const float = keyframes`
@@ -66,6 +68,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   user,
   userData,
   onSave,
+  isFirstTimeSetup = false,
 }) => {
   const theme = useTheme();
 
@@ -268,7 +271,8 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     <>
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={isFirstTimeSetup ? undefined : onClose}
+      disableEscapeKeyDown={isFirstTimeSetup}
       maxWidth="md"
       fullWidth
       PaperProps={{
@@ -328,16 +332,28 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         <EditIcon />
         <Box>
           <Typography variant="h6" component="div" fontWeight={700}>
-            กรอกข้อมูลส่วนตัว
+            {isFirstTimeSetup ? 'ยินดีต้อนรับ! กรุณากรอกข้อมูลส่วนตัว' : 'กรอกข้อมูลส่วนตัว'}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            กรุณากรอกข้อมูลให้ครบถ้วนเพื่อใช้ในการลงทะเบียน
+            {isFirstTimeSetup
+              ? 'คุณต้องกรอกข้อมูลให้ครบถ้วนก่อนดำเนินการต่อ'
+              : 'กรุณากรอกข้อมูลให้ครบถ้วนเพื่อใช้ในการลงทะเบียน'}
           </Typography>
         </Box>
       </DialogTitle>
 
       <DialogContent sx={{ pt: 3, position: 'relative' }}>
         <Stack spacing={3}>
+          {isFirstTimeSetup && (
+            <Alert severity="warning" sx={{ borderRadius: 2, mt: 1 }}>
+              <Typography variant="body2" fontWeight={600}>
+                กรุณากรอกข้อมูลให้ครบถ้วนก่อนดำเนินการใดๆ
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                ระบบจำเป็นต้องมีข้อมูลของคุณเพื่อใช้ในการลงทะเบียนกิจกรรม
+              </Typography>
+            </Alert>
+          )}
           {error && <Alert severity="error">{error}</Alert>}
 
           {/* Avatar Preview */}
@@ -593,9 +609,11 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
       </DialogContent>
 
       <DialogActions sx={{ p: 3, gap: 1, borderTop: `1px solid ${alpha(theme.palette.divider, 0.2)}` }}>
-        <Button onClick={onClose} disabled={saving} size="large" variant="outlined">
-          ยกเลิก
-        </Button>
+        {!isFirstTimeSetup && (
+          <Button onClick={onClose} disabled={saving} size="large" variant="outlined">
+            ยกเลิก
+          </Button>
+        )}
         <Button
           variant="contained"
           startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}

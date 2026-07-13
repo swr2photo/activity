@@ -6,7 +6,8 @@ import {
   Activity, Bell, FileText, ChevronDown, CheckSquare, Settings2, Trash
 } from 'lucide-react';
 import { useSnackbar } from 'notistack';
-
+import { DatePicker, ConfigProvider } from 'antd';
+import thTH from 'antd/locale/th_TH';
 import type { AdminProfile, AdminPermission } from '../../types/admin';
 import { normalizeDepartment, deptEquals, getDepartmentLabel } from '../../types/admin';
 
@@ -61,89 +62,7 @@ type AdminNotif = {
   createdAt?: Date | Timestamp | null;
 };
 
-// --- NotificationBell Component ---
-const NotificationBell: React.FC<{
-  currentAdmin: AdminProfile;
-  allowedDeptKey: string;
-}> = ({ currentAdmin, allowedDeptKey }) => {
-  const [items, setItems] = useState<AdminNotif[]>([]);
-  const LS_KEY = useMemo(() => `admin_last_seen_notif_${currentAdmin.uid}`, [currentAdmin.uid]);
-  const [lastSeen, setLastSeen] = useState<number>(0);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const raw = window.localStorage.getItem(LS_KEY);
-    setLastSeen(raw ? Number(raw) : 0);
-  }, [LS_KEY]);
-
-  const markSeenNow = () => {
-    if (typeof window === 'undefined') return;
-    const now = Date.now();
-    window.localStorage.setItem(LS_KEY, String(now));
-    setLastSeen(now);
-  };
-
-  const unseenCount = useMemo(() => {
-    return items.filter(n => {
-      const t = n.createdAt instanceof Date ? n.createdAt.getTime() : (n.createdAt as any)?.toMillis?.() ?? 0;
-      return t > lastSeen;
-    }).length;
-  }, [items, lastSeen]);
-
-  useEffect(() => {
-    const unsubscribers: Array<() => void> = [];
-    const watch = (colName: string) => {
-      const q = query(collection(db, colName), orderBy('createdAt', 'desc'), limit(20));
-      const un = onSnapshot(q, snap => {
-         const arr = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-         const filtered = arr.filter(n => {
-             if (allowedDeptKey === 'all') return true;
-             const dep = n.departmentKey || n.department;
-             return dep === 'all' || deptEquals(dep as any, allowedDeptKey as any);
-         });
-         setItems(prev => {
-             const map = new Map();
-             [...filtered, ...prev].forEach(x => map.set(x.id, x));
-             return Array.from(map.values()).sort((a:any,b:any) => ((b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))).slice(0,50);
-         });
-      });
-      unsubscribers.push(un);
-    };
-    watch('adminNotifications');
-    return () => unsubscribers.forEach(u => u());
-  }, [allowedDeptKey]);
-
-  return (
-    <DropdownMenu onOpenChange={(open) => open && markSeenNow()}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative text-slate-700 hover:bg-slate-100">
-          <Bell className="h-5 w-5" />
-          {unseenCount > 0 && (
-            <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-red-500 text-[10px] font-bold text-white flex items-center justify-center border-2 border-slate-900">
-              {unseenCount > 99 ? '99+' : unseenCount}
-            </span>
-          )}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>การแจ้งเตือน</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <div className="max-h-[300px] overflow-y-auto">
-          {items.length === 0 ? (
-            <div className="p-4 text-center text-sm text-muted-foreground">ไม่มีการแจ้งเตือน</div>
-          ) : (
-            items.slice(0, 10).map(n => (
-              <DropdownMenuItem key={n.id} className="flex flex-col items-start p-3 gap-1 whitespace-normal">
-                <span className="font-semibold text-sm">{n.title}</span>
-                <span className="text-xs text-muted-foreground">{n.message}</span>
-              </DropdownMenuItem>
-            ))
-          )}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-};
 
 // --- Main Component ---
 const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
@@ -191,17 +110,31 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
     const results: Record<string, string> = { ...activityNameByCode };
     await Promise.all(uniq.map(async (code) => {
       try {
-        const s = await getDoc(doc(db, 'activities', code));
-        if (s.exists()) {
-           const d: any = s.data();
-           results[code] = d?.nameTh || d?.name || code;
-        } else {
-            const qs = await getDocs(query(collection(db, 'activities'), where('code', '==', code), limit(1)));
-            if (!qs.empty) {
-                const d:any = qs.docs[0].data();
-                results[code] = d?.nameTh || d?.name || code;
+        let found = false;
+        
+        // Try activityQRCodes collection first
+        const qNew = query(collection(db, 'activityQRCodes'), where('activityCode', '==', code), limit(1));
+        const snapNew = await getDocs(qNew);
+        if (!snapNew.empty) {
+            const d: any = snapNew.docs[0].data();
+            results[code] = d?.activityName || d?.nameTh || d?.name || code;
+            found = true;
+        }
+
+        if (!found) {
+            // Fallback to legacy activities collection
+            const s = await getDoc(doc(db, 'activities', code));
+            if (s.exists()) {
+               const d: any = s.data();
+               results[code] = d?.nameTh || d?.name || code;
             } else {
-                results[code] = code;
+                const qs = await getDocs(query(collection(db, 'activities'), where('code', '==', code), limit(1)));
+                if (!qs.empty) {
+                    const d:any = qs.docs[0].data();
+                    results[code] = d?.nameTh || d?.name || code;
+                } else {
+                    results[code] = code;
+                }
             }
         }
       } catch { results[code] = code; }
@@ -300,8 +233,16 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
     return list;
   }, [records, filters.search, filters.activities, filters.faculties, activityNameByCode]);
 
-  const availableActivities = useMemo(() => [...new Set(records.map(r => r.activityCode))].sort(), [records]);
-  const availableFaculties = useMemo(() => [...new Set(records.map(r => String(r.faculty || 'ไม่ระบุ')))].sort(), [records]);
+  const availableActivities = useMemo(() => {
+    const codes = [...new Set(records.map(r => r.activityCode))];
+    return codes.sort((a, b) => {
+      const nameA = activityNameByCode[a] || a;
+      const nameB = activityNameByCode[b] || b;
+      return nameA.localeCompare(nameB, 'th');
+    });
+  }, [records, activityNameByCode]);
+  
+  const availableFaculties = useMemo(() => [...new Set(records.map(r => String(r.faculty || 'ไม่ระบุ')))].sort((a, b) => a.localeCompare(b, 'th')), [records]);
 
   const handleDelete = async (ids: string[]) => {
     if (!isSuperAdmin) {
@@ -400,12 +341,9 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
         title="จัดการข้อมูลการเข้าร่วม"
         icon={<Activity className="h-6 w-6" />}
         actions={
-          <>
-            <Badge variant={isDeptScoped ? 'secondary' : 'default'} className="border-0">
-              {isDeptScoped ? `สังกัด: ${getDepartmentLabel(currentAdmin.department)}` : 'Super Admin'}
-            </Badge>
-            <NotificationBell currentAdmin={currentAdmin} allowedDeptKey={allowedDeptKey} />
-          </>
+          <Badge variant={isDeptScoped ? 'secondary' : 'default'} className="border-0">
+            {isDeptScoped ? `สังกัด: ${getDepartmentLabel(currentAdmin.department)}` : 'Super Admin'}
+          </Badge>
         }
       />
 
@@ -423,24 +361,32 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                 />
               </div>
 
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="date"
-                  value={filters.dateRange.start}
-                  onChange={(e) => setFilters(v => ({ ...v, dateRange: { ...v.dateRange, start: e.target.value } }))}
-                  className="pl-9"
-                />
+              <div className="relative flex items-center">
+                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 6 } }}>
+                  <DatePicker 
+                    showTime
+                    placeholder="วันที่และเวลาเริ่มต้น"
+                    className="w-full h-10"
+                    format="DD/MM/YYYY HH:mm"
+                    onChange={(date, dateString) => {
+                      setFilters(v => ({ ...v, dateRange: { ...v.dateRange, start: date ? date.toISOString() : '' } }));
+                    }}
+                  />
+                </ConfigProvider>
               </div>
 
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="date"
-                  value={filters.dateRange.end}
-                  onChange={(e) => setFilters(v => ({ ...v, dateRange: { ...v.dateRange, end: e.target.value } }))}
-                  className="pl-9"
-                />
+              <div className="relative flex items-center">
+                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 6 } }}>
+                  <DatePicker 
+                    showTime
+                    placeholder="วันที่และเวลาสิ้นสุด"
+                    className="w-full h-10"
+                    format="DD/MM/YYYY HH:mm"
+                    onChange={(date, dateString) => {
+                      setFilters(v => ({ ...v, dateRange: { ...v.dateRange, end: date ? date.toISOString() : '' } }));
+                    }}
+                  />
+                </ConfigProvider>
               </div>
 
               <div className="flex gap-2">

@@ -91,7 +91,6 @@ const ActivityBanner: React.FC<ActivityBannerProps> = ({ activity }) => {
         sx={{
           position: 'relative',
           height: { xs: 200, sm: 250, md: 300 },
-          height: { xs: 200, sm: 250, md: 300 },
           background: getGradient(),
           display: 'flex',
           alignItems: 'flex-end',

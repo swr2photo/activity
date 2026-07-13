@@ -37,7 +37,7 @@ import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/firebaseAuth';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 import Link from 'next/link';
 import Image from 'next/image';
 
@@ -56,7 +56,7 @@ type RegistrationRecord = {
 };
 
 // Animation variants
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -64,7 +64,7 @@ const containerVariants = {
   },
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 24 },
   show: {
     opacity: 1,
@@ -686,11 +686,10 @@ const MyHistoryPage: React.FC = () => {
                                       textAlign: 'center',
                                       mt: 0.5,
                                       color: '#a1a1a6',
-                                      fontFamily: 'monospace',
                                       fontSize: '0.7rem',
                                     }}
                                   >
-                                    {record.activityCode}
+                                    {record.activityName}
                                   </Typography>
                                 </Grid>
                               </Grid>

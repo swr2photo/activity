@@ -86,9 +86,8 @@ import {
 } from '@mui/icons-material';
 
 import dayjs, { Dayjs } from 'dayjs';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { DatePicker, ConfigProvider } from 'antd';
+import thTH from 'antd/locale/th_TH';
 
 import {
   getAllActivities,
@@ -321,6 +320,15 @@ type CreateForm = {
   
   // Dynamic QR Code (Rolling QR)
   dynamicQREnabled: boolean;
+
+  // กิจกรรมย่อย (Sessions)
+  sessions: { id: string; name: string; startDateTime: Dayjs | null; endDateTime: Dayjs | null }[];
+
+  // แบบประเมิน (Survey)
+  surveyConfig: {
+    enabled: boolean;
+    questions: { id: string; type: 'text' | 'choice' | 'rating'; question: string; options?: string[]; required?: boolean }[];
+  };
 };
 
 const defaultForm: CreateForm = {
@@ -359,6 +367,8 @@ const defaultForm: CreateForm = {
   regCodeAssigned: 0,
   
   dynamicQREnabled: false,
+  sessions: [],
+  surveyConfig: { enabled: false, questions: [] },
 };
 
 interface Props {
@@ -696,6 +706,26 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         return setErrMsg('ตั้งค่ารหัสลงทะเบียนไม่ถูกต้อง (Prefix ต้องเป็น A-Z 1-6 ตัว และจำนวนรวมต้องมากกว่า 0)');
       }
 
+      // Check for overlapping sessions
+      if (form.sessions.length > 1) {
+        const sortedSessions = [...form.sessions].sort((a, b) => {
+          const aStart = a.startDateTime?.valueOf() || 0;
+          const bStart = b.startDateTime?.valueOf() || 0;
+          return aStart - bStart;
+        });
+        
+        for (let i = 0; i < sortedSessions.length - 1; i++) {
+          const curr = sortedSessions[i];
+          const next = sortedSessions[i + 1];
+          const currEnd = curr.endDateTime?.valueOf() || 0;
+          const nextStart = next.startDateTime?.valueOf() || 0;
+          
+          if (currEnd > nextStart) {
+            return setErrMsg(`รอบกิจกรรมย่อยซ้อนทับกัน: "${curr.name}" และ "${next.name}" มีเวลาที่คาบเกี่ยวกัน`);
+          }
+        }
+      }
+
       const userCode = (form.userCode || '').trim();
       const targetUrl = makeRegisterUrl(code);
 
@@ -740,6 +770,13 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         registrationCodeAssigned: shouldSaveReg ? 0 : undefined,
 
         dynamicQREnabled: form.dynamicQREnabled,
+
+        sessions: form.sessions.map(s => ({
+          ...s,
+          startDateTime: s.startDateTime?.toDate() || null,
+          endDateTime: s.endDateTime?.toDate() || null,
+        })),
+        surveyConfig: form.surveyConfig,
 
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -840,6 +877,18 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         regCodeAssigned: regAssigned,
         
         dynamicQREnabled: a.dynamicQREnabled ?? qr?.dynamicQREnabled ?? false,
+
+        sessions: a.sessions?.map(s => ({
+          ...s,
+          startDateTime: s.startDateTime ? dayjs(s.startDateTime) : null,
+          endDateTime: s.endDateTime ? dayjs(s.endDateTime) : null,
+        })) || qr?.sessions?.map((s: any) => ({
+          ...s,
+          startDateTime: s.startDateTime ? dayjs(s.startDateTime.toDate?.() ?? s.startDateTime) : null,
+          endDateTime: s.endDateTime ? dayjs(s.endDateTime.toDate?.() ?? s.endDateTime) : null,
+        })) || [],
+        
+        surveyConfig: a.surveyConfig ?? qr?.surveyConfig ?? { enabled: false, questions: [] },
       });
 
       setOpenEdit(true);
@@ -891,6 +940,27 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       // preserve counters (ไม่รีเซ็ตอัตโนมัติ)
       const regNext = Math.max(regStart, Number(form.regCodeNext || regStart));
       const regAssigned = Math.max(0, Number(form.regCodeAssigned || 0));
+
+      // Check for overlapping sessions
+      if (form.sessions.length > 1) {
+        const sortedSessions = [...form.sessions].sort((a, b) => {
+          const aStart = a.startDateTime?.valueOf() || 0;
+          const bStart = b.startDateTime?.valueOf() || 0;
+          return aStart - bStart;
+        });
+        
+        for (let i = 0; i < sortedSessions.length - 1; i++) {
+          const curr = sortedSessions[i];
+          const next = sortedSessions[i + 1];
+          const currEnd = curr.endDateTime?.valueOf() || 0;
+          const nextStart = next.startDateTime?.valueOf() || 0;
+          
+          if (currEnd > nextStart) {
+            setEditing(false);
+            return setErrMsg(`รอบกิจกรรมย่อยซ้อนทับกัน: "${curr.name}" และ "${next.name}" มีเวลาที่คาบเกี่ยวกัน`);
+          }
+        }
+      }
 
       // legacy
       try {
@@ -957,6 +1027,13 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           registrationCodeAssigned: shouldSaveReg ? regAssigned : undefined,
 
           dynamicQREnabled: form.dynamicQREnabled,
+
+          sessions: form.sessions.map(s => ({
+            ...s,
+            startDateTime: s.startDateTime?.toDate() || null,
+            endDateTime: s.endDateTime?.toDate() || null,
+          })),
+          surveyConfig: form.surveyConfig,
 
           updatedAt: serverTimestamp(),
           stateVersion: Date.now(),
@@ -1144,7 +1221,258 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     );
   };
 
-  const RegistrationSeriesSection: React.FC = () => {
+  const SessionsSection = () => {
+    return (
+      <Grid size={{ xs: 12 }}>
+        <Divider sx={{ my: 1 }} />
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          กิจกรรมย่อย / รอบกิจกรรม (Sessions)
+        </Typography>
+        <Stack spacing={2}>
+          {form.sessions.map((s, i) => (
+            <Card key={s.id} variant="outlined">
+              <CardContent sx={{ py: 1.5, px: 2 }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid size={{ xs: 12, md: 4 }}>
+                    <TextField
+                      label="ชื่อกิจกรรมย่อย"
+                      fullWidth
+                      size="small"
+                      value={s.name}
+                      onChange={(e) => {
+                        const newSessions = [...form.sessions];
+                        newSessions[i].name = e.target.value;
+                        updateForm('sessions', newSessions as any);
+                      }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 3 }}>
+                    <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                      <DatePicker
+                        showTime
+                        placeholder="เริ่ม"
+                        style={{ width: '100%', height: '40px' }}
+                        format="DD/MM/YYYY HH:mm"
+                        value={s.startDateTime}
+                        onChange={(val: any) => {
+                          const newSessions = [...form.sessions];
+                          newSessions[i].startDateTime = val;
+                          updateForm('sessions', newSessions as any);
+                        }}
+                        getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                      />
+                    </ConfigProvider>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 3 }}>
+                    <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                      <DatePicker
+                        showTime
+                        placeholder="สิ้นสุด"
+                        style={{ width: '100%', height: '40px' }}
+                        format="DD/MM/YYYY HH:mm"
+                        value={s.endDateTime}
+                        onChange={(val: any) => {
+                          const newSessions = [...form.sessions];
+                          newSessions[i].endDateTime = val;
+                          updateForm('sessions', newSessions as any);
+                        }}
+                        getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                      />
+                    </ConfigProvider>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 2 }} sx={{ textAlign: 'right' }}>
+                    <IconButton
+                      color="error"
+                      onClick={() => {
+                        const newSessions = form.sessions.filter((_, idx) => idx !== i);
+                        updateForm('sessions', newSessions as any);
+                      }}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          ))}
+          <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              updateForm('sessions', [
+                ...form.sessions,
+                { id: Date.now().toString(), name: '', startDateTime: null, endDateTime: null }
+              ] as any);
+            }}
+          >
+            เพิ่มรอบกิจกรรมย่อย
+          </Button>
+        </Stack>
+      </Grid>
+    );
+  };
+
+  const SurveyConfigSection = () => {
+    return (
+      <Grid size={{ xs: 12 }}>
+        <Divider sx={{ my: 1 }} />
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Typography variant="subtitle2">แบบประเมินเมื่อสิ้นสุดกิจกรรม (Survey)</Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={form.surveyConfig.enabled}
+                onChange={(e) => updateForm('surveyConfig', { ...form.surveyConfig, enabled: e.target.checked } as any)}
+              />
+            }
+            label="เปิดใช้งาน"
+          />
+        </Stack>
+
+        {form.surveyConfig.enabled && (
+          <Stack spacing={2}>
+            {form.surveyConfig.questions.map((q, i) => (
+              <Card key={q.id} variant="outlined">
+                <CardContent sx={{ py: 1.5, px: 2 }}>
+                  <Grid container spacing={2} alignItems="center">
+                    <Grid size={{ xs: 12, md: 6 }}>
+                      <TextField
+                        label="คำถาม"
+                        fullWidth
+                        size="small"
+                        value={q.question}
+                        onChange={(e) => {
+                          const newQs = [...form.surveyConfig.questions];
+                          newQs[i].question = e.target.value;
+                          updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                        }}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 3 }}>
+                      <TextField
+                        select
+                        label="ประเภท"
+                        fullWidth
+                        size="small"
+                        value={q.type}
+                        onChange={(e) => {
+                          const newQs = [...form.surveyConfig.questions];
+                          newQs[i].type = e.target.value as any;
+                          updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                        }}
+                        slotProps={{ select: { native: true } }}
+                      >
+                        <option value="text">ข้อความ</option>
+                        <option value="choice">ตัวเลือก</option>
+                        <option value="rating">ให้ดาว (1-5)</option>
+                      </TextField>
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 2 }}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={q.required || false}
+                            onChange={(e) => {
+                              const newQs = [...form.surveyConfig.questions];
+                              newQs[i].required = e.target.checked;
+                              updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                            }}
+                          />
+                        }
+                        label="จำเป็น"
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 1 }} sx={{ textAlign: 'right' }}>
+                      <IconButton
+                        color="error"
+                        onClick={() => {
+                          const newQs = form.surveyConfig.questions.filter((_, idx) => idx !== i);
+                          updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                        }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Grid>
+                    
+                    {/* Options for Choice type */}
+                    {q.type === 'choice' && (
+                      <Grid size={{ xs: 12 }}>
+                        <Stack spacing={1}>
+                          {(q.options || []).map((opt, optIdx) => (
+                            <Box key={optIdx} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <TextField
+                                label={`ตัวเลือกที่ ${optIdx + 1}`}
+                                fullWidth
+                                size="small"
+                                value={opt}
+                                onChange={(e) => {
+                                  const newQs = [...form.surveyConfig.questions];
+                                  const newOpts = [...(newQs[i].options || [])];
+                                  newOpts[optIdx] = e.target.value;
+                                  newQs[i].options = newOpts;
+                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                                }}
+                              />
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  const newQs = [...form.surveyConfig.questions];
+                                  const newOpts = [...(newQs[i].options || [])];
+                                  newOpts.splice(optIdx, 1);
+                                  newQs[i].options = newOpts;
+                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                          ))}
+                          <Button
+                            variant="text"
+                            size="small"
+                            startIcon={<AddIcon />}
+                            sx={{ alignSelf: 'flex-start' }}
+                            onClick={() => {
+                              const newQs = [...form.surveyConfig.questions];
+                              const newOpts = [...(newQs[i].options || [])];
+                              newOpts.push('');
+                              newQs[i].options = newOpts;
+                              updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                            }}
+                          >
+                            เพิ่มตัวเลือก
+                          </Button>
+                        </Stack>
+                      </Grid>
+                    )}
+                  </Grid>
+                </CardContent>
+              </Card>
+            ))}
+            <Button
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                updateForm('surveyConfig', {
+                  ...form.surveyConfig,
+                  questions: [
+                    ...form.surveyConfig.questions,
+                    { id: Date.now().toString(), type: 'text', question: '', required: false }
+                  ]
+                } as any);
+              }}
+            >
+              เพิ่มคำถาม
+            </Button>
+          </Stack>
+        )}
+      </Grid>
+    );
+  };
+
+
+  const RegistrationSeriesSection = () => {
     const enabled = !!form.regCodeEnabled;
     const invalidPrefix = enabled && !!form.regCodePrefix && !isValidPrefix(form.regCodePrefix);
     const invalidTotal = enabled && Number(form.regCodeTotal || 0) <= 0;
@@ -1514,7 +1842,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             </Alert>
           )}
 
-          <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <>
             <Grid container spacing={2}>
               {/* สังกัด */}
               <Grid size={{ xs: 12 }}>
@@ -1760,21 +2088,31 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
               {/* เวลา */}
               <Grid size={{ xs: 12, md: 6 }}>
-                <DateTimePicker
-                  label="เริ่มต้น"
-                  value={form.startDateTime}
-                  onChange={(value: any) => updateForm('startDateTime', value as any)}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
+                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                  <DatePicker
+                    showTime
+                    placeholder="วันที่และเวลาเริ่มต้น"
+                    style={{ width: '100%', height: '56px' }}
+                    format="DD/MM/YYYY HH:mm"
+                    value={form.startDateTime}
+                    onChange={(value: any) => updateForm('startDateTime', value as any)}
+                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                  />
+                </ConfigProvider>
               </Grid>
 
               <Grid size={{ xs: 12, md: 6 }}>
-                <DateTimePicker
-                  label="สิ้นสุด"
-                  value={form.endDateTime}
-                  onChange={(value: any) => updateForm('endDateTime', value as any)}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
+                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                  <DatePicker
+                    showTime
+                    placeholder="วันที่และเวลาสิ้นสุด"
+                    style={{ width: '100%', height: '56px' }}
+                    format="DD/MM/YYYY HH:mm"
+                    value={form.endDateTime}
+                    onChange={(value: any) => updateForm('endDateTime', value as any)}
+                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                  />
+                </ConfigProvider>
               </Grid>
 
               {/* options */}
@@ -1825,7 +2163,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               </Grid>
 
               {/* ✅ Registration code series */}
-              <RegistrationSeriesSection />
+              {RegistrationSeriesSection()}
+              {SessionsSection()}
+              {SurveyConfigSection()}
 
               {/* พรีวิว QR */}
               <Grid size={{ xs: 12 }}>
@@ -1846,7 +2186,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                 />
               </Grid>
             </Grid>
-          </LocalizationProvider>
+          </>
             </Paper>
           </Container>
         </DialogContent>
@@ -1984,7 +2324,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             </Alert>
           )}
 
-          <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 8 }}>
                 <TextField
@@ -2184,21 +2524,31 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
               {/* เวลา */}
               <Grid size={{ xs: 12, md: 6 }}>
-                <DateTimePicker
-                  label="เริ่มต้น"
-                  value={form.startDateTime}
-                  onChange={(value: any) => updateForm('startDateTime', value as any)}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
+                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                  <DatePicker
+                    showTime
+                    placeholder="วันที่และเวลาเริ่มต้น"
+                    style={{ width: '100%', height: '56px' }}
+                    format="DD/MM/YYYY HH:mm"
+                    value={form.startDateTime}
+                    onChange={(value: any) => updateForm('startDateTime', value as any)}
+                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                  />
+                </ConfigProvider>
               </Grid>
 
               <Grid size={{ xs: 12, md: 6 }}>
-                <DateTimePicker
-                  label="สิ้นสุด"
-                  value={form.endDateTime}
-                  onChange={(value: any) => updateForm('endDateTime', value as any)}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
+                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                  <DatePicker
+                    showTime
+                    placeholder="วันที่และเวลาสิ้นสุด"
+                    style={{ width: '100%', height: '56px' }}
+                    format="DD/MM/YYYY HH:mm"
+                    value={form.endDateTime}
+                    onChange={(value: any) => updateForm('endDateTime', value as any)}
+                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                  />
+                </ConfigProvider>
               </Grid>
 
               {/* options */}
@@ -2211,43 +2561,55 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                 />
               </Grid>
 
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  spacing={1}
-                  alignItems="center"
-                  justifyContent="flex-end"
-                  sx={{ height: '100%' }}
-                >
-                  <FormControlLabel
-                    control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked as any)} />}
-                    label="เปิดใช้งาน"
-                  />
-                  <FormControlLabel
-                    control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked as any)} />}
-                    label="เปิดให้สแกน QR"
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch checked={form.requiresUniversityLogin} onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked as any)} />
-                    }
-                    label="ต้องลงชื่อเข้าใช้มหาวิทยาลัย"
-                  />
-                  <FormControlLabel
-                    control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked as any)} />}
-                    label="Single-user mode"
-                  />
-                  <FormControlLabel
-                    control={<Switch checked={form.dynamicQREnabled} onChange={(e) => updateForm('dynamicQREnabled', e.target.checked as any)} />}
-                    label="เปิดใช้งาน Dynamic QR (จอ Rolling QR)"
-                  />
-                </Stack>
-              </Grid>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
+                  <Button
+                    variant={form.isActive ? 'contained' : 'outlined'}
+                    color={form.isActive ? 'success' : 'inherit'}
+                    onClick={() => updateForm('isActive', !form.isActive as any)}
+                    size="small"
+                  >
+                    เปิดใช้งาน
+                  </Button>
+                  <Button
+                    variant={form.scanEnabled ? 'contained' : 'outlined'}
+                    color={form.scanEnabled ? 'primary' : 'inherit'}
+                    onClick={() => updateForm('scanEnabled', !form.scanEnabled as any)}
+                    size="small"
+                  >
+                    เปิดให้สแกน QR
+                  </Button>
+                  <Button
+                    variant={form.requiresUniversityLogin ? 'contained' : 'outlined'}
+                    color={form.requiresUniversityLogin ? 'secondary' : 'inherit'}
+                    onClick={() => updateForm('requiresUniversityLogin', !form.requiresUniversityLogin as any)}
+                    size="small"
+                  >
+                    บังคับ Login มหาลัย
+                  </Button>
+                  <Button
+                    variant={form.singleUserMode ? 'contained' : 'outlined'}
+                    color={form.singleUserMode ? 'info' : 'inherit'}
+                    onClick={() => updateForm('singleUserMode', !form.singleUserMode as any)}
+                    size="small"
+                  >
+                    Single-user mode
+                  </Button>
+                  <Button
+                    variant={form.dynamicQREnabled ? 'contained' : 'outlined'}
+                    color={form.dynamicQREnabled ? 'warning' : 'inherit'}
+                    onClick={() => updateForm('dynamicQREnabled', !form.dynamicQREnabled as any)}
+                    size="small"
+                  >
+                    Dynamic QR
+                  </Button>
+                </Box>
 
               {/* ✅ Registration code series */}
-              <RegistrationSeriesSection />
+              {RegistrationSeriesSection()}
+              {SessionsSection()}
+              {SurveyConfigSection()}
             </Grid>
-          </LocalizationProvider>
+          </>
             </Paper>
           </Container>
         </DialogContent>
