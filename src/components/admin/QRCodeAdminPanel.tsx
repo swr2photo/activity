@@ -526,6 +526,181 @@ const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square')
   return canvas;
 };
 
+const FileConfigSection: React.FC<{
+  title: string;
+  files: ActivityFile[];
+  onChange: (files: ActivityFile[]) => void;
+  activityCode: string;
+  department: string;
+}> = ({ title, files = [], onChange, activityCode, department }) => {
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  const addFile = () => {
+    const newFile: ActivityFile = {
+      id: Date.now().toString(),
+      name: '',
+      url: '',
+      type: 'pdf',
+      description: '',
+    };
+    onChange([...files, newFile]);
+  };
+
+  const updateFile = (index: number, key: keyof ActivityFile, value: any) => {
+    const newFiles = [...files];
+    newFiles[index] = { ...newFiles[index], [key]: value };
+    onChange(newFiles);
+  };
+
+  const removeFile = (index: number) => {
+    onChange(files.filter((_, idx) => idx !== index));
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, idx: number, fileId: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingId(fileId);
+    try {
+      const ext = file.name.split('.').pop() || 'file';
+      const storagePath = `activity_files/${department}/${activityCode || 'temp'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+      const r = ref(storage, storagePath);
+      await uploadBytes(r, file);
+      const downloadUrl = await getDownloadURL(r);
+      
+      const newFiles = [...files];
+      newFiles[idx] = {
+        ...newFiles[idx],
+        url: downloadUrl,
+        name: newFiles[idx].name || file.name,
+      };
+      onChange(newFiles);
+    } catch (err: any) {
+      alert('อัปโหลดไฟล์ล้มเหลว: ' + err.message);
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  return (
+    <Box sx={{ mt: 1.5 }}>
+      <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <AttachFileIcon sx={{ fontSize: '1.1rem' }} /> {title} ({files.length})
+      </Typography>
+      
+      {files.length > 0 && (
+        <Stack spacing={1.5} sx={{ mb: 1.5 }}>
+          {files.map((file, idx) => (
+            <Box 
+              key={file.id} 
+              sx={{ 
+                p: 1.5, 
+                border: '1px dashed', 
+                borderColor: 'divider', 
+                borderRadius: 2, 
+                bgcolor: 'action.hover' 
+              }}
+            >
+              <Grid container spacing={1.5} alignItems="center">
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <TextField
+                    label="ชื่อเอกสาร/หัวข้อข้อความ"
+                    size="small"
+                    fullWidth
+                    value={file.name}
+                    onChange={(e) => updateFile(idx, 'name', e.target.value)}
+                    placeholder="เช่น คู่มืออบรม.pdf"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 3 }}>
+                  <TextField
+                    select
+                    label="ประเภท"
+                    size="small"
+                    fullWidth
+                    value={file.type}
+                    onChange={(e) => updateFile(idx, 'type', e.target.value)}
+                    slotProps={{ select: { native: true } }}
+                  >
+                    <option value="pdf">ไฟล์ PDF</option>
+                    <option value="image">รูปภาพ (Image)</option>
+                    <option value="link">ลิงก์เว็บไซต์ (Link)</option>
+                    <option value="text">ข้อความ/คำอธิบาย (Text)</option>
+                  </TextField>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <TextField
+                      label={file.type === 'text' ? 'ข้อความ/คำอธิบาย' : 'URL ของไฟล์/ลิงก์'}
+                      size="small"
+                      fullWidth
+                      value={file.url}
+                      onChange={(e) => updateFile(idx, 'url', e.target.value)}
+                      placeholder={file.type === 'text' ? 'กรอกรายละเอียดข้อความที่นี่' : 'https://...'}
+                    />
+                    {file.type !== 'text' && (
+                      <Box>
+                        <input
+                          accept={file.type === 'image' ? 'image/*' : 'application/pdf,*/*'}
+                          style={{ display: 'none' }}
+                          id={`upload-file-btn-${file.id}`}
+                          type="file"
+                          onChange={(e) => handleFileUpload(e, idx, file.id)}
+                          disabled={uploadingId !== null}
+                        />
+                        <label htmlFor={`upload-file-btn-${file.id}`}>
+                          <Button
+                            variant="outlined"
+                            component="span"
+                            size="small"
+                            disabled={uploadingId !== null}
+                            sx={{ height: 40, px: 2, minWidth: '95px' }}
+                          >
+                            {uploadingId === file.id ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              'อัปโหลด'
+                            )}
+                          </Button>
+                        </label>
+                      </Box>
+                    )}
+                  </Stack>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 1 }} sx={{ textAlign: 'right' }}>
+                  <IconButton size="small" color="error" onClick={() => removeFile(idx)}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    label="รายละเอียดเพิ่มเติม (ระบุหรือไม่ก็ได้)"
+                    size="small"
+                    fullWidth
+                    value={file.description || ''}
+                    onChange={(e) => updateFile(idx, 'description', e.target.value)}
+                    placeholder="เช่น ให้อ่านก่อนเข้าร่วมกิจกรรม..."
+                  />
+                </Grid>
+              </Grid>
+            </Box>
+          ))}
+        </Stack>
+      )}
+      
+      <Button
+        variant="outlined"
+        size="small"
+        startIcon={<AddIcon />}
+        onClick={addFile}
+        sx={{ borderRadius: 2 }}
+      >
+        เพิ่มไฟล์/ลิงก์/ข้อความ
+      </Button>
+    </Box>
+  );
+};
+
 /* ===================== Main ===================== */
 interface QRCodeAdminPanelProps {
   currentAdmin: AdminProfile;
@@ -1237,126 +1412,6 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     );
   };
 
-  const FileConfigSection = ({ 
-    title, 
-    files = [], 
-    onChange 
-  }: { 
-    title: string; 
-    files: ActivityFile[]; 
-    onChange: (files: ActivityFile[]) => void;
-  }) => {
-    const addFile = () => {
-      const newFile: ActivityFile = {
-        id: Date.now().toString(),
-        name: '',
-        url: '',
-        type: 'pdf',
-        description: '',
-      };
-      onChange([...files, newFile]);
-    };
-
-    const updateFile = (index: number, key: keyof ActivityFile, value: any) => {
-      const newFiles = [...files];
-      newFiles[index] = { ...newFiles[index], [key]: value };
-      onChange(newFiles);
-    };
-
-    const removeFile = (index: number) => {
-      onChange(files.filter((_, idx) => idx !== index));
-    };
-
-    return (
-      <Box sx={{ mt: 1.5 }}>
-        <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <AttachFileIcon sx={{ fontSize: '1.1rem' }} /> {title} ({files.length})
-        </Typography>
-        
-        {files.length > 0 && (
-          <Stack spacing={1.5} sx={{ mb: 1.5 }}>
-            {files.map((file, idx) => (
-              <Box 
-                key={file.id} 
-                sx={{ 
-                  p: 1.5, 
-                  border: '1px dashed', 
-                  borderColor: 'divider', 
-                  borderRadius: 2, 
-                  bgcolor: 'action.hover' 
-                }}
-              >
-                <Grid container spacing={1.5} alignItems="center">
-                  <Grid size={{ xs: 12, sm: 4 }}>
-                    <TextField
-                      label="ชื่อเอกสาร/หัวข้อข้อความ"
-                      size="small"
-                      fullWidth
-                      value={file.name}
-                      onChange={(e) => updateFile(idx, 'name', e.target.value)}
-                      placeholder="เช่น คู่มืออบรม.pdf"
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 3 }}>
-                    <TextField
-                      select
-                      label="ประเภท"
-                      size="small"
-                      fullWidth
-                      value={file.type}
-                      onChange={(e) => updateFile(idx, 'type', e.target.value)}
-                      slotProps={{ select: { native: true } }}
-                    >
-                      <option value="pdf">ไฟล์ PDF</option>
-                      <option value="image">รูปภาพ (Image)</option>
-                      <option value="link">ลิงก์เว็บไซต์ (Link)</option>
-                      <option value="text">ข้อความ/คำอธิบาย (Text)</option>
-                    </TextField>
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 4 }}>
-                    <TextField
-                      label={file.type === 'text' ? 'ข้อความ/คำอธิบาย' : 'URL ของไฟล์/ลิงก์'}
-                      size="small"
-                      fullWidth
-                      value={file.url}
-                      onChange={(e) => updateFile(idx, 'url', e.target.value)}
-                      placeholder={file.type === 'text' ? 'กรอกรายละเอียดข้อความที่นี่' : 'https://...'}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 1 }} sx={{ textAlign: 'right' }}>
-                    <IconButton size="small" color="error" onClick={() => removeFile(idx)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
-                    <TextField
-                      label="รายละเอียดเพิ่มเติม (ระบุหรือไม่ก็ได้)"
-                      size="small"
-                      fullWidth
-                      value={file.description || ''}
-                      onChange={(e) => updateFile(idx, 'description', e.target.value)}
-                      placeholder="เช่น ให้อ่านก่อนเข้าร่วมกิจกรรม..."
-                    />
-                  </Grid>
-                </Grid>
-              </Box>
-            ))}
-          </Stack>
-        )}
-        
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={<AddIcon />}
-          onClick={addFile}
-          sx={{ borderRadius: 2 }}
-        >
-          เพิ่มไฟล์/ลิงก์/ข้อความ
-        </Button>
-      </Box>
-    );
-  };
-
   const MainActivityFilesSection = () => {
     return (
       <Grid size={{ xs: 12 }}>
@@ -1365,6 +1420,8 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           title="เอกสาร/ไฟล์แนบ/ข้อความ สำหรับกิจกรรมหลัก"
           files={form.files || []}
           onChange={(newFiles) => updateForm('files', newFiles as any)}
+          activityCode={form.activityCode}
+          department={currentAdmin.department}
         />
       </Grid>
     );
@@ -1449,6 +1506,8 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                         newSessions[i].files = newFiles;
                         updateForm('sessions', newSessions as any);
                       }}
+                      activityCode={form.activityCode}
+                      department={currentAdmin.department}
                     />
                   </Grid>
                 </Grid>
