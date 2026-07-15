@@ -48,11 +48,72 @@ export default function SurveyForm({
     e.preventDefault();
     setError('');
 
-    // Validate required fields
+    // Validate required fields and custom validation rules
     for (const q of surveyConfig.questions) {
-      if (q.required && (!answers[q.id] || answers[q.id].trim() === '')) {
-        setError('กรุณาตอบคำถามที่จำเป็นให้ครบถ้วน');
+      const valRaw = answers[q.id] || '';
+      const val = valRaw.trim();
+      
+      if (q.required && val === '') {
+        setError(`กรุณาตอบคำถาม: ${q.question}`);
         return;
+      }
+
+      if (val !== '' && q.type === 'text') {
+        const type = q.validationType || 'any';
+        const allowSpaces = q.allowSpaces !== false; // default true
+        const prefix = q.prefix || '';
+        const postfix = q.postfix || '';
+
+        // Check prefix
+        if (prefix && !val.startsWith(prefix)) {
+          setError(`คำถาม "${q.question}" ต้องเริ่มต้นด้วย "${prefix}"`);
+          return;
+        }
+
+        // Check postfix
+        if (postfix && !val.endsWith(postfix)) {
+          setError(`คำถาม "${q.question}" ต้องลงท้ายด้วย "${postfix}"`);
+          return;
+        }
+
+        // Check character rules
+        let cleanVal = val;
+        // strip prefix and postfix for character checks
+        if (prefix && cleanVal.startsWith(prefix)) {
+          cleanVal = cleanVal.substring(prefix.length);
+        }
+        if (postfix && cleanVal.endsWith(postfix)) {
+          cleanVal = cleanVal.substring(0, cleanVal.length - postfix.length);
+        }
+
+        if (!allowSpaces && cleanVal.includes(' ')) {
+          setError(`คำถาม "${q.question}" ห้ามมีเว้นวรรค`);
+          return;
+        }
+
+        const checkVal = allowSpaces ? cleanVal.replace(/\s+/g, '') : cleanVal;
+
+        if (type === 'number') {
+          if (!/^\d+$/.test(checkVal)) {
+            setError(`คำถาม "${q.question}" ต้องเป็นตัวเลขเท่านั้น`);
+            return;
+          }
+        } else if (type === 'thai') {
+          if (!/^[ก-๙]+$/.test(checkVal)) {
+            setError(`คำถาม "${q.question}" ต้องเป็นภาษาไทยเท่านั้น`);
+            return;
+          }
+        } else if (type === 'english') {
+          if (!/^[a-zA-Z]+$/.test(checkVal)) {
+            setError(`คำถาม "${q.question}" ต้องเป็นภาษาอังกฤษเท่านั้น`);
+            return;
+          }
+        } else if (type === 'email') {
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+            setError(`คำถาม "${q.question}" ต้องเป็นรูปแบบอีเมลที่ถูกต้อง`);
+            return;
+          }
+        }
       }
     }
 

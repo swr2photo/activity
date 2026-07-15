@@ -1706,6 +1706,84 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                       </IconButton>
                     </Grid>
                     
+                    {/* Options for Text validation type */}
+                    {q.type === 'text' && (
+                      <Grid size={{ xs: 12 }}>
+                        <Box sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 2, border: '1px dashed', borderColor: 'divider' }}>
+                          <Typography variant="caption" fontWeight={700} sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+                            เงื่อนไขความถูกต้องของคำตอบ (Validation)
+                          </Typography>
+                          <Grid container spacing={1.5}>
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                              <TextField
+                                select
+                                label="ประเภทข้อมูล"
+                                fullWidth
+                                size="small"
+                                value={q.validationType || 'any'}
+                                onChange={(e) => {
+                                  const newQs = [...form.surveyConfig.questions];
+                                  newQs[i] = { ...newQs[i], validationType: e.target.value as any };
+                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                                }}
+                                slotProps={{ select: { native: true } }}
+                              >
+                                <option value="any">ทั่วไป (ใดๆ)</option>
+                                <option value="number">ตัวเลขเท่านั้น</option>
+                                <option value="thai">ภาษาไทยเท่านั้น</option>
+                                <option value="english">ภาษาอังกฤษเท่านั้น</option>
+                                <option value="email">รูปแบบอีเมล</option>
+                              </TextField>
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                              <TextField
+                                label="มีคำขึ้นต้น (Prefix)"
+                                fullWidth
+                                size="small"
+                                value={q.prefix || ''}
+                                onChange={(e) => {
+                                  const newQs = [...form.surveyConfig.questions];
+                                  newQs[i] = { ...newQs[i], prefix: e.target.value };
+                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                                }}
+                                placeholder="เช่น 6 หรือ 08"
+                              />
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                              <TextField
+                                label="มีคำลงท้าย (Postfix)"
+                                fullWidth
+                                size="small"
+                                value={q.postfix || ''}
+                                onChange={(e) => {
+                                  const newQs = [...form.surveyConfig.questions];
+                                  newQs[i] = { ...newQs[i], postfix: e.target.value };
+                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                                }}
+                                placeholder="เช่น .txt"
+                              />
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                              <FormControlLabel
+                                control={
+                                  <Switch
+                                    checked={q.allowSpaces !== false}
+                                    disabled={q.validationType === 'email' || q.validationType === 'number'}
+                                    onChange={(e) => {
+                                      const newQs = [...form.surveyConfig.questions];
+                                      newQs[i] = { ...newQs[i], allowSpaces: e.target.checked };
+                                      updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                                    }}
+                                  />
+                                }
+                                label="อนุญาตเว้นวรรค"
+                              />
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      </Grid>
+                    )}
+
                     {/* Options for Choice type */}
                     {q.type === 'choice' && (
                       <Grid size={{ xs: 12 }}>

@@ -203,6 +203,10 @@ export interface SurveyQuestion {
   question: string;
   options?: string[]; // สำหรับ type 'choice'
   required?: boolean;
+  validationType?: 'any' | 'number' | 'thai' | 'english' | 'email';
+  allowSpaces?: boolean;
+  prefix?: string;
+  postfix?: string;
 }
 
 export interface SurveyConfig {
@@ -320,7 +324,11 @@ export const getAllActivities = async (): Promise<Activity[]> => {
       forceRefresh: data.forceRefresh === true,
       singleUserMode: data.singleUserMode === true,
       requiresUniversityLogin: data.requiresUniversityLogin === true,
-      sessions: data.sessions,
+      sessions: data.sessions?.map((s: any) => ({
+        ...s,
+        startDateTime: toDateSafe(s.startDateTime),
+        endDateTime: toDateSafe(s.endDateTime),
+      })),
       surveyConfig: data.surveyConfig,
       files: data.files,
     } as Activity;
@@ -376,7 +384,11 @@ export const getActivitiesByDepartment = async (
       dynamicQREnabled: data.dynamicQREnabled === true,
       dynamicToken: data.dynamicToken,
       previousDynamicToken: data.previousDynamicToken,
-      sessions: data.sessions,
+      sessions: data.sessions?.map((s: any) => ({
+        ...s,
+        startDateTime: toDateSafe(s.startDateTime),
+        endDateTime: toDateSafe(s.endDateTime),
+      })),
       surveyConfig: data.surveyConfig,
       files: data.files,
     } as Activity;
@@ -415,7 +427,11 @@ export const subscribeActivities = (
       dynamicQREnabled: data.dynamicQREnabled === true,
       dynamicToken: data.dynamicToken,
       previousDynamicToken: data.previousDynamicToken,
-      sessions: data.sessions,
+      sessions: data.sessions?.map((s: any) => ({
+        ...s,
+        startDateTime: toDateSafe(s.startDateTime),
+        endDateTime: toDateSafe(s.endDateTime),
+      })),
       surveyConfig: data.surveyConfig,
       files: data.files,
     } as Activity;
