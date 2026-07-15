@@ -1162,6 +1162,30 @@ const RegisterPageContent: React.FC = () => {
     return now >= endTime && now <= windowClose;
   }, [activityData, statusInfo]);
 
+  // ตรวจว่า user มีสิทธิ์ทำแบบประเมินตามเงื่อนไข session eligibility
+  const isEligibleForSurvey = useMemo(() => {
+    if (!hasRegisteredRecord) return false;
+    if (!activityData?.sessions || activityData.sessions.length === 0) {
+      // ไม่มี sessions → ลงทะเบียนแล้วทำได้เลย
+      return true;
+    }
+    const cfg = activityData.surveyConfig as any;
+    const mode: 'any' | 'all' | 'specific' = cfg?.sessionEligibility ?? 'any';
+
+    if (mode === 'all') {
+      // ต้องเช็กอินครบทุก session
+      return activityData.sessions.every((s: any) => checkedInSessions.includes(s.id));
+    }
+    if (mode === 'specific') {
+      // ต้องเช็กอินครบทุก session ที่ Admin กำหนด
+      const required: string[] = cfg?.requiredSessionIds ?? [];
+      if (required.length === 0) return checkedInSessions.length > 0; // fallback = any
+      return required.every((id: string) => checkedInSessions.includes(id));
+    }
+    // mode = 'any' (default) → เช็กอินอย่างน้อย 1 อัน
+    return checkedInSessions.length > 0;
+  }, [hasRegisteredRecord, activityData, checkedInSessions]);
+
   return (
     <>
       <NavigationBar
@@ -1445,7 +1469,7 @@ const RegisterPageContent: React.FC = () => {
           )}
 
           {/* แบบประเมินหลังกิจกรรมสิ้นสุด — แสดงเฉพาะในช่วงเวลาที่กำหนด */}
-          {isSurveyWindowOpen && hasRegisteredRecord && user && !surveyCompleted && activityData && (
+          {isSurveyWindowOpen && isEligibleForSurvey && user && !surveyCompleted && activityData && (
             <SurveyForm
               activityCode={activityCode}
               activityDocId={activityData.id}
@@ -1459,7 +1483,7 @@ const RegisterPageContent: React.FC = () => {
           )}
 
           {/* ขอบคุณที่ทำแบบประเมินแล้ว */}
-          {isSurveyWindowOpen && hasRegisteredRecord && user && surveyCompleted && (
+          {isSurveyWindowOpen && isEligibleForSurvey && user && surveyCompleted && (
             <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
               ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว
             </Alert>

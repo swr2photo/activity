@@ -208,7 +208,9 @@ export interface SurveyQuestion {
 export interface SurveyConfig {
   enabled: boolean;
   questions: SurveyQuestion[];
-  surveyOpenMinutes?: number; // นาทีที่เปิดให้ทำแบบประเมินหลังกิจกรรมสิ้นสุด (default: 60)
+  surveyOpenMinutes?: number;          // นาทีที่เปิดให้ทำแบบประเมินหลังกิจกรรมสิ้นสุด (default: 60)
+  sessionEligibility?: 'any' | 'all' | 'specific'; // เงื่อนไขว่าต้องเช็กอิน session ไหนบ้าง (default: 'any')
+  requiredSessionIds?: string[];       // ใช้เมื่อ sessionEligibility = 'specific'
 }
 
 export interface ActivitySession {

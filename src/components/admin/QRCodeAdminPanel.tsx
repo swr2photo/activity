@@ -47,6 +47,8 @@ import {
   Toolbar,
   Slide,
   Autocomplete,
+  Radio,
+  Checkbox,
 } from '@mui/material';
 
 const LOCATION_OPTIONS = [
@@ -327,7 +329,9 @@ type CreateForm = {
   // แบบประเมิน (Survey)
   surveyConfig: {
     enabled: boolean;
-    surveyOpenMinutes: number; // นาทีที่เปิดให้ทำแบบประเมินหลังกิจกรรมสิ้นสุด
+    surveyOpenMinutes: number;
+    sessionEligibility: 'any' | 'all' | 'specific';
+    requiredSessionIds: string[];
     questions: { id: string; type: 'text' | 'choice' | 'rating'; question: string; options?: string[]; required?: boolean }[];
   };
 };
@@ -369,7 +373,7 @@ const defaultForm: CreateForm = {
   
   dynamicQREnabled: false,
   sessions: [],
-  surveyConfig: { enabled: false, surveyOpenMinutes: 60, questions: [] },
+  surveyConfig: { enabled: false, surveyOpenMinutes: 60, sessionEligibility: 'any', requiredSessionIds: [], questions: [] },
 };
 
 interface Props {
@@ -1346,6 +1350,73 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               slotProps={{ htmlInput: { min: 1, max: 10080 } }}
               helperText={`แบบประเมินจะเปิดให้ทำได้ ${form.surveyConfig.surveyOpenMinutes ?? 60} นาที หลังจากกิจกรรมสิ้นสุด (สูงสุด 10,080 นาที = 7 วัน)`}
             />
+            {/* เงื่อนไขการเข้าถึงแบบประเมิน */}
+            <Box>
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>เงื่อนไขการเข้าถึงแบบประเมิน</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                กำหนดว่าผู้ใช้ต้องเช็กอินกิจกรรมย่อยใดบ้าง จึงจะมีสิทธิ์ทำแบบประเมิน
+              </Typography>
+              <Stack spacing={1}>
+                {(['any', 'all', 'specific'] as const).map((mode) => (
+                  <FormControlLabel
+                    key={mode}
+                    control={
+                      <Radio
+                        size="small"
+                        checked={(form.surveyConfig as any).sessionEligibility === mode || (mode === 'any' && !(form.surveyConfig as any).sessionEligibility)}
+                        onChange={() => updateForm('surveyConfig', { ...form.surveyConfig, sessionEligibility: mode } as any)}
+                      />
+                    }
+                    label={
+                      mode === 'any' ? 'เช็กอินอย่างน้อย 1 กิจกรรมย่อย (ค่าเริ่มต้น)'
+                      : mode === 'all' ? 'ต้องเช็กอินครบทุกกิจกรรมย่อย'
+                      : 'กำหนดเองว่าต้องเช็กอินกิจกรรมย่อยใดบ้าง'
+                    }
+                  />
+                ))}
+              </Stack>
+
+              {/* Checkbox list เมื่อเลือก specific */}
+              {(form.surveyConfig as any).sessionEligibility === 'specific' && (
+                <Box sx={{ mt: 1.5, pl: 2, borderLeft: '3px solid', borderColor: 'primary.main' }}>
+                  {form.sessions.length === 0 ? (
+                    <Typography variant="caption" color="warning.main">
+                      ยังไม่มีกิจกรรมย่อย กรุณาเพิ่มรอบกิจกรรมย่อยก่อน
+                    </Typography>
+                  ) : (
+                    <Stack spacing={0.5}>
+                      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
+                        เลือกกิจกรรมย่อยที่ต้องเช็กอิน (เลือกได้หลายอัน):
+                      </Typography>
+                      {form.sessions.map((s) => {
+                        const rid = (form.surveyConfig as any).requiredSessionIds ?? [];
+                        const checked = rid.includes(s.id);
+                        return (
+                          <FormControlLabel
+                            key={s.id}
+                            control={
+                              <Checkbox
+                                size="small"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const current: string[] = [...((form.surveyConfig as any).requiredSessionIds ?? [])];
+                                  const next = e.target.checked
+                                    ? [...current, s.id]
+                                    : current.filter((id) => id !== s.id);
+                                  updateForm('surveyConfig', { ...form.surveyConfig, requiredSessionIds: next } as any);
+                                }}
+                              />
+                            }
+                            label={s.name || `รอบ ${s.id}`}
+                          />
+                        );
+                      })}
+                    </Stack>
+                  )}
+                </Box>
+              )}
+            </Box>
+
             {form.surveyConfig.questions.map((q, i) => (
               <Card key={q.id} variant="outlined">
                 <CardContent sx={{ py: 1.5, px: 2 }}>
