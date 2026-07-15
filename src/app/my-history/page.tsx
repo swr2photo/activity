@@ -31,6 +31,11 @@ import {
   AccessTime,
   CheckCircleOutline,
   ArrowBack,
+  Assignment as SurveyIcon,
+  Launch as LaunchIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  Description as FileIcon,
 } from '@mui/icons-material';
 import { collection, query, where, getDocs, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -53,6 +58,10 @@ type RegistrationRecord = {
   timestamp: Date;
   location?: string;
   bannerUrl?: string;
+  surveyEnabled?: boolean;
+  surveyCompleted?: boolean;
+  files?: any[];
+  sessions?: any[];
 };
 
 // Animation variants
@@ -89,6 +98,7 @@ const MyHistoryPage: React.FC = () => {
   const [records, setRecords] = useState<RegistrationRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   // Fetch registration records for this user
   useEffect(() => {
@@ -121,9 +131,20 @@ const MyHistoryPage: React.FC = () => {
           };
         });
 
-        // Enrich with activity info (name, location, banner) from activityQRCodes
+        // Fetch survey responses to check completion
+        let completedSurveyCodes = new Set<string>();
+        if (user?.uid) {
+          const surveyQ = query(
+            collection(db, 'surveyResponses'),
+            where('userId', '==', user.uid)
+          );
+          const surveySnap = await getDocs(surveyQ);
+          completedSurveyCodes = new Set(surveySnap.docs.map(d => (d.data().activityCode || '').toUpperCase()));
+        }
+
+        // Enrich with activity info (name, location, banner, surveyConfig, files, sessions) from activityQRCodes
         const uniqueCodes = [...new Set(rawRecords.map((r) => r.activityCode))];
-        const activityMap: Record<string, { activityName?: string; location?: string; bannerUrl?: string }> = {};
+        const activityMap: Record<string, { activityName?: string; location?: string; bannerUrl?: string; surveyEnabled?: boolean; files?: any[]; sessions?: any[] }> = {};
 
         // Batch fetch activity info
         for (const code of uniqueCodes) {
@@ -139,6 +160,9 @@ const MyHistoryPage: React.FC = () => {
                 activityName: actData.activityName || code,
                 location: actData.location,
                 bannerUrl: actData.bannerUrl,
+                surveyEnabled: actData.surveyConfig?.enabled || false,
+                files: actData.files || [],
+                sessions: actData.sessions || [],
               };
             }
           } catch {
@@ -152,6 +176,10 @@ const MyHistoryPage: React.FC = () => {
           activityName: activityMap[r.activityCode]?.activityName || r.activityCode,
           location: activityMap[r.activityCode]?.location,
           bannerUrl: activityMap[r.activityCode]?.bannerUrl,
+          surveyEnabled: activityMap[r.activityCode]?.surveyEnabled || false,
+          surveyCompleted: completedSurveyCodes.has(r.activityCode.toUpperCase()),
+          files: activityMap[r.activityCode]?.files || [],
+          sessions: activityMap[r.activityCode]?.sessions || [],
         }));
 
         // Sort by timestamp desc
@@ -166,7 +194,7 @@ const MyHistoryPage: React.FC = () => {
     };
 
     fetchRecords();
-  }, [userData?.studentId]);
+  }, [userData?.studentId, user?.uid]);
 
   // Filtered records
   const filteredRecords = useMemo(() => {
@@ -663,38 +691,190 @@ const MyHistoryPage: React.FC = () => {
                                   </Stack>
                                 </Grid>
 
-                                {/* Status Badge */}
-                                <Grid size={{ xs: 'auto' }}>
-                                  <Chip
-                                    icon={<CheckCircleOutline sx={{ fontSize: '1rem !important' }} />}
-                                    label="ลงทะเบียนแล้ว"
-                                    size="small"
-                                    sx={{
-                                      bgcolor: 'rgba(52, 199, 89, 0.12)',
-                                      color: '#248a3d',
-                                      fontWeight: 700,
-                                      fontSize: '0.78rem',
-                                      border: '1px solid rgba(52, 199, 89, 0.2)',
-                                      borderRadius: '10px',
-                                      px: 0.5,
-                                    }}
-                                  />
-                                  <Typography
-                                    variant="caption"
-                                    sx={{
-                                      display: 'block',
-                                      textAlign: 'center',
-                                      mt: 0.5,
-                                      color: '#a1a1a6',
-                                      fontSize: '0.7rem',
-                                    }}
-                                  >
-                                    {record.activityName}
-                                  </Typography>
-                                </Grid>
-                              </Grid>
-                            </CardContent>
-                          </Card>
+                                 {/* Status Badge */}
+                                 <Grid size={{ xs: 12, md: 'auto' }} sx={{ display: 'flex', flexDirection: { xs: 'row', md: 'column' }, gap: 1, alignItems: 'center', justifyContent: { xs: 'flex-start', md: 'center' } }}>
+                                   <Chip
+                                     icon={<CheckCircleOutline sx={{ fontSize: '1rem !important' }} />}
+                                     label="ลงทะเบียนแล้ว"
+                                     size="small"
+                                     sx={{
+                                       bgcolor: 'rgba(52, 199, 89, 0.12)',
+                                       color: '#248a3d',
+                                       fontWeight: 700,
+                                       fontSize: '0.78rem',
+                                       border: '1px solid rgba(52, 199, 89, 0.2)',
+                                       borderRadius: '10px',
+                                       px: 0.5,
+                                     }}
+                                   />
+                                   
+                                   {record.surveyEnabled && (
+                                     record.surveyCompleted ? (
+                                       <Chip
+                                         icon={<SurveyIcon sx={{ fontSize: '0.9rem !important' }} />}
+                                         label="ทำแบบประเมินแล้ว"
+                                         size="small"
+                                         color="success"
+                                         sx={{
+                                           fontWeight: 700,
+                                           fontSize: '0.78rem',
+                                           borderRadius: '10px',
+                                           px: 0.5,
+                                         }}
+                                       />
+                                     ) : (
+                                       <Button
+                                         component={Link}
+                                         href={`/register?activity=${record.activityCode}`}
+                                         variant="contained"
+                                         color="warning"
+                                         size="small"
+                                         startIcon={<SurveyIcon />}
+                                         sx={{
+                                           fontWeight: 700,
+                                           fontSize: '0.75rem',
+                                           borderRadius: '10px',
+                                           py: 0.4,
+                                           px: 1.5,
+                                           textTransform: 'none',
+                                           boxShadow: 'none',
+                                           '&:hover': { boxShadow: 'none', bgcolor: 'warning.dark' }
+                                         }}
+                                       >
+                                         ทำแบบประเมิน
+                                       </Button>
+                                     )
+                                   )}
+                                 </Grid>
+                               </Grid>
+
+                               {/* Expand Toggle Button Row */}
+                               <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, pt: 1, borderTop: '1px solid rgba(0,0,0,0.04)' }}>
+                                 <Button
+                                   size="small"
+                                   variant="text"
+                                   startIcon={expandedCards[record.id] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                                   onClick={() => setExpandedCards(prev => ({ ...prev, [record.id]: !prev[record.id] }))}
+                                   sx={{ fontSize: '0.8rem', color: '#86868b', textTransform: 'none', fontWeight: 600 }}
+                                 >
+                                   {expandedCards[record.id] ? 'ซ่อนเอกสารและรายละเอียด' : 'ดูเอกสารและรายละเอียด'}
+                                 </Button>
+                               </Box>
+                             </CardContent>
+
+                             {/* Expanded Content Box (Files and Session Info) */}
+                             <AnimatePresence>
+                               {expandedCards[record.id] && (
+                                 <motion.div
+                                   initial={{ height: 0, opacity: 0 }}
+                                   animate={{ height: 'auto', opacity: 1 }}
+                                   exit={{ height: 0, opacity: 0 }}
+                                   transition={{ duration: 0.25 }}
+                                   style={{ overflow: 'hidden' }}
+                                 >
+                                   <Box sx={{ p: { xs: 2, md: 3 }, pt: 0, bgcolor: 'rgba(0,0,0,0.015)', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                                     {/* Main Activity Files */}
+                                     {record.files && record.files.length > 0 && (
+                                       <Box sx={{ mt: 2 }}>
+                                         <Typography variant="subtitle2" fontWeight={800} sx={{ color: '#1d1d1f', mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                           <FileIcon sx={{ fontSize: '1rem', color: '#0071e3' }} /> เอกสารและข้อมูลประกอบกิจกรรมหลัก
+                                         </Typography>
+                                         <Stack spacing={1} sx={{ pl: 1 }}>
+                                           {record.files.map((file: any) => (
+                                             <Box key={file.id} sx={{ p: 1.5, border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', bgcolor: '#ffffff' }}>
+                                               <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                                                 <Box sx={{ flexGrow: 1 }}>
+                                                   <Typography variant="body2" fontWeight={700} color="#1d1d1f">{file.name}</Typography>
+                                                   {file.description && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.2 }}>{file.description}</Typography>}
+                                                 </Box>
+                                                 {file.type === 'text' ? (
+                                                   <Box sx={{ bgcolor: 'grey.50', p: 1, borderRadius: '8px', border: '1px solid rgba(0,0,0,0.05)', maxWidth: '60%', minWidth: '150px' }}>
+                                                     <Typography variant="caption" color="text.primary" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', display: 'block' }}>
+                                                       {file.url}
+                                                     </Typography>
+                                                   </Box>
+                                                 ) : (
+                                                   <Button
+                                                     size="small"
+                                                     variant="outlined"
+                                                     startIcon={<LaunchIcon />}
+                                                     href={file.url}
+                                                     target="_blank"
+                                                     rel="noopener noreferrer"
+                                                     sx={{ borderRadius: '8px', textTransform: 'none', px: 2 }}
+                                                   >
+                                                     เปิดดู
+                                                   </Button>
+                                                 )}
+                                               </Stack>
+                                             </Box>
+                                           ))}
+                                         </Stack>
+                                       </Box>
+                                     )}
+
+                                     {/* Sub-activities (Sessions) Files */}
+                                     {record.sessions && record.sessions.length > 0 && (
+                                       <Box sx={{ mt: 2.5 }}>
+                                         <Typography variant="subtitle2" fontWeight={800} sx={{ color: '#1d1d1f', mb: 1.2 }}>
+                                           กิจกรรมย่อย / รอบกิจกรรม
+                                         </Typography>
+                                         <Stack spacing={1.5} sx={{ pl: 1 }}>
+                                           {record.sessions.map((sess: any) => (
+                                             <Box key={sess.id} sx={{ p: 1.5, border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', bgcolor: '#ffffff' }}>
+                                               <Typography variant="body2" fontWeight={750} color="#1d1d1f">{sess.name}</Typography>
+                                               {sess.files && sess.files.length > 0 ? (
+                                                 <Stack spacing={1} sx={{ mt: 1, pl: 1 }}>
+                                                   {sess.files.map((file: any) => (
+                                                     <Box key={file.id} sx={{ p: 1, border: '1px dashed rgba(0,0,0,0.08)', borderRadius: '8px', bgcolor: 'rgba(0,0,0,0.005)' }}>
+                                                       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                                                         <Box sx={{ flexGrow: 1 }}>
+                                                           <Typography variant="caption" fontWeight={700} color="#1d1d1f">{file.name}</Typography>
+                                                           {file.description && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.1 }}>{file.description}</Typography>}
+                                                         </Box>
+                                                         {file.type === 'text' ? (
+                                                           <Box sx={{ bgcolor: 'grey.50', p: 0.8, borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)', maxWidth: '60%', minWidth: '120px' }}>
+                                                             <Typography variant="caption" color="text.primary" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', display: 'block', fontSize: '0.72rem' }}>
+                                                               {file.url}
+                                                             </Typography>
+                                                           </Box>
+                                                         ) : (
+                                                           <Button
+                                                             size="small"
+                                                             variant="outlined"
+                                                             startIcon={<LaunchIcon />}
+                                                             href={file.url}
+                                                             target="_blank"
+                                                             rel="noopener noreferrer"
+                                                             sx={{ borderRadius: '6px', textTransform: 'none', py: 0.2, px: 1, minWidth: 0, fontSize: '0.75rem' }}
+                                                           >
+                                                             เปิดดู
+                                                           </Button>
+                                                         )}
+                                                       </Stack>
+                                                     </Box>
+                                                   ))}
+                                                 </Stack>
+                                               ) : (
+                                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, pl: 1 }}>ไม่มีเอกสารแนบสำหรับรอบกิจกรรมย่อยนี้</Typography>
+                                               )}
+                                             </Box>
+                                           ))}
+                                         </Stack>
+                                       </Box>
+                                     )}
+
+                                     {/* If no files or sessions */}
+                                     {(!record.files || record.files.length === 0) && (!record.sessions || record.sessions.length === 0) && (
+                                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2, textAlign: 'center' }}>
+                                         ไม่มีเอกสารแนบหรือข้อมูลกิจกรรมย่อย
+                                       </Typography>
+                                     )}
+                                   </Box>
+                                 </motion.div>
+                               )}
+                             </AnimatePresence>
+                           </Card>
                         </motion.div>
                       ))}
                     </AnimatePresence>

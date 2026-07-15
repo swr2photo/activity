@@ -843,6 +843,18 @@ const RegisterPageContent: React.FC = () => {
           // ไม่มี sessions → บล็อกซ้ำเหมือนเดิม
           setIsDuplicateRegistration(true);
         }
+
+        // ตรวจสอบว่าเคยส่งแบบประเมินหรือยัง
+        const surveyQ = query(
+          collection(db, 'surveyResponses'),
+          where('activityCode', '==', activityCode),
+          where('userId', '==', user.uid),
+          limit(1)
+        );
+        const surveySnap = await getDocs(surveyQ);
+        if (!surveySnap.empty) {
+          setSurveyCompleted(true);
+        }
       }
     } catch {}
   };

@@ -213,11 +213,20 @@ export interface SurveyConfig {
   requiredSessionIds?: string[];       // ใช้เมื่อ sessionEligibility = 'specific'
 }
 
+export interface ActivityFile {
+  id: string;
+  name: string;
+  url: string;
+  type: 'pdf' | 'image' | 'text' | 'link';
+  description?: string;
+}
+
 export interface ActivitySession {
   id: string;
   name: string;
   startDateTime?: Date;
   endDateTime?: Date;
+  files?: ActivityFile[]; // ไฟล์/เอกสารสำหรับกิจกรรมย่อย
 }
 
 export interface Activity {
@@ -248,6 +257,7 @@ export interface Activity {
   previousDynamicToken?: string;
   sessions?: ActivitySession[]; // กิจกรรมย่อย
   surveyConfig?: SurveyConfig;  // แบบประเมิน
+  files?: ActivityFile[];       // ไฟล์/เอกสารสำหรับกิจกรรมหลัก
 }
 
 export interface ActivityRecord {

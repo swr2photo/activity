@@ -85,6 +85,7 @@ import {
   MyLocation as MyLocationIcon,
   Badge as BadgeIcon,
   Close as CloseIcon,
+  AttachFile as AttachFileIcon,
 } from '@mui/icons-material';
 
 import dayjs, { Dayjs } from 'dayjs';
@@ -98,6 +99,7 @@ import {
   toggleActivityLive,
   createActivity,
   type Activity,
+  type ActivityFile,
 } from '../../lib/adminFirebase';
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 import { ActivityTable } from './qr/ActivityTable';
@@ -324,7 +326,7 @@ type CreateForm = {
   dynamicQREnabled: boolean;
 
   // กิจกรรมย่อย (Sessions)
-  sessions: { id: string; name: string; startDateTime: Dayjs | null; endDateTime: Dayjs | null }[];
+  sessions: { id: string; name: string; startDateTime: Dayjs | null; endDateTime: Dayjs | null; files?: ActivityFile[] }[];
 
   // แบบประเมิน (Survey)
   surveyConfig: {
@@ -334,6 +336,9 @@ type CreateForm = {
     requiredSessionIds: string[];
     questions: { id: string; type: 'text' | 'choice' | 'rating'; question: string; options?: string[]; required?: boolean }[];
   };
+
+  // ไฟล์/เอกสารแนบกิจกรรมหลัก
+  files: ActivityFile[];
 };
 
 const defaultForm: CreateForm = {
@@ -374,6 +379,7 @@ const defaultForm: CreateForm = {
   dynamicQREnabled: false,
   sessions: [],
   surveyConfig: { enabled: false, surveyOpenMinutes: 60, sessionEligibility: 'any', requiredSessionIds: [], questions: [] },
+  files: [],
 };
 
 interface Props {
@@ -780,8 +786,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           ...s,
           startDateTime: s.startDateTime?.toDate() || null,
           endDateTime: s.endDateTime?.toDate() || null,
+          files: s.files || [],
         })),
         surveyConfig: form.surveyConfig,
+        files: form.files || [],
 
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -894,6 +902,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         })) || [],
         
         surveyConfig: a.surveyConfig ?? qr?.surveyConfig ?? { enabled: false, questions: [] },
+        files: a.files || qr?.files || [],
       });
 
       setOpenEdit(true);
@@ -1037,8 +1046,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             ...s,
             startDateTime: s.startDateTime?.toDate() || null,
             endDateTime: s.endDateTime?.toDate() || null,
+            files: s.files || [],
           })),
           surveyConfig: form.surveyConfig,
+          files: form.files || [],
 
           updatedAt: serverTimestamp(),
           stateVersion: Date.now(),
@@ -1226,6 +1237,139 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     );
   };
 
+  const FileConfigSection = ({ 
+    title, 
+    files = [], 
+    onChange 
+  }: { 
+    title: string; 
+    files: ActivityFile[]; 
+    onChange: (files: ActivityFile[]) => void;
+  }) => {
+    const addFile = () => {
+      const newFile: ActivityFile = {
+        id: Date.now().toString(),
+        name: '',
+        url: '',
+        type: 'pdf',
+        description: '',
+      };
+      onChange([...files, newFile]);
+    };
+
+    const updateFile = (index: number, key: keyof ActivityFile, value: any) => {
+      const newFiles = [...files];
+      newFiles[index] = { ...newFiles[index], [key]: value };
+      onChange(newFiles);
+    };
+
+    const removeFile = (index: number) => {
+      onChange(files.filter((_, idx) => idx !== index));
+    };
+
+    return (
+      <Box sx={{ mt: 1.5 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <AttachFileIcon sx={{ fontSize: '1.1rem' }} /> {title} ({files.length})
+        </Typography>
+        
+        {files.length > 0 && (
+          <Stack spacing={1.5} sx={{ mb: 1.5 }}>
+            {files.map((file, idx) => (
+              <Box 
+                key={file.id} 
+                sx={{ 
+                  p: 1.5, 
+                  border: '1px dashed', 
+                  borderColor: 'divider', 
+                  borderRadius: 2, 
+                  bgcolor: 'action.hover' 
+                }}
+              >
+                <Grid container spacing={1.5} alignItems="center">
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField
+                      label="ชื่อเอกสาร/หัวข้อข้อความ"
+                      size="small"
+                      fullWidth
+                      value={file.name}
+                      onChange={(e) => updateFile(idx, 'name', e.target.value)}
+                      placeholder="เช่น คู่มืออบรม.pdf"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 3 }}>
+                    <TextField
+                      select
+                      label="ประเภท"
+                      size="small"
+                      fullWidth
+                      value={file.type}
+                      onChange={(e) => updateFile(idx, 'type', e.target.value)}
+                      slotProps={{ select: { native: true } }}
+                    >
+                      <option value="pdf">ไฟล์ PDF</option>
+                      <option value="image">รูปภาพ (Image)</option>
+                      <option value="link">ลิงก์เว็บไซต์ (Link)</option>
+                      <option value="text">ข้อความ/คำอธิบาย (Text)</option>
+                    </TextField>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField
+                      label={file.type === 'text' ? 'ข้อความ/คำอธิบาย' : 'URL ของไฟล์/ลิงก์'}
+                      size="small"
+                      fullWidth
+                      value={file.url}
+                      onChange={(e) => updateFile(idx, 'url', e.target.value)}
+                      placeholder={file.type === 'text' ? 'กรอกรายละเอียดข้อความที่นี่' : 'https://...'}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 1 }} sx={{ textAlign: 'right' }}>
+                    <IconButton size="small" color="error" onClick={() => removeFile(idx)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <TextField
+                      label="รายละเอียดเพิ่มเติม (ระบุหรือไม่ก็ได้)"
+                      size="small"
+                      fullWidth
+                      value={file.description || ''}
+                      onChange={(e) => updateFile(idx, 'description', e.target.value)}
+                      placeholder="เช่น ให้อ่านก่อนเข้าร่วมกิจกรรม..."
+                    />
+                  </Grid>
+                </Grid>
+              </Box>
+            ))}
+          </Stack>
+        )}
+        
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<AddIcon />}
+          onClick={addFile}
+          sx={{ borderRadius: 2 }}
+        >
+          เพิ่มไฟล์/ลิงก์/ข้อความ
+        </Button>
+      </Box>
+    );
+  };
+
+  const MainActivityFilesSection = () => {
+    return (
+      <Grid size={{ xs: 12 }}>
+        <Divider sx={{ my: 1 }} />
+        <FileConfigSection
+          title="เอกสาร/ไฟล์แนบ/ข้อความ สำหรับกิจกรรมหลัก"
+          files={form.files || []}
+          onChange={(newFiles) => updateForm('files', newFiles as any)}
+        />
+      </Grid>
+    );
+  };
+
   const SessionsSection = () => {
     return (
       <Grid size={{ xs: 12 }}>
@@ -1295,6 +1439,17 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     >
                       <DeleteIcon />
                     </IconButton>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <FileConfigSection
+                      title="เอกสาร/ไฟล์แนบสำหรับกิจกรรมย่อยนี้"
+                      files={s.files || []}
+                      onChange={(newFiles) => {
+                        const newSessions = [...form.sessions];
+                        newSessions[i].files = newFiles;
+                        updateForm('sessions', newSessions as any);
+                      }}
+                    />
                   </Grid>
                 </Grid>
               </CardContent>
@@ -2252,6 +2407,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               {RegistrationSeriesSection()}
               {SessionsSection()}
               {SurveyConfigSection()}
+              {MainActivityFilesSection()}
 
               {/* พรีวิว QR */}
               <Grid size={{ xs: 12 }}>
@@ -2694,6 +2850,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               {RegistrationSeriesSection()}
               {SessionsSection()}
               {SurveyConfigSection()}
+              {MainActivityFilesSection()}
             </Grid>
           </>
             </Paper>
