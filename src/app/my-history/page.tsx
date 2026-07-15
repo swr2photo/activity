@@ -143,30 +143,44 @@ const MyHistoryPage: React.FC = () => {
         }
 
         // Enrich with activity info (name, location, banner, surveyConfig, files, sessions) from activityQRCodes
-        const uniqueCodes = [...new Set(rawRecords.map((r) => r.activityCode))];
+        const uniqueCodes = [...new Set(rawRecords.map((r) => r.activityCode))].filter(Boolean);
         const activityMap: Record<string, { activityName?: string; location?: string; bannerUrl?: string; surveyEnabled?: boolean; files?: any[]; sessions?: any[] }> = {};
 
-        // Batch fetch activity info
-        for (const code of uniqueCodes) {
+        if (uniqueCodes.length > 0) {
+          // Batch fetch up to 30 at a time using 'in' query
+          const chunks: string[][] = [];
+          for (let i = 0; i < uniqueCodes.length; i += 30) {
+            chunks.push(uniqueCodes.slice(i, i + 30));
+          }
+
           try {
-            const actQ = query(
-              collection(db, 'activityQRCodes'),
-              where('activityCode', '==', code)
-            );
-            const actSnap = await getDocs(actQ);
-            if (!actSnap.empty) {
-              const actData = actSnap.docs[0].data() as any;
-              activityMap[code] = {
-                activityName: actData.activityName || code,
-                location: actData.location,
-                bannerUrl: actData.bannerUrl,
-                surveyEnabled: actData.surveyConfig?.enabled || false,
-                files: actData.files || [],
-                sessions: actData.sessions || [],
-              };
-            }
-          } catch {
-            // ignore individual failures
+            const actPromises = chunks.map(async (chunk) => {
+              const actQ = query(
+                collection(db, 'activityQRCodes'),
+                where('activityCode', 'in', chunk)
+              );
+              return getDocs(actQ);
+            });
+
+            const actSnaps = await Promise.all(actPromises);
+            actSnaps.forEach((actSnap) => {
+              actSnap.forEach((d) => {
+                const actData = d.data() as any;
+                const code = actData.activityCode;
+                if (code) {
+                  activityMap[code] = {
+                    activityName: actData.activityName || code,
+                    location: actData.location,
+                    bannerUrl: actData.bannerUrl,
+                    surveyEnabled: actData.surveyConfig?.enabled || false,
+                    files: actData.files || [],
+                    sessions: actData.sessions || [],
+                  };
+                }
+              });
+            });
+          } catch (err) {
+            console.error('Error batch fetching activities:', err);
           }
         }
 
