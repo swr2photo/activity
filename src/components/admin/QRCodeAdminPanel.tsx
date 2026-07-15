@@ -576,7 +576,7 @@ const FileConfigSection: React.FC<{
     setUploadingId(fileId);
     try {
       const ext = file.name.split('.').pop() || 'file';
-      const storagePath = `activity_files/${department}/${activityCode || 'temp'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+      const storagePath = `banners/${department}/file_${activityCode || 'temp'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
       const r = ref(storage, storagePath);
       await uploadBytes(r, file);
       const downloadUrl = await getDownloadURL(r);
