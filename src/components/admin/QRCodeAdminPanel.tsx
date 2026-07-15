@@ -123,6 +123,7 @@ import { db, storage } from '../../lib/firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 import GeofenceMap from '../maps/GeofenceMap';
+import { useLoadScript } from '@react-google-maps/api';
 import { PageHeader } from './shared/PageHeader';
 
 /* ===================== Small utils ===================== */
@@ -720,6 +721,89 @@ interface QRCodeAdminPanelProps {
   currentAdmin: AdminProfile;
 }
 
+const googleLibraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places'];
+
+const GooglePlaceAutocomplete: React.FC<{
+  value: string;
+  onChange: (address: string, lat?: number, lng?: number) => void;
+  isLoaded: boolean;
+}> = ({ value, onChange, isLoaded }) => {
+  const [options, setOptions] = useState<string[]>([]);
+  const [inputValue, setInputValue] = useState('');
+
+  // Fetch suggestions from Google Places API
+  useEffect(() => {
+    if (!isLoaded || !inputValue.trim()) {
+      setOptions(LOCATION_OPTIONS); // Fallback to static options when empty/not loaded
+      return;
+    }
+
+    try {
+      const autocompleteService = new window.google.maps.places.AutocompleteService();
+      
+      const delayDebounce = setTimeout(() => {
+        autocompleteService.getPlacePredictions(
+          { input: inputValue },
+          (predictions, status) => {
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+              setOptions(predictions.map((p) => p.description));
+            } else {
+              setOptions(LOCATION_OPTIONS);
+            }
+          }
+        );
+      }, 300);
+
+      return () => clearTimeout(delayDebounce);
+    } catch (e) {
+      setOptions(LOCATION_OPTIONS);
+    }
+  }, [inputValue, isLoaded]);
+
+  const handleSelect = (newValue: string | null) => {
+    if (!newValue) {
+      onChange('');
+      return;
+    }
+
+    onChange(newValue);
+
+    if (!isLoaded) return;
+    try {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ address: newValue }, (results, status) => {
+        if (status === window.google.maps.GeocoderStatus.OK && results && results[0]) {
+          const lat = results[0].geometry.location.lat();
+          const lng = results[0].geometry.location.lng();
+          onChange(newValue, lat, lng);
+        }
+      });
+    } catch (e) {
+      console.error('Geocoding error:', e);
+    }
+  };
+
+  return (
+    <Autocomplete
+      freeSolo
+      options={options}
+      value={value || ''}
+      onChange={(_, newValue) => handleSelect(newValue)}
+      inputValue={inputValue}
+      onInputChange={(_, newInputValue) => setInputValue(newInputValue)}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          label="สถานที่จัดกิจกรรม (ค้นหาจาก Google Maps)"
+          placeholder="พิมพ์ชื่อสถานที่เพื่อค้นหา..."
+          fullWidth
+          size="small"
+        />
+      )}
+    />
+  );
+};
+
 const Transition = React.forwardRef(function Transition(
   props: TransitionProps & {
     children: React.ReactElement;
@@ -730,6 +814,11 @@ const Transition = React.forwardRef(function Transition(
 });
 
 const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => {
+  const { isLoaded: isGoogleMapsLoaded } = useLoadScript({
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
+    libraries: googleLibraries,
+  });
+
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -2427,15 +2516,16 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               </Grid>
 
               <Grid size={{ xs: 12 }}>
-                <Autocomplete
-                  freeSolo
-                  options={LOCATION_OPTIONS}
+                <GooglePlaceAutocomplete
                   value={form.location || ''}
-                  onChange={(_, newValue) => updateForm('location', newValue as any)}
-                  onInputChange={(_, newInputValue) => updateForm('location', newInputValue as any)}
-                  renderInput={(params) => (
-                    <TextField {...params} label="สถานที่" fullWidth />
-                  )}
+                  isLoaded={isGoogleMapsLoaded}
+                  onChange={(address, lat, lng) => {
+                    updateForm('location', address as any);
+                    if (lat !== undefined && lng !== undefined) {
+                      updateForm('latitude', lat as any);
+                      updateForm('longitude', lng as any);
+                    }
+                  }}
                 />
               </Grid>
 
@@ -2870,15 +2960,16 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               </Grid>
 
               <Grid size={{ xs: 12 }}>
-                <Autocomplete
-                  freeSolo
-                  options={LOCATION_OPTIONS}
+                <GooglePlaceAutocomplete
                   value={form.location || ''}
-                  onChange={(_, newValue) => updateForm('location', newValue as any)}
-                  onInputChange={(_, newInputValue) => updateForm('location', newInputValue as any)}
-                  renderInput={(params) => (
-                    <TextField {...params} label="สถานที่" fullWidth />
-                  )}
+                  isLoaded={isGoogleMapsLoaded}
+                  onChange={(address, lat, lng) => {
+                    updateForm('location', address as any);
+                    if (lat !== undefined && lng !== undefined) {
+                      updateForm('latitude', lat as any);
+                      updateForm('longitude', lng as any);
+                    }
+                  }}
                 />
               </Grid>
 
