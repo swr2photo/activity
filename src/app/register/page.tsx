@@ -1188,7 +1188,7 @@ const RegisterPageContent: React.FC = () => {
             const isActiveCheckedIn = activeSession && checkedInSessions.includes(activeSession.id);
             
             if (isActiveCheckedIn) {
-              const sorted = [...activityData.sessions].sort((a, b) => {
+              const sorted = [...(activityData.sessions ?? [])].sort((a, b) => {
                 const aTime = a.startDateTime?.toDate?.()?.getTime() || new Date(a.startDateTime).getTime();
                 const bTime = b.startDateTime?.toDate?.()?.getTime() || new Date(b.startDateTime).getTime();
                 return aTime - bTime;
