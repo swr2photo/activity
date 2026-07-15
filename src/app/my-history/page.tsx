@@ -812,7 +812,7 @@ const MyHistoryPage: React.FC = () => {
                                                      size="small"
                                                      variant="outlined"
                                                      startIcon={<LaunchIcon />}
-                                                     href={file.url}
+                                                     href={file.type === 'link' ? file.url : `/api/download?file=${btoa(file.url)}`}
                                                      target="_blank"
                                                      rel="noopener noreferrer"
                                                      sx={{ borderRadius: '8px', textTransform: 'none', px: 2 }}
@@ -857,7 +857,7 @@ const MyHistoryPage: React.FC = () => {
                                                              size="small"
                                                              variant="outlined"
                                                              startIcon={<LaunchIcon />}
-                                                             href={file.url}
+                                                             href={file.type === 'link' ? file.url : `/api/download?file=${btoa(file.url)}`}
                                                              target="_blank"
                                                              rel="noopener noreferrer"
                                                              sx={{ borderRadius: '6px', textTransform: 'none', py: 0.2, px: 1, minWidth: 0, fontSize: '0.75rem' }}
