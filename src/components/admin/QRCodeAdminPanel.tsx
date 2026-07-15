@@ -327,6 +327,7 @@ type CreateForm = {
   // แบบประเมิน (Survey)
   surveyConfig: {
     enabled: boolean;
+    surveyOpenMinutes: number; // นาทีที่เปิดให้ทำแบบประเมินหลังกิจกรรมสิ้นสุด
     questions: { id: string; type: 'text' | 'choice' | 'rating'; question: string; options?: string[]; required?: boolean }[];
   };
 };
@@ -368,7 +369,7 @@ const defaultForm: CreateForm = {
   
   dynamicQREnabled: false,
   sessions: [],
-  surveyConfig: { enabled: false, questions: [] },
+  surveyConfig: { enabled: false, surveyOpenMinutes: 60, questions: [] },
 };
 
 interface Props {
@@ -1331,6 +1332,20 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
         {form.surveyConfig.enabled && (
           <Stack spacing={2}>
+            {/* ช่วงเวลาเปิดให้ทำแบบประเมิน */}
+            <TextField
+              label="ช่วงเวลาที่เปิดให้ทำแบบประเมิน (นาที หลังกิจกรรมสิ้นสุด)"
+              type="number"
+              size="small"
+              fullWidth
+              value={form.surveyConfig.surveyOpenMinutes ?? 60}
+              onChange={(e) => {
+                const val = Math.max(1, Math.min(10080, Number(e.target.value) || 60));
+                updateForm('surveyConfig', { ...form.surveyConfig, surveyOpenMinutes: val } as any);
+              }}
+              slotProps={{ htmlInput: { min: 1, max: 10080 } }}
+              helperText={`แบบประเมินจะเปิดให้ทำได้ ${form.surveyConfig.surveyOpenMinutes ?? 60} นาที หลังจากกิจกรรมสิ้นสุด (สูงสุด 10,080 นาที = 7 วัน)`}
+            />
             {form.surveyConfig.questions.map((q, i) => (
               <Card key={q.id} variant="outlined">
                 <CardContent sx={{ py: 1.5, px: 2 }}>

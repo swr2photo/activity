@@ -57,6 +57,7 @@ import ProfileEditDialog from '../../components/profile/ProfileEditDialog';
 import ActivityRegistrationForm from '../../components/ActivityRegistrationForm';
 import GeofenceMap from '../../components/maps/GeofenceMap';
 import Footer from '../../components/Footer';
+import SurveyForm from '../../components/activity/SurveyForm';
 import { glassCardSx, pageColors, pageLayoutSx } from '../../lib/uiTheme';
 import Image from 'next/image';
 
@@ -525,6 +526,9 @@ const RegisterPageContent: React.FC = () => {
   const [isDuplicateRegistration, setIsDuplicateRegistration] = useState(false);
   const [checkedInSessions, setCheckedInSessions] = useState<string[]>([]);
   const [hasRegisteredRecord, setHasRegisteredRecord] = useState(false);
+
+  // Survey
+  const [surveyCompleted, setSurveyCompleted] = useState(false);
 
   // Profile
   const [showProfileDialog, setShowProfileDialog] = useState(false);
@@ -1134,6 +1138,30 @@ const RegisterPageContent: React.FC = () => {
 
   const statusInfo = activityData ? getActivityStatus(activityData) : null;
 
+  // คำนวณว่าอยู่ในช่วงเวลาทำแบบประเมินหรือไม่
+  const isSurveyWindowOpen = useMemo(() => {
+    if (!activityData?.surveyConfig?.enabled) return false;
+    if (!activityData.surveyConfig.questions?.length) return false;
+    const surveyConfig = activityData.surveyConfig as any;
+    const openMinutes = surveyConfig.surveyOpenMinutes ?? 60;
+    // หา endTime จาก session สุดท้าย หรือจาก activityData.endDateTime
+    let endTime: Date | null = null;
+    if (activityData.sessions && activityData.sessions.length > 0) {
+      const sorted = [...activityData.sessions].sort((a, b) => {
+        const aT = a.endDateTime?.toDate?.()?.getTime() || new Date(a.endDateTime).getTime();
+        const bT = b.endDateTime?.toDate?.()?.getTime() || new Date(b.endDateTime).getTime();
+        return bT - aT; // descending — ล่าสุดก่อน
+      });
+      endTime = sorted[0].endDateTime?.toDate?.() || new Date(sorted[0].endDateTime);
+    } else {
+      endTime = activityData.endDateTime?.toDate?.() || new Date(activityData.endDateTime);
+    }
+    if (!endTime) return false;
+    const now = new Date();
+    const windowClose = new Date(endTime.getTime() + openMinutes * 60 * 1000);
+    return now >= endTime && now <= windowClose;
+  }, [activityData, statusInfo]);
+
   return (
     <>
       <NavigationBar
@@ -1414,6 +1442,27 @@ const RegisterPageContent: React.FC = () => {
               surveyConfig={(activityData as any).surveyConfig}
               sessions={activityData.sessions}
             />
+          )}
+
+          {/* แบบประเมินหลังกิจกรรมสิ้นสุด — แสดงเฉพาะในช่วงเวลาที่กำหนด */}
+          {isSurveyWindowOpen && hasRegisteredRecord && user && !surveyCompleted && activityData && (
+            <SurveyForm
+              activityCode={activityCode}
+              activityDocId={activityData.id}
+              surveyConfig={(activityData as any).surveyConfig}
+              userId={user.uid}
+              onCompleted={() => {
+                setSurveyCompleted(true);
+                setSuccessMessage('ขอบคุณที่ทำแบบประเมิน!');
+              }}
+            />
+          )}
+
+          {/* ขอบคุณที่ทำแบบประเมินแล้ว */}
+          {isSurveyWindowOpen && hasRegisteredRecord && user && surveyCompleted && (
+            <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
+              ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว
+            </Alert>
           )}
 
           {/* Profile dialog */}
