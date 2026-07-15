@@ -320,6 +320,9 @@ export const getAllActivities = async (): Promise<Activity[]> => {
       forceRefresh: data.forceRefresh === true,
       singleUserMode: data.singleUserMode === true,
       requiresUniversityLogin: data.requiresUniversityLogin === true,
+      sessions: data.sessions,
+      surveyConfig: data.surveyConfig,
+      files: data.files,
     } as Activity;
   });
 };
@@ -373,6 +376,9 @@ export const getActivitiesByDepartment = async (
       dynamicQREnabled: data.dynamicQREnabled === true,
       dynamicToken: data.dynamicToken,
       previousDynamicToken: data.previousDynamicToken,
+      sessions: data.sessions,
+      surveyConfig: data.surveyConfig,
+      files: data.files,
     } as Activity;
   });
 };
@@ -409,6 +415,9 @@ export const subscribeActivities = (
       dynamicQREnabled: data.dynamicQREnabled === true,
       dynamicToken: data.dynamicToken,
       previousDynamicToken: data.previousDynamicToken,
+      sessions: data.sessions,
+      surveyConfig: data.surveyConfig,
+      files: data.files,
     } as Activity;
   };
 
