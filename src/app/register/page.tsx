@@ -1109,46 +1109,6 @@ const RegisterPageContent: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [error, sessionWarning, geoError, ipBlocked, blockRemainingTime, isDuplicateRegistration]);
 
-  /* ============================= Render ============================= */
-  if (loading || authLoading) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '50vh',
-          flexDirection: 'column',
-          gap: 2,
-        }}
-      >
-        <CircularProgress size={40} />
-        <Typography variant="body1" color="text.secondary">
-          กำลังโหลดข้อมูล...
-        </Typography>
-      </Box>
-    );
-  }
-
-  if (
-    error &&
-    !ipBlocked &&
-    !isDuplicateRegistration &&
-    !successMessage &&
-    !sessionExpired &&
-    !sessionWarning &&
-    !singleUserBlocked
-  ) {
-    return (
-      <Alert severity="error" sx={{ mt: 2 }}>
-        {error}
-        <Button color="inherit" size="small" onClick={loadInitialData} sx={{ ml: 2 }} startIcon={<RefreshIcon />}>
-          ลองใหม่
-        </Button>
-      </Alert>
-    );
-  }
-
   const statusInfo = activityData ? getActivityStatus(activityData) : null;
 
   // คำนวณว่าอยู่ในช่วงเวลาทำแบบประเมินหรือไม่
@@ -1198,6 +1158,46 @@ const RegisterPageContent: React.FC = () => {
     // mode = 'any' (default) → เช็กอินอย่างน้อย 1 อัน
     return checkedInSessions.length > 0;
   }, [hasRegisteredRecord, activityData, checkedInSessions]);
+
+  /* ============================= Render ============================= */
+  if (loading || authLoading) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '50vh',
+          flexDirection: 'column',
+          gap: 2,
+        }}
+      >
+        <CircularProgress size={40} />
+        <Typography variant="body1" color="text.secondary">
+          กำลังโหลดข้อมูล...
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (
+    error &&
+    !ipBlocked &&
+    !isDuplicateRegistration &&
+    !successMessage &&
+    !sessionExpired &&
+    !sessionWarning &&
+    !singleUserBlocked
+  ) {
+    return (
+      <Alert severity="error" sx={{ mt: 2 }}>
+        {error}
+        <Button color="inherit" size="small" onClick={loadInitialData} sx={{ ml: 2 }} startIcon={<RefreshIcon />}>
+          ลองใหม่
+        </Button>
+      </Alert>
+    );
+  }
 
   return (
     <>
