@@ -100,6 +100,7 @@ import {
   createActivity,
   type Activity,
   type ActivityFile,
+  type SurveyQuestion,
 } from '../../lib/adminFirebase';
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 import { ActivityTable } from './qr/ActivityTable';
@@ -334,7 +335,7 @@ type CreateForm = {
     surveyOpenMinutes: number;
     sessionEligibility: 'any' | 'all' | 'specific';
     requiredSessionIds: string[];
-    questions: { id: string; type: 'text' | 'choice' | 'rating'; question: string; options?: string[]; required?: boolean }[];
+    questions: SurveyQuestion[];
   };
 
   // ไฟล์/เอกสารแนบกิจกรรมหลัก

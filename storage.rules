@@ -31,5 +31,11 @@ service firebase.storage {
       allow read: if true;
       allow write: if isAuthenticated() && filename.matches(request.auth.uid + '_.*');
     }
+
+    // 4. Activity attached files (PDFs, Images, etc.)
+    match /activity_files/{department}/{filename} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }
