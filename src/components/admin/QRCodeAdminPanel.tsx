@@ -526,6 +526,18 @@ const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square')
   return canvas;
 };
 
+const toDayjsSafe = (v: any): Dayjs | null => {
+  if (!v) return null;
+  if (dayjs.isDayjs(v)) return v;
+  if (v.toDate) return dayjs(v.toDate());
+  if (v instanceof Date) return dayjs(v);
+  if (typeof v === 'object' && typeof v.seconds === 'number') {
+    return dayjs(new Date(v.seconds * 1000));
+  }
+  const d = dayjs(v);
+  return d.isValid() ? d : null;
+};
+
 const FileConfigSection: React.FC<{
   title: string;
   files: ActivityFile[];
@@ -1068,12 +1080,12 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
         sessions: a.sessions?.map(s => ({
           ...s,
-          startDateTime: s.startDateTime ? dayjs(s.startDateTime) : null,
-          endDateTime: s.endDateTime ? dayjs(s.endDateTime) : null,
+          startDateTime: toDayjsSafe(s.startDateTime),
+          endDateTime: toDayjsSafe(s.endDateTime),
         })) || qr?.sessions?.map((s: any) => ({
           ...s,
-          startDateTime: s.startDateTime ? dayjs(s.startDateTime.toDate?.() ?? s.startDateTime) : null,
-          endDateTime: s.endDateTime ? dayjs(s.endDateTime.toDate?.() ?? s.endDateTime) : null,
+          startDateTime: toDayjsSafe(s.startDateTime),
+          endDateTime: toDayjsSafe(s.endDateTime),
         })) || [],
         
         surveyConfig: a.surveyConfig ?? qr?.surveyConfig ?? { enabled: false, questions: [] },
