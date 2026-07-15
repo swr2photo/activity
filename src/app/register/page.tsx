@@ -866,9 +866,9 @@ const RegisterPageContent: React.FC = () => {
           // เป็นคนเดียวกัน → ถ้ามี sessions ให้เช็กว่าครบหรือยัง
           const hasSessions = activityData?.sessions && activityData.sessions.length > 0;
           if (hasSessions) {
-            const allCheckedIn = activityData.sessions.every(
+            const allCheckedIn = activityData?.sessions?.every(
               (s: any) => (existing.checkedInSessions || []).includes(s.id)
-            );
+            ) ?? false;
             if (allCheckedIn) {
               setSingleUserBlocked(true);
               setSingleUserMessage('คุณได้เช็กอินครบทุกรอบกิจกรรมแล้ว');
