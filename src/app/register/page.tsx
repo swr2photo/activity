@@ -60,6 +60,7 @@ import Footer from '../../components/Footer';
 import SurveyForm from '../../components/activity/SurveyForm';
 import { glassCardSx, pageColors, pageLayoutSx } from '../../lib/uiTheme';
 import Image from 'next/image';
+import 'quill/dist/quill.snow.css';
 
 // Firebase helpers
 import { db, auth } from '../../lib/firebase';
@@ -1404,9 +1405,15 @@ const RegisterPageContent: React.FC = () => {
                   <Grid size={{ xs: 12 }}>
                     <Stack spacing={0.5}>
                       <Typography variant="overline">คำอธิบาย</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {activityData.description || '-'}
-                      </Typography>
+                      {activityData.description ? (
+                        <div 
+                          className="ql-editor"
+                          style={{ padding: 0, minHeight: 'auto', fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.7)' }}
+                          dangerouslySetInnerHTML={{ __html: activityData.description }}
+                        />
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">-</Typography>
+                      )}
                     </Stack>
                   </Grid>
 

@@ -103,6 +103,7 @@ import {
   type SurveyQuestion,
 } from '../../lib/adminFirebase';
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
+import { QuillEditor } from './QuillEditor';
 import { ActivityTable } from './qr/ActivityTable';
 
 import {
@@ -2415,13 +2416,13 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
               {/* คำอธิบาย/สถานที่ */}
               <Grid size={{ xs: 12 }}>
-                <TextField
-                  label="คำอธิบาย"
-                  fullWidth
-                  multiline
-                  minRows={2}
+                <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary', fontWeight: 500 }}>
+                  รายละเอียดกิจกรรม (คำอธิบาย)
+                </Typography>
+                <QuillEditor
                   value={form.description}
-                  onChange={(e) => updateForm('description', e.target.value as any)}
+                  onChange={(val) => updateForm('description', val as any)}
+                  placeholder="เขียนรายละเอียดกิจกรรม และจัดรูปแบบได้ที่นี่..."
                 />
               </Grid>
 
@@ -2858,13 +2859,13 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
               {/* คำอธิบาย/สถานที่ */}
               <Grid size={{ xs: 12 }}>
-                <TextField
-                  label="คำอธิบาย"
-                  fullWidth
-                  multiline
-                  minRows={2}
+                <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary', fontWeight: 500 }}>
+                  รายละเอียดกิจกรรม (คำอธิบาย)
+                </Typography>
+                <QuillEditor
                   value={form.description}
-                  onChange={(e) => updateForm('description', e.target.value as any)}
+                  onChange={(val) => updateForm('description', val as any)}
+                  placeholder="เขียนรายละเอียดกิจกรรม และจัดรูปแบบได้ที่นี่..."
                 />
               </Grid>
 
