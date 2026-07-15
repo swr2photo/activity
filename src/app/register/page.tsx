@@ -830,11 +830,11 @@ const RegisterPageContent: React.FC = () => {
         // ถ้ามี sessions → ตรวจว่าเช็กอินครบทุก session หรือยัง
         const hasSessions = activityData?.sessions && activityData.sessions.length > 0;
         if (hasSessions) {
-          const allCheckedIn = activityData.sessions.every(
+          const allCheckedIn = activityData?.sessions?.every(
             (s: any) => (data.checkedInSessions || []).includes(s.id)
           );
           // ถ้ายังเช็กอินไม่ครบ → ไม่บล็อก ให้เข้าฟอร์มเช็กอินรอบที่เหลือได้
-          setIsDuplicateRegistration(allCheckedIn);
+          setIsDuplicateRegistration(allCheckedIn ?? false);
         } else {
           // ไม่มี sessions → บล็อกซ้ำเหมือนเดิม
           setIsDuplicateRegistration(true);
