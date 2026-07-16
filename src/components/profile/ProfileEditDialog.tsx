@@ -41,7 +41,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../lib/firebase';
 
 import { UniversityUserProfile, parseStudentInfo, facultyMap, departmentMap } from '../../lib/firebaseAuth';
-import { alpha, keyframes, useTheme } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import Autocomplete from '@mui/material/Autocomplete';
 import Cropper from 'react-easy-crop';
 import getCroppedImg from '../../utils/cropImage';
@@ -55,12 +55,6 @@ interface ProfileEditDialogProps {
   /** When true, user cannot close dialog — must complete profile first */
   isFirstTimeSetup?: boolean;
 }
-
-const float = keyframes`
-  0%   { transform: translateY(0px); }
-  50%  { transform: translateY(-8px); }
-  100% { transform: translateY(0px); }
-`;
 
 const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   open,
@@ -94,47 +88,59 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [cropModalOpen, setCropModalOpen] = useState(false);
 
-  const extractInfoFromEmail = (email: string) => {
-    const username = email.split('@')[0];
-    return { studentId: username, displayName: username };
-  };
-
   useEffect(() => {
-    if (open && user) {
-      const emailInfo = extractInfoFromEmail(user.email || '');
-      const parsedInfo = parseStudentInfo(user.email || '');
-      const rawDisplayName = user?.displayName || userData?.displayName || '';
+    if (!open || !user) return;
 
-      let derivedFirstName = userData?.firstName || '';
-      let derivedLastName = userData?.lastName || '';
+    const emailLocal = (user.email || '').split('@')[0] || '';
+    const parsedInfo = parseStudentInfo(user.email || '');
+    const rawDisplayName = userData?.displayName || user?.displayName || '';
 
-      // หากยังไม่มีชื่อ, ชื่อเป็น 'ไม่ระบุ' หรือนามสกุลมีวงเล็บติดมา (เช่น Kaewkham (วีรชาติ แก้วปา)) ให้ดึงใหม่จากวงเล็บภาษาไทย
-      if (!derivedFirstName || derivedFirstName === 'ไม่ระบุ' || derivedLastName.includes('(') || derivedLastName.includes(')')) {
-        const thaiMatch = rawDisplayName.match(/\(([\u0E00-\u0E7F\s]+)\)/);
-        if (thaiMatch && thaiMatch[1]) {
-          const nameParts = thaiMatch[1].trim().split(/\s+/);
-          derivedFirstName = nameParts[0] || '';
-          derivedLastName = nameParts.slice(1).join(' ') || '';
-        } else {
-          const nameParts = rawDisplayName.trim().split(/\s+/);
-          derivedFirstName = nameParts[0] || '';
-          derivedLastName = nameParts.slice(1).join(' ') || '';
-        }
+    let derivedFirstName = userData?.firstName || '';
+    let derivedLastName = userData?.lastName || '';
+
+    // หากยังไม่มีชื่อ หรือนามสกุลมีวงเล็บติดมา ให้ดึงจากชื่อไทยในวงเล็บ
+    if (
+      !derivedFirstName ||
+      derivedFirstName === 'ไม่ระบุ' ||
+      derivedLastName.includes('(') ||
+      derivedLastName.includes(')')
+    ) {
+      const thaiMatch = rawDisplayName.match(/\(([\u0E00-\u0E7F\s]+)\)/);
+      if (thaiMatch?.[1]) {
+        const nameParts = thaiMatch[1].trim().split(/\s+/);
+        derivedFirstName = nameParts[0] || '';
+        derivedLastName = nameParts.slice(1).join(' ') || '';
+      } else if (rawDisplayName.trim()) {
+        const nameParts = rawDisplayName.trim().split(/\s+/);
+        derivedFirstName = nameParts[0] || '';
+        derivedLastName = nameParts.slice(1).join(' ') || '';
       }
-
-      setFormData({
-        displayName: userData?.displayName || rawDisplayName || emailInfo.displayName,
-        firstName: derivedFirstName,
-        lastName: derivedLastName,
-        username: userData?.username || '',
-        photoURL: userData?.photoURL || user?.photoURL || '',
-        department: (userData?.department && userData?.department !== 'ไม่ระบุ') ? userData.department : parsedInfo.department,
-        faculty: (userData?.faculty && userData?.faculty !== 'ไม่ระบุ') ? userData.faculty : parsedInfo.faculty,
-        studentId: userData?.studentId || parsedInfo.studentId,
-      });
-      setError('');
-      setValidationErrors({});
     }
+
+    setFormData({
+      displayName: userData?.displayName || rawDisplayName || emailLocal,
+      firstName: derivedFirstName,
+      lastName: derivedLastName,
+      username: userData?.username || '',
+      photoURL: userData?.photoURL || user?.photoURL || '',
+      department:
+        userData?.department && userData.department !== 'ไม่ระบุ'
+          ? userData.department
+          : parsedInfo.department !== 'ไม่ระบุ'
+            ? parsedInfo.department
+            : '',
+      faculty:
+        userData?.faculty && userData.faculty !== 'ไม่ระบุ'
+          ? userData.faculty
+          : parsedInfo.faculty !== 'ไม่ระบุ'
+            ? parsedInfo.faculty
+            : '',
+      studentId: userData?.studentId || parsedInfo.studentId || emailLocal,
+    });
+    setError('');
+    setValidationErrors({});
+    setSaving(false);
+    setUploadingImage(false);
   }, [open, userData, user]);
 
   const validateForm = () => {
@@ -162,10 +168,11 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     return Object.keys(errors).length === 0;
   };
 
-  const currentFacultyCode = Object.keys(facultyMap).find(key => facultyMap[key] === formData.faculty);
-  const availableDepartments = currentFacultyCode && departmentMap[currentFacultyCode]
-    ? Object.values(departmentMap[currentFacultyCode])
-    : [];
+  const currentFacultyCode = Object.keys(facultyMap).find((key) => facultyMap[key] === formData.faculty);
+  const availableDepartments =
+    currentFacultyCode && departmentMap[currentFacultyCode]
+      ? Object.values(departmentMap[currentFacultyCode])
+      : [];
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -177,12 +184,11 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
       setCropModalOpen(true);
     });
     reader.readAsDataURL(file);
-    // Reset file input
     event.target.value = '';
   };
 
-  const onCropComplete = (croppedArea: any, croppedAreaPixels: any) => {
-    setCroppedAreaPixels(croppedAreaPixels);
+  const onCropComplete = (_croppedArea: any, pixels: any) => {
+    setCroppedAreaPixels(pixels);
   };
 
   const handleCropConfirm = async () => {
@@ -191,14 +197,14 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     try {
       setUploadingImage(true);
       setError('');
-      
+
       const croppedBlob = await getCroppedImg(imageToCrop, croppedAreaPixels);
       const storageRef = ref(storage, `profiles/${user.uid}_${Date.now()}`);
-      
+
       await uploadBytes(storageRef, croppedBlob);
       const url = await getDownloadURL(storageRef);
-      
-      setFormData(prev => ({ ...prev, photoURL: url }));
+
+      setFormData((prev) => ({ ...prev, photoURL: url }));
       setCropModalOpen(false);
       setImageToCrop(null);
     } catch (err: any) {
@@ -236,8 +242,8 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         username: formData.username.trim() || formData.studentId.trim(),
-        department: formData.department.trim(),
-        faculty: formData.faculty.trim(),
+        department: formData.department.trim() || 'ไม่ระบุ',
+        faculty: formData.faculty.trim() || 'ไม่ระบุ',
         studentId: formData.studentId.trim(),
         photoURL: formData.photoURL.trim(),
         isVerified: true,
@@ -256,11 +262,9 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
 
   const getPreviewAvatar = () => formData.photoURL || null;
   const getPreviewAvatarLetter = () =>
-    formData.firstName
-      ? formData.firstName.charAt(0).toUpperCase()
-      : formData.displayName
-        ? formData.displayName.charAt(0).toUpperCase()
-        : 'U';
+    formData.username?.trim()?.charAt(0).toUpperCase() ||
+    formData.firstName?.charAt(0).toUpperCase() ||
+    'U';
 
   const isFormValid = () =>
     formData.firstName.trim().length >= 2 &&
@@ -269,414 +273,364 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
 
   return (
     <>
-    <Dialog
-      open={open}
-      onClose={isFirstTimeSetup ? undefined : onClose}
-      disableEscapeKeyDown={isFirstTimeSetup}
-      maxWidth="md"
-      fullWidth
-      PaperProps={{
-        sx: {
-          background: `linear-gradient(135deg,
-            ${alpha(theme.palette.background.paper, 0.5)} 0%,
-            ${alpha(theme.palette.background.paper, 0.3)} 100%)`,
-          backdropFilter: 'saturate(180%) blur(20px)',
-          WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-          border: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
-          boxShadow: `
-            0 26px 80px ${alpha('#000', 0.28)},
-            inset 0 1px 0 ${alpha('#fff', 0.18)}
-          `,
-          borderRadius: 3,
-          overflow: 'hidden',
-          position: 'relative',
-          animation: `${float} 12s ease-in-out infinite`,
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            top: -120,
-            left: -80,
-            width: 260,
-            height: 260,
-            borderRadius: '50%',
-            background: `radial-gradient(closest-side, ${alpha('#fff', 0.35)}, transparent)`,
-            filter: 'blur(20px)',
-            pointerEvents: 'none',
+      <Dialog
+        open={open}
+        onClose={isFirstTimeSetup ? undefined : onClose}
+        disableEscapeKeyDown={isFirstTimeSetup}
+        maxWidth="md"
+        fullWidth
+        keepMounted={false}
+        PaperProps={{
+          sx: {
+            bgcolor: 'background.paper',
+            border: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
+            boxShadow: `0 26px 80px ${alpha('#000', 0.28)}`,
+            borderRadius: 3,
+            overflow: 'hidden',
           },
-          '&::after': {
-            content: '""',
-            position: 'absolute',
-            bottom: -140,
-            right: -100,
-            width: 320,
-            height: 320,
-            borderRadius: '50%',
-            background: `radial-gradient(closest-side, ${alpha(theme.palette.primary.main, 0.22)}, transparent)`,
-            filter: 'blur(28px)',
-            pointerEvents: 'none',
-          },
-        },
-      }}
-    >
-      <DialogTitle
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          background: 'transparent',
-          color: 'text.primary',
-          py: 2,
-          borderBottom: `1px solid ${alpha(theme.palette.divider, 0.2)}`,
         }}
       >
-        <EditIcon />
-        <Box>
-          <Typography variant="h6" component="div" fontWeight={700}>
-            {isFirstTimeSetup ? 'ยินดีต้อนรับ! กรุณากรอกข้อมูลส่วนตัว' : 'กรอกข้อมูลส่วนตัว'}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {isFirstTimeSetup
-              ? 'คุณต้องกรอกข้อมูลให้ครบถ้วนก่อนดำเนินการต่อ'
-              : 'กรุณากรอกข้อมูลให้ครบถ้วนเพื่อใช้ในการลงทะเบียน'}
-          </Typography>
-        </Box>
-      </DialogTitle>
-
-      <DialogContent sx={{ pt: 3, position: 'relative' }}>
-        <Stack spacing={3}>
-          {isFirstTimeSetup && (
-            <Alert severity="warning" sx={{ borderRadius: 2, mt: 1 }}>
-              <Typography variant="body2" fontWeight={600}>
-                กรุณากรอกข้อมูลให้ครบถ้วนก่อนดำเนินการใดๆ
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                ระบบจำเป็นต้องมีข้อมูลของคุณเพื่อใช้ในการลงทะเบียนกิจกรรม
-              </Typography>
-            </Alert>
-          )}
-          {error && <Alert severity="error">{error}</Alert>}
-
-          {/* Avatar Preview */}
-          <Box sx={{ textAlign: 'center' }}>
-            <Box sx={{ position: 'relative', display: 'inline-block' }}>
-              <Avatar
-                src={getPreviewAvatar() || undefined}
-                sx={{
-                  width: 100,
-                  height: 100,
-                  mx: 'auto',
-                  mb: 2,
-                  border: `4px solid ${alpha(theme.palette.common.white, 0.8)}`,
-                  boxShadow: `
-                    0 14px 36px ${alpha('#000', 0.22)},
-                    inset 0 1px 0 ${alpha('#fff', 0.4)}
-                  `,
-                  fontSize: '2rem',
-                }}
-              >
-                {!getPreviewAvatar() && getPreviewAvatarLetter()}
-              </Avatar>
-              <IconButton
-                color="primary"
-                aria-label="upload picture"
-                component="label"
-                disabled={uploadingImage}
-                sx={{
-                  position: 'absolute',
-                  bottom: 12,
-                  right: -8,
-                  bgcolor: 'background.paper',
-                  boxShadow: 2,
-                  '&:hover': { bgcolor: 'grey.100' },
-                }}
-              >
-                <input hidden accept="image/*" type="file" onChange={handleImageSelect} />
-                {uploadingImage ? <CircularProgress size={20} /> : <PhotoCamera fontSize="small" />}
-              </IconButton>
-            </Box>
-            <Typography variant="body2" color="text.secondary">
-              รูปโปรไฟล์จะแสดงตัวอักษรแรกของชื่อหากไม่มีรูป
-            </Typography>
-          </Box>
-
-          {/* ✅ เปลี่ยนจาก item/xs/sm เป็น size={{...}} */}
-          <Grid container spacing={2}>
-            {/* ชื่อ - นามสกุล */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                label="ชื่อ *"
-                value={formData.firstName}
-                onChange={(e) => handleInputChange('firstName', e.target.value)}
-                fullWidth
-                required
-                variant="outlined"
-                helperText={validationErrors.firstName || 'ชื่อจริงของคุณ'}
-                error={!!validationErrors.firstName}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PersonIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                label="นามสกุล *"
-                value={formData.lastName}
-                onChange={(e) => handleInputChange('lastName', e.target.value)}
-                fullWidth
-                required
-                variant="outlined"
-                helperText={validationErrors.lastName || 'นามสกุลของคุณ'}
-                error={!!validationErrors.lastName}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PersonIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-
-            {/* คณะ - สาขา */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Autocomplete
-                freeSolo
-                options={Array.from(new Set(Object.values(facultyMap)))}
-                value={formData.faculty === 'ไม่ระบุ' ? '' : formData.faculty}
-                onChange={(_, newValue) => {
-                  handleInputChange('faculty', newValue || 'ไม่ระบุ');
-                  handleInputChange('department', 'ไม่ระบุ');
-                }}
-                onInputChange={(_, newInputValue) => handleInputChange('faculty', newInputValue || 'ไม่ระบุ')}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="คณะ"
-                    variant="outlined"
-                    placeholder="เช่น วิศวกรรมศาสตร์"
-                    helperText="คณะที่คุณศึกษาหรือทำงาน"
-                    InputProps={{
-                      ...params.InputProps,
-                      startAdornment: (
-                        <>
-                          <InputAdornment position="start">
-                            <SchoolIcon sx={{ color: 'text.secondary' }} />
-                          </InputAdornment>
-                          {params.InputProps.startAdornment}
-                        </>
-                      ),
-                    }}
-                  />
-                )}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Autocomplete
-                freeSolo
-                options={availableDepartments}
-                value={formData.department === 'ไม่ระบุ' ? '' : formData.department}
-                onChange={(_, newValue) => handleInputChange('department', newValue || 'ไม่ระบุ')}
-                onInputChange={(_, newInputValue) => handleInputChange('department', newInputValue || 'ไม่ระบุ')}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="สาขา/หน่วยงาน"
-                    variant="outlined"
-                    placeholder="เช่น วิศวกรรมคอมพิวเตอร์"
-                    helperText="สาขาวิชาหรือหน่วยงานที่สังกัด"
-                    InputProps={{
-                      ...params.InputProps,
-                      startAdornment: (
-                        <>
-                          <InputAdornment position="start">
-                            <BadgeIcon sx={{ color: 'text.secondary' }} />
-                          </InputAdornment>
-                          {params.InputProps.startAdornment}
-                        </>
-                      ),
-                    }}
-                  />
-                )}
-              />
-            </Grid>
-
-            {/* รหัสนักศึกษา */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                label="รหัสนักศึกษา/รหัสพนักงาน"
-                value={formData.studentId}
-                onChange={(e) => handleInputChange('studentId', e.target.value)}
-                fullWidth
-                variant="outlined"
-                helperText="รหัสประจำตัวของคุณ"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PersonIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-
-            {/* Username */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                label="Username"
-                value={formData.username}
-                onChange={(e) => handleInputChange('username', e.target.value)}
-                fullWidth
-                variant="outlined"
-                placeholder={formData.studentId || "ตั้งชื่อผู้ใช้ของคุณ"}
-                helperText={validationErrors.username || 'ใช้สำหรับแสดงในระบบ (เว้นว่างเพื่อใช้รหัสนักศึกษา)'}
-                error={!!validationErrors.username}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <AccountCircleIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-
-            {/* URL รูปโปรไฟล์ */}
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                label="URL รูปโปรไฟล์"
-                value={formData.photoURL}
-                onChange={(e) => handleInputChange('photoURL', e.target.value)}
-                fullWidth
-                variant="outlined"
-                placeholder="https://example.com/photo.jpg"
-                helperText={validationErrors.photoURL || 'ลิงก์รูปภาพสำหรับโปรไฟล์ (ไม่บังคับ)'}
-                error={!!validationErrors.photoURL}
-              />
-            </Grid>
-          </Grid>
-
-          <Card
-            variant="outlined"
-            sx={{
-              bgcolor: alpha(theme.palette.background.paper, 0.4),
-              backdropFilter: 'blur(6px)',
-            }}
-          >
-            <CardContent>
-              <Typography
-                variant="subtitle2"
-                gutterBottom
-                color="text.secondary"
-                sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-              >
-                <EmailIcon fontSize="small" />
-                ข้อมูลจากระบบ (ไม่สามารถแก้ไขได้)
-              </Typography>
-
-              <Divider sx={{ my: 1 }} />
-
-              <Grid container spacing={1}>
-                <Grid size={{ xs: 12 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    <strong>อีเมล:</strong> {user?.email}
-                  </Typography>
-                </Grid>
-                <Grid size={{ xs: 12 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    <strong>ชื่อแสดงเต็ม:</strong>{' '}
-                    {formData.firstName && formData.lastName
-                      ? `${formData.firstName} ${formData.lastName}`
-                      : 'กรอกชื่อ-นามสกุลเพื่อแสดงผล'}
-                  </Typography>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-
-          <Alert severity="info" icon={<InfoIcon />}>
-            <Typography variant="body2">
-              <strong>หมายเหตุ:</strong> ข้อมูลที่กรอกจะใช้สำหรับการลงทะเบียนกิจกรรม และการติดต่อสื่อสารจากระบบ
-              กรุณากรอกข้อมูลให้ถูกต้องและครบถ้วน
-            </Typography>
-          </Alert>
-        </Stack>
-      </DialogContent>
-
-      <DialogActions sx={{ p: 3, gap: 1, borderTop: `1px solid ${alpha(theme.palette.divider, 0.2)}` }}>
-        {!isFirstTimeSetup && (
-          <Button onClick={onClose} disabled={saving} size="large" variant="outlined">
-            ยกเลิก
-          </Button>
-        )}
-        <Button
-          variant="contained"
-          startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
-          onClick={handleSave}
-          disabled={saving || !isFormValid()}
-          size="large"
+        <DialogTitle
           sx={{
-            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.9)} 0%, ${alpha(
-              theme.palette.primary.dark,
-              0.9
-            )} 100%)`,
-            boxShadow: `0 14px 34px ${alpha(theme.palette.primary.main, 0.35)}`,
-            '&:hover': {
-              background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 1)} 0%, ${alpha(
-                theme.palette.primary.dark,
-                1
-              )} 100%)`,
-              boxShadow: `0 18px 40px ${alpha(theme.palette.primary.main, 0.45)}`,
-            },
-            px: 4,
-            '&:disabled': {
-              background: 'grey.300',
-              color: 'grey.500',
-            },
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            color: 'text.primary',
+            py: 2,
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.2)}`,
           }}
         >
-          {saving ? 'กำลังบันทึก...' : 'บันทึกและดำเนินการต่อ'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+          <EditIcon />
+          <Box>
+            <Typography variant="h6" component="div" fontWeight={700}>
+              {isFirstTimeSetup ? 'ยินดีต้อนรับ! กรุณากรอกข้อมูลส่วนตัว' : 'กรอกข้อมูลส่วนตัว'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {isFirstTimeSetup
+                ? 'คุณต้องกรอกข้อมูลให้ครบถ้วนก่อนดำเนินการต่อ'
+                : 'กรุณากรอกข้อมูลให้ครบถ้วนเพื่อใช้ในการลงทะเบียน'}
+            </Typography>
+          </Box>
+        </DialogTitle>
 
-    {/* Crop Modal */}
-    <Dialog open={cropModalOpen} onClose={() => !uploadingImage && setCropModalOpen(false)} maxWidth="sm" fullWidth>
-      <DialogTitle>ปรับขนาดรูปโปรไฟล์</DialogTitle>
-      <DialogContent sx={{ position: 'relative', height: 400, bgcolor: '#333', p: 0 }}>
-        {imageToCrop && (
-          <Cropper
-            image={imageToCrop}
-            crop={crop}
-            zoom={zoom}
-            aspect={1}
-            cropShape="round"
-            showGrid={false}
-            onCropChange={setCrop}
-            onCropComplete={onCropComplete}
-            onZoomChange={setZoom}
-          />
-        )}
-      </DialogContent>
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={() => setCropModalOpen(false)} disabled={uploadingImage} variant="outlined">
-          ยกเลิก
-        </Button>
-        <Button
-          onClick={handleCropConfirm}
-          disabled={uploadingImage}
-          variant="contained"
-          startIcon={uploadingImage && <CircularProgress size={16} />}
-        >
-          {uploadingImage ? 'กำลังอัปโหลด...' : 'ยืนยันและอัปโหลด'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+        <DialogContent sx={{ pt: 3 }}>
+          <Stack spacing={3}>
+            {isFirstTimeSetup && (
+              <Alert severity="warning" sx={{ borderRadius: 2, mt: 1 }}>
+                <Typography variant="body2" fontWeight={600}>
+                  กรุณากรอกข้อมูลให้ครบถ้วนก่อนดำเนินการใดๆ
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  ระบบจำเป็นต้องมีข้อมูลของคุณเพื่อใช้ในการลงทะเบียนกิจกรรม
+                </Typography>
+              </Alert>
+            )}
+            {error && <Alert severity="error">{error}</Alert>}
+
+            <Box sx={{ textAlign: 'center' }}>
+              <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                <Avatar
+                  src={getPreviewAvatar() || undefined}
+                  sx={{
+                    width: 100,
+                    height: 100,
+                    mx: 'auto',
+                    mb: 2,
+                    border: `4px solid ${alpha(theme.palette.common.white, 0.8)}`,
+                    boxShadow: `0 14px 36px ${alpha('#000', 0.22)}`,
+                    fontSize: '2rem',
+                  }}
+                >
+                  {!getPreviewAvatar() && getPreviewAvatarLetter()}
+                </Avatar>
+                <IconButton
+                  color="primary"
+                  aria-label="upload picture"
+                  component="label"
+                  disabled={uploadingImage}
+                  sx={{
+                    position: 'absolute',
+                    bottom: 12,
+                    right: -8,
+                    bgcolor: 'background.paper',
+                    boxShadow: 2,
+                    '&:hover': { bgcolor: 'grey.100' },
+                  }}
+                >
+                  <input hidden accept="image/*" type="file" onChange={handleImageSelect} />
+                  {uploadingImage ? <CircularProgress size={20} /> : <PhotoCamera fontSize="small" />}
+                </IconButton>
+              </Box>
+              <Typography variant="body2" color="text.secondary">
+                ชื่อที่แสดงในระบบคือ Username (ไม่ใช่ชื่อ-นามสกุล)
+              </Typography>
+            </Box>
+
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="ชื่อ *"
+                  value={formData.firstName}
+                  onChange={(e) => handleInputChange('firstName', e.target.value)}
+                  fullWidth
+                  required
+                  variant="outlined"
+                  helperText={validationErrors.firstName || 'ชื่อจริงของคุณ'}
+                  error={!!validationErrors.firstName}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonIcon sx={{ color: 'text.secondary' }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="นามสกุล *"
+                  value={formData.lastName}
+                  onChange={(e) => handleInputChange('lastName', e.target.value)}
+                  fullWidth
+                  required
+                  variant="outlined"
+                  helperText={validationErrors.lastName || 'นามสกุลของคุณ'}
+                  error={!!validationErrors.lastName}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonIcon sx={{ color: 'text.secondary' }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Autocomplete
+                  freeSolo
+                  options={Array.from(new Set(Object.values(facultyMap)))}
+                  value={formData.faculty}
+                  onChange={(_, newValue) => {
+                    handleInputChange('faculty', (newValue as string) || '');
+                    handleInputChange('department', '');
+                  }}
+                  onInputChange={(_, newInputValue, reason) => {
+                    if (reason === 'input' || reason === 'clear') {
+                      handleInputChange('faculty', newInputValue);
+                      if (reason === 'clear') handleInputChange('department', '');
+                    }
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="คณะ"
+                      variant="outlined"
+                      placeholder="เช่น วิทยาศาสตร์"
+                      helperText="คณะที่คุณศึกษาหรือทำงาน"
+                      InputProps={{
+                        ...params.InputProps,
+                        startAdornment: (
+                          <>
+                            <InputAdornment position="start">
+                              <SchoolIcon sx={{ color: 'text.secondary' }} />
+                            </InputAdornment>
+                            {params.InputProps.startAdornment}
+                          </>
+                        ),
+                      }}
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Autocomplete
+                  freeSolo
+                  options={availableDepartments}
+                  value={formData.department}
+                  onChange={(_, newValue) => handleInputChange('department', (newValue as string) || '')}
+                  onInputChange={(_, newInputValue, reason) => {
+                    if (reason === 'input' || reason === 'clear') {
+                      handleInputChange('department', newInputValue);
+                    }
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="สาขา/หน่วยงาน"
+                      variant="outlined"
+                      placeholder="เช่น วิทยาการคอมพิวเตอร์"
+                      helperText="สาขาวิชาหรือหน่วยงานที่สังกัด"
+                      InputProps={{
+                        ...params.InputProps,
+                        startAdornment: (
+                          <>
+                            <InputAdornment position="start">
+                              <BadgeIcon sx={{ color: 'text.secondary' }} />
+                            </InputAdornment>
+                            {params.InputProps.startAdornment}
+                          </>
+                        ),
+                      }}
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="รหัสนักศึกษา/รหัสพนักงาน"
+                  value={formData.studentId}
+                  onChange={(e) => handleInputChange('studentId', e.target.value)}
+                  fullWidth
+                  variant="outlined"
+                  helperText="รหัสประจำตัวของคุณ"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonIcon sx={{ color: 'text.secondary' }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Username *"
+                  value={formData.username}
+                  onChange={(e) => handleInputChange('username', e.target.value)}
+                  fullWidth
+                  variant="outlined"
+                  placeholder={formData.studentId || 'ตั้งชื่อผู้ใช้ของคุณ'}
+                  helperText={
+                    validationErrors.username ||
+                    'ใช้แสดงใน Navbar และระบบ (เว้นว่างจะใช้รหัสนักศึกษา)'
+                  }
+                  error={!!validationErrors.username}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <AccountCircleIcon sx={{ color: 'text.secondary' }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  label="URL รูปโปรไฟล์"
+                  value={formData.photoURL}
+                  onChange={(e) => handleInputChange('photoURL', e.target.value)}
+                  fullWidth
+                  variant="outlined"
+                  placeholder="https://example.com/photo.jpg"
+                  helperText={validationErrors.photoURL || 'ลิงก์รูปภาพสำหรับโปรไฟล์ (ไม่บังคับ)'}
+                  error={!!validationErrors.photoURL}
+                />
+              </Grid>
+            </Grid>
+
+            <Card variant="outlined" sx={{ bgcolor: alpha(theme.palette.background.paper, 0.6) }}>
+              <CardContent>
+                <Typography
+                  variant="subtitle2"
+                  gutterBottom
+                  color="text.secondary"
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                >
+                  <EmailIcon fontSize="small" />
+                  ข้อมูลจากระบบ (ไม่สามารถแก้ไขได้)
+                </Typography>
+                <Divider sx={{ my: 1 }} />
+                <Grid container spacing={1}>
+                  <Grid size={{ xs: 12 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>อีเมล:</strong> {user?.email}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>ชื่อที่แสดงในระบบ:</strong>{' '}
+                      {formData.username.trim() || formData.studentId || 'ตั้ง Username เพื่อแสดงผล'}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+
+            <Alert severity="info" icon={<InfoIcon />}>
+              <Typography variant="body2">
+                <strong>หมายเหตุ:</strong> Username จะใช้แสดงในแถบนำทาง ส่วนชื่อ-นามสกุลใช้สำหรับลงทะเบียนกิจกรรม
+              </Typography>
+            </Alert>
+          </Stack>
+        </DialogContent>
+
+        <DialogActions sx={{ p: 3, gap: 1, borderTop: `1px solid ${alpha(theme.palette.divider, 0.2)}` }}>
+          {!isFirstTimeSetup && (
+            <Button onClick={onClose} disabled={saving} size="large" variant="outlined">
+              ยกเลิก
+            </Button>
+          )}
+          <Button
+            variant="contained"
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+            onClick={handleSave}
+            disabled={saving || !isFormValid()}
+            size="large"
+            sx={{
+              background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.9)} 0%, ${alpha(
+                theme.palette.primary.dark,
+                0.9
+              )} 100%)`,
+              boxShadow: `0 14px 34px ${alpha(theme.palette.primary.main, 0.35)}`,
+              px: 4,
+              '&:disabled': {
+                background: 'grey.300',
+                color: 'grey.500',
+              },
+            }}
+          >
+            {saving ? 'กำลังบันทึก...' : 'บันทึกและดำเนินการต่อ'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={cropModalOpen} onClose={() => !uploadingImage && setCropModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>ปรับขนาดรูปโปรไฟล์</DialogTitle>
+        <DialogContent sx={{ position: 'relative', height: 400, bgcolor: '#333', p: 0 }}>
+          {imageToCrop && (
+            <Cropper
+              image={imageToCrop}
+              crop={crop}
+              zoom={zoom}
+              aspect={1}
+              cropShape="round"
+              showGrid={false}
+              onCropChange={setCrop}
+              onCropComplete={onCropComplete}
+              onZoomChange={setZoom}
+            />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setCropModalOpen(false)} disabled={uploadingImage} variant="outlined">
+            ยกเลิก
+          </Button>
+          <Button
+            onClick={handleCropConfirm}
+            disabled={uploadingImage}
+            variant="contained"
+            startIcon={uploadingImage ? <CircularProgress size={16} /> : undefined}
+          >
+            {uploadingImage ? 'กำลังอัปโหลด...' : 'ยืนยันและอัปโหลด'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 };

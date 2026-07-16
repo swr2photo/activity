@@ -12,6 +12,7 @@ import {
   Container,
   Divider,
   Grid,
+  Skeleton,
   Stack,
   Typography,
   Snackbar,
@@ -58,6 +59,7 @@ import ActivityRegistrationForm from '../../components/ActivityRegistrationForm'
 import GeofenceMap from '../../components/maps/GeofenceMap';
 import Footer from '../../components/Footer';
 import SurveyForm from '../../components/activity/SurveyForm';
+import FullPageError, { FullPageErrorVariant } from '../../components/common/FullPageError';
 import { glassCardSx, pageColors, pageLayoutSx } from '../../lib/uiTheme';
 import Image from 'next/image';
 import 'quill/dist/quill.snow.css';
@@ -1160,42 +1162,139 @@ const RegisterPageContent: React.FC = () => {
   }, [hasRegisteredRecord, activityData, checkedInSessions]);
 
   /* ============================= Render ============================= */
+  // ระหว่างโหลด แสดง skeleton โครงหน้าจริงแทนหน้าสปินเนอร์ ให้รู้สึกว่าเข้าหน้าได้ทันที
   if (loading || authLoading) {
+    return <RegisterPageSkeleton />;
+  }
+
+  /* ============================= Full-page errors ============================= */
+
+  // IP ถูกจำกัดชั่วคราว
+  if (ipBlocked) {
     return (
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '50vh',
-          flexDirection: 'column',
-          gap: 2,
-        }}
-      >
-        <CircularProgress size={40} />
-        <Typography variant="body1" color="text.secondary">
-          กำลังโหลดข้อมูล...
-        </Typography>
-      </Box>
+      <FullPageError
+        variant="blocked"
+        code="IP_RESTRICTED"
+        title="การเข้าถึงถูกจำกัดชั่วคราว"
+        message={`IP ของคุณถูกจำกัดการใช้งานชั่วคราวเนื่องจากตรวจพบการใช้งานที่ผิดปกติ ระบบจะปลดล็อกโดยอัตโนมัติในอีก ${blockRemainingTime} นาที`}
+        actions={[
+          { label: 'ตรวจสอบอีกครั้ง', onClick: () => window.location.reload() },
+          { label: 'กลับหน้าหลัก', href: '/' },
+        ]}
+      />
     );
   }
 
+  // บัญชีถูกระงับโดยแอดมิน — บล็อกทุกอย่าง
+  if (user && userData && (userData as any).isActive === false) {
+    return (
+      <FullPageError
+        variant="blocked"
+        code="ACCOUNT_SUSPENDED"
+        title="บัญชีถูกระงับการใช้งาน"
+        message="บัญชีของคุณถูกระงับโดยผู้ดูแลระบบ จึงไม่สามารถใช้งานระบบลงทะเบียนได้ หากคิดว่าเป็นความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ"
+        actions={[
+          { label: 'ออกจากระบบ', onClick: handleLogout },
+          { label: 'กลับหน้าหลัก', href: '/', kind: 'ghost' },
+        ]}
+      />
+    );
+  }
+
+  // กิจกรรมโหมดผู้ใช้เดียว / เช็กอินครบแล้ว — บล็อกการลงทะเบียน
+  // (ยกเว้นช่วงที่ต้องเปิดให้ทำแบบประเมิน จะยังใช้หน้าปกติ)
+  if (
+    singleUserBlocked &&
+    user &&
+    !sessionExpired &&
+    !(isSurveyWindowOpen && isEligibleForSurvey && !surveyCompleted)
+  ) {
+    const isAllCheckedIn = singleUserMessage.includes('ครบ');
+    return (
+      <FullPageError
+        variant="locked"
+        code={isAllCheckedIn ? 'ALL_CHECKED_IN' : 'SINGLE_USER_MODE'}
+        title={isAllCheckedIn ? 'คุณเช็กอินครบทุกรอบแล้ว' : 'ไม่สามารถลงทะเบียนได้'}
+        message={singleUserMessage}
+        actions={[
+          { label: 'ออกจากระบบ', onClick: handleLogout },
+          { label: 'ปิดหน้าต่าง', onClick: () => window.close(), kind: 'ghost' },
+        ]}
+      />
+    );
+  }
+
+  // ข้อผิดพลาดทั่วไป (ระบบปิด / ไม่พบกิจกรรม / QR หมดอายุ / โหลดล้มเหลว ฯลฯ)
   if (
     error &&
-    !ipBlocked &&
     !isDuplicateRegistration &&
     !successMessage &&
     !sessionExpired &&
     !sessionWarning &&
     !singleUserBlocked
   ) {
+    let variant: FullPageErrorVariant = 'warning';
+    let code = 'UNEXPECTED_ERROR';
+    let title = 'เกิดข้อผิดพลาด';
+
+    if (error.includes('ปิดใช้งานชั่วคราว')) {
+      variant = 'maintenance';
+      code = 'SYSTEM_DISABLED';
+      title = 'ระบบปิดปรับปรุงชั่วคราว';
+    } else if (error.includes('ปิด') || error.includes('สิทธิ์')) {
+      variant = 'locked';
+      code = 'ACCESS_DENIED';
+      title = 'ไม่สามารถเข้าใช้งานได้';
+    } else if (error.includes('หมดอายุ')) {
+      variant = 'expired';
+      code = 'QR_EXPIRED';
+      title = 'QR Code หมดอายุแล้ว';
+    } else if (error.includes('ไม่พบ')) {
+      variant = 'notfound';
+      code = 'NOT_FOUND';
+      title = 'ไม่พบกิจกรรมที่ค้นหา';
+    }
+
     return (
-      <Alert severity="error" sx={{ mt: 2 }}>
-        {error}
-        <Button color="inherit" size="small" onClick={loadInitialData} sx={{ ml: 2 }} startIcon={<RefreshIcon />}>
-          ลองใหม่
-        </Button>
-      </Alert>
+      <FullPageError
+        variant={variant}
+        code={code}
+        title={title}
+        message={error}
+        actions={[
+          { label: 'ลองใหม่อีกครั้ง', onClick: loadInitialData },
+          { label: 'กลับหน้าหลัก', href: '/', kind: 'ghost' },
+        ]}
+      />
+    );
+  }
+
+  // กิจกรรมสิ้นสุดแล้ว — แสดงจอแจ้งเตือนเต็มหน้าแทนหน้าลงทะเบียนปกติ
+  // (ยกเว้นช่วงที่ยังเปิดให้ทำแบบประเมิน หรือเพิ่งลงทะเบียนสำเร็จ จะยังใช้หน้าปกติ)
+  if (
+    activityData &&
+    statusInfo?.status === 'ended' &&
+    !successMessage &&
+    !(isSurveyWindowOpen && isEligibleForSurvey && !surveyCompleted)
+  ) {
+    const endedAt = statusInfo.endTime ? formatDateTime(statusInfo.endTime) : null;
+    return (
+      <FullPageError
+        variant="expired"
+        code="ACTIVITY_ENDED"
+        title="กิจกรรมสิ้นสุดแล้ว"
+        message={
+          endedAt
+            ? `"${activityData.activityName}" สิ้นสุดไปแล้วเมื่อวันที่ ${endedAt} น. ขอบคุณที่ให้ความสนใจ`
+            : `"${activityData.activityName}" สิ้นสุดไปแล้ว ขอบคุณที่ให้ความสนใจ`
+        }
+        actions={[
+          { label: 'ดูกิจกรรมอื่น', href: '/' },
+          ...(user
+            ? [{ label: 'ประวัติของฉัน', href: '/my-history', kind: 'ghost' as const }]
+            : []),
+        ]}
+      />
     );
   }
 
@@ -1544,31 +1643,76 @@ const RegisterPageContent: React.FC = () => {
   );
 };
 
+/* ============================= Loading Skeleton ============================= */
+// โครงหน้าจำลองระหว่างโหลดข้อมูล — แสดงเลย์เอาต์จริงทันทีแทนหน้าสปินเนอร์
+const RegisterPageSkeleton: React.FC = () => (
+  <Box sx={{ ...pageLayoutSx, flex: 1 }}>
+    {/* Navbar placeholder */}
+    <Box
+      sx={{
+        height: 64,
+        px: { xs: 2, md: 4 },
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        bgcolor: pageColors.cardBg,
+        borderBottom: `1px solid ${pageColors.border}`,
+      }}
+    >
+      <Skeleton variant="rounded" width={150} height={26} sx={{ borderRadius: '8px' }} />
+      <Skeleton variant="circular" width={36} height={36} />
+    </Box>
+
+    <Container maxWidth="md" sx={{ flex: 1, pt: { xs: 2, md: 3 }, pb: 4 }}>
+      {/* Banner */}
+      <Skeleton
+        variant="rounded"
+        width="100%"
+        sx={{ height: { xs: 160, md: 220 }, borderRadius: '24px', mb: 3 }}
+      />
+
+      {/* Activity details card */}
+      <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
+        <CardContent>
+          <Skeleton width="45%" height={30} sx={{ borderRadius: '8px', mb: 2 }} />
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Skeleton width="35%" height={16} sx={{ borderRadius: '6px', mb: 0.5 }} />
+              <Skeleton width="70%" height={22} sx={{ borderRadius: '6px' }} />
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Skeleton width="35%" height={16} sx={{ borderRadius: '6px', mb: 0.5 }} />
+              <Skeleton width="70%" height={22} sx={{ borderRadius: '6px' }} />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <Skeleton width="25%" height={16} sx={{ borderRadius: '6px', mb: 0.5 }} />
+              <Skeleton width="100%" height={20} sx={{ borderRadius: '6px' }} />
+              <Skeleton width="85%" height={20} sx={{ borderRadius: '6px' }} />
+              <Skeleton width="60%" height={20} sx={{ borderRadius: '6px' }} />
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Login / form card */}
+      <Card elevation={0} sx={{ ...glassCardSx }}>
+        <CardContent>
+          <Skeleton width="35%" height={28} sx={{ borderRadius: '8px', mb: 2 }} />
+          <Skeleton variant="rounded" width="100%" height={52} sx={{ borderRadius: '14px', mb: 1.5 }} />
+          <Skeleton variant="rounded" width="100%" height={52} sx={{ borderRadius: '14px' }} />
+        </CardContent>
+      </Card>
+    </Container>
+  </Box>
+);
+
 /* ============================= Page Wrapper with Suspense ============================= */
 const RegisterPage: React.FC = () => {
   return (
     <Box sx={pageLayoutSx}>
-      <Suspense
-          fallback={
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                minHeight: '50vh',
-                flexDirection: 'column',
-                gap: 2,
-              }}
-            >
-              <CircularProgress size={40} />
-              <Typography variant="body1" color="text.secondary">
-                กำลังโหลดหน้าลงทะเบียน...
-              </Typography>
-            </Box>
-          }
-        >
-          <RegisterPageContent />
-        </Suspense>
+      <Suspense fallback={<RegisterPageSkeleton />}>
+        <RegisterPageContent />
+      </Suspense>
     </Box>
   );
 };

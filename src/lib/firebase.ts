@@ -34,6 +34,24 @@ const bucketId = firebaseConfig.storageBucket || '';
 const bucketUrl = bucketId.startsWith('gs://') ? bucketId : `gs://${bucketId}`;
 export const storage = getStorage(app, bucketUrl);
 
+/* =========================
+ * Admin app instance (แยกจากฝั่งผู้ใช้)
+ * =========================
+ * Firebase เก็บ session ของ Auth แยกตามชื่อ app
+ * การให้ฝั่งแอดมินใช้ app คนละตัว ทำให้ล็อกอินแอดมิน (Google)
+ * และล็อกอินนักศึกษา (Microsoft) ค้างอยู่พร้อมกันได้ ไม่เตะกันออก
+ */
+const ADMIN_APP_NAME = 'admin-app';
+const adminApp =
+  getApps().find((a) => a.name === ADMIN_APP_NAME) ??
+  initializeApp(firebaseConfig, ADMIN_APP_NAME);
+
+export const adminDb = initializeFirestore(adminApp, {
+  localCache: memoryLocalCache(),
+});
+export const adminAuth = getAuth(adminApp);
+export const adminStorage = getStorage(adminApp, bucketUrl);
+
 // ---- Emulators (Optional) ----
 if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_USE_EMULATOR === 'true') {
   try {
@@ -45,6 +63,15 @@ if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_USE_EMULAT
     }
     if (!(storage as any)._emulatorConfig) {
         connectStorageEmulator(storage, 'localhost', 9199);
+    }
+    if (!(adminDb as any)._emulatorConfig) {
+      connectFirestoreEmulator(adminDb, 'localhost', 8080);
+    }
+    if (!(adminAuth as any).emulatorConfig) {
+        connectAuthEmulator(adminAuth, 'http://localhost:9099', { disableWarnings: true });
+    }
+    if (!(adminStorage as any)._emulatorConfig) {
+        connectStorageEmulator(adminStorage, 'localhost', 9199);
     }
   } catch (e) {
     console.warn('Emulator connection warning:', e);

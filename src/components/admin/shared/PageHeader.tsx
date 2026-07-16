@@ -19,7 +19,7 @@ export function PageHeader({ title, subtitle, icon, actions, className }: PageHe
           </div>
         )}
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-slate-900 truncate">{title}</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50 truncate">{title}</h1>
           {subtitle && (
             <div className="text-sm text-muted-foreground truncate">
               {subtitle}

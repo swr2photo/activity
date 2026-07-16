@@ -29,7 +29,7 @@ import {
   type AdminInvite,
   logAdminEvent,
 } from '../../lib/adminFirebase';
-import { auth } from '../../lib/firebase';
+import { adminAuth as auth } from '../../lib/firebase';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

@@ -30,6 +30,16 @@ import ActivityCard from "@/components/ActivityCard";
 import { Refresh, Search, EventAvailable, FilterList, InfoOutlined, Close as CloseIcon } from "@mui/icons-material";
 import { motion, AnimatePresence } from "framer-motion";
 
+// --- Hero media ---
+// วางไฟล์ /public/hero.mp4 และ /public/hero.jpg เพื่อใช้วิดีโอ/รูปของคณะเอง
+// (ถ้าไม่มีจะ fallback ไปใช้สื่อฟรีจาก Pexels ด้านล่างโดยอัตโนมัติผ่านค่า default นี้)
+const HERO_VIDEO =
+  process.env.NEXT_PUBLIC_HERO_VIDEO_URL ||
+  'https://videos.pexels.com/video-files/3129671/3129671-hd_1920_1080_30fps.mp4';
+const HERO_POSTER =
+  process.env.NEXT_PUBLIC_HERO_POSTER_URL ||
+  'https://images.pexels.com/videos/3129671/free-video-3129671.jpg?auto=compress&w=1920';
+
 // --- Types ---
 type ActivityListItem = {
   id: string;
@@ -288,84 +298,230 @@ const HomePage: React.FC = () => {
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#000000" }}>
       <Navbar />
 
-      {/* Hero Header - Premium Dark Theme with Video Background */}
+      {/* ===================== Hero — Cinematic Video Background ===================== */}
       <Box sx={{ 
         position: 'relative',
         bgcolor: '#000000', 
         color: 'white', 
-        pt: { xs: 14, md: 22 }, 
-        pb: { xs: 22, md: 32 },
+        minHeight: { xs: '78svh', md: '86svh' },
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
         textAlign: 'center',
         overflow: 'hidden',
-        zIndex: 1
+        zIndex: 1,
+        pt: { xs: 12, md: 10 },
+        pb: { xs: 16, md: 20 },
       }}>
-        {/* Video Background Placeholder */}
+        {/* Layer 1: Poster image (แสดงทันทีระหว่างวิดีโอโหลด / fallback ถ้าเล่นไม่ได้) */}
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: -3,
+            backgroundImage: `url(${HERO_POSTER})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            transform: 'scale(1.05)',
+          }}
+        />
+
+        {/* Layer 2: Video background */}
         <Box
           component="video"
           autoPlay
           loop
           muted
           playsInline
+          preload="metadata"
+          poster={HERO_POSTER}
           sx={{
             position: 'absolute',
-            top: 0,
-            left: 0,
+            inset: 0,
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            zIndex: -1,
-            opacity: 0.4,
-            filter: 'blur(4px) brightness(0.7)'
+            zIndex: -2,
+            animation: 'heroZoom 28s ease-in-out infinite alternate',
+            '@keyframes heroZoom': {
+              from: { transform: 'scale(1)' },
+              to: { transform: 'scale(1.08)' },
+            },
           }}
-          src="https://cdn.pixabay.com/video/2021/08/04/83866-584732685_tiny.mp4"
-        />
+        >
+          <source src={HERO_VIDEO} type="video/mp4" />
+        </Box>
+
+        {/* Layer 3: Readability overlays */}
         <Box
           sx={{
             position: 'absolute',
-            bottom: 0,
-            left: 0,
-            width: '100%',
-            height: '50%',
-            background: 'linear-gradient(to top, #000000 0%, transparent 100%)',
+            inset: 0,
             zIndex: -1,
+            background: `
+              radial-gradient(ellipse 90% 70% at 50% 45%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.62) 100%),
+              linear-gradient(to bottom, rgba(0,0,0,0.68) 0%, rgba(0,0,0,0.12) 28%, rgba(0,0,0,0.12) 62%, #000000 100%)
+            `,
           }}
         />
 
-        <Container maxWidth="md">
+        <Container maxWidth="md" sx={{ position: 'relative' }}>
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
           >
+            {/* Badge */}
+            <Box
+              component={motion.div}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.6, delay: 0.15 }}
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 2.25,
+                py: 0.9,
+                mb: 3.5,
+                borderRadius: '100px',
+                bgcolor: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                backdropFilter: 'blur(12px)',
+              }}
+            >
+              <Box sx={{
+                width: 8, height: 8, borderRadius: '50%', bgcolor: '#34c759',
+                boxShadow: '0 0 12px rgba(52,199,89,0.9)',
+                animation: 'heroPulse 2s ease-in-out infinite',
+                '@keyframes heroPulse': {
+                  '0%, 100%': { opacity: 1 },
+                  '50%': { opacity: 0.45 },
+                },
+              }} />
+              <Typography variant="caption" sx={{ fontWeight: 700, letterSpacing: '0.06em', color: 'rgba(255,255,255,0.92)', fontSize: '0.8rem' }}>
+                {loading ? 'กำลังโหลดกิจกรรม...' : `เปิดรับสมัครแล้ว ${counts.active} กิจกรรม`}
+              </Typography>
+            </Box>
+
             <Typography variant="h1" fontWeight={800} sx={{ 
-              fontSize: { xs: '3rem', md: '5rem' }, 
-              mb: 2, 
+              fontSize: { xs: '2.9rem', md: '5rem' }, 
+              mb: 2.5, 
               letterSpacing: '-0.04em', 
+              lineHeight: 1.05,
               fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-              background: 'linear-gradient(135deg, #ffffff 30%, #a1a1a6 100%)',
+              background: 'linear-gradient(135deg, #ffffff 35%, #c7c7cc 100%)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
+              textShadow: '0 8px 40px rgba(0,0,0,0.4)',
             }}>
-              ค้นพบกิจกรรมที่คุณชอบ.
+              ค้นพบกิจกรรม
+              <br />
+              ที่คุณชอบ.
             </Typography>
+
             <Typography variant="h6" sx={{ 
-              color: '#a1a1a6', 
+              color: 'rgba(255,255,255,0.78)', 
               fontWeight: 500, 
-              mb: 4, 
+              mb: 5, 
               px: 2, 
-              fontSize: { xs: '1.1rem', md: '1.35rem' }, 
+              fontSize: { xs: '1.05rem', md: '1.3rem' }, 
               letterSpacing: '-0.01em',
-              maxWidth: '80%',
-              mx: 'auto'
+              maxWidth: 560,
+              mx: 'auto',
+              textShadow: '0 2px 16px rgba(0,0,0,0.5)',
             }}>
-              ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ. สะดวก รวดเร็ว และแม่นยำ
+              ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ.
+              <br />
+              สะดวก รวดเร็ว และแม่นยำ
             </Typography>
+
+            {/* CTA */}
+            <Stack
+              component={motion.div}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.35 }}
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={2}
+              justifyContent="center"
+              alignItems="center"
+            >
+              <Button
+                onClick={() => document.getElementById('activities')?.scrollIntoView({ behavior: 'smooth' })}
+                sx={{
+                  px: 4.5,
+                  py: 1.6,
+                  borderRadius: '100px',
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  color: '#000000',
+                  bgcolor: '#ffffff',
+                  boxShadow: '0 12px 32px rgba(255,255,255,0.22)',
+                  transition: 'all 0.25s ease',
+                  '&:hover': { bgcolor: '#f5f5f7', transform: 'translateY(-2px)', boxShadow: '0 16px 40px rgba(255,255,255,0.3)' },
+                }}
+              >
+                สำรวจกิจกรรมทั้งหมด
+              </Button>
+              <Button
+                onClick={() => { setStatuses(['active']); document.getElementById('activities')?.scrollIntoView({ behavior: 'smooth' }); }}
+                sx={{
+                  px: 4.5,
+                  py: 1.6,
+                  borderRadius: '100px',
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  color: '#ffffff',
+                  bgcolor: 'rgba(255,255,255,0.1)',
+                  border: '1px solid rgba(255,255,255,0.25)',
+                  backdropFilter: 'blur(12px)',
+                  transition: 'all 0.25s ease',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.18)', transform: 'translateY(-2px)' },
+                }}
+              >
+                เฉพาะที่เปิดรับสมัคร
+              </Button>
+            </Stack>
           </motion.div>
         </Container>
+
+        {/* Scroll indicator */}
+        <Box
+          component={motion.div}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1, duration: 0.8 }}
+          onClick={() => document.getElementById('activities')?.scrollIntoView({ behavior: 'smooth' })}
+          sx={{
+            position: 'absolute',
+            bottom: { xs: 84, md: 110 },
+            left: '50%',
+            transform: 'translateX(-50%)',
+            cursor: 'pointer',
+            width: 26,
+            height: 42,
+            borderRadius: '14px',
+            border: '2px solid rgba(255,255,255,0.35)',
+            display: { xs: 'none', md: 'flex' },
+            justifyContent: 'center',
+            pt: '7px',
+          }}
+        >
+          <Box sx={{
+            width: 4, height: 9, borderRadius: '4px', bgcolor: 'rgba(255,255,255,0.75)',
+            animation: 'heroScroll 1.8s ease-in-out infinite',
+            '@keyframes heroScroll': {
+              '0%': { transform: 'translateY(0)', opacity: 1 },
+              '70%': { transform: 'translateY(12px)', opacity: 0 },
+              '100%': { transform: 'translateY(0)', opacity: 0 },
+            },
+          }} />
+        </Box>
       </Box>
 
       {/* Main Content Area */}
-      <Box sx={{ bgcolor: '#f5f5f7', flexGrow: 1, borderTopLeftRadius: '40px', borderTopRightRadius: '40px', position: 'relative', zIndex: 2 }}>
+      <Box id="activities" sx={{ bgcolor: '#f5f5f7', flexGrow: 1, borderTopLeftRadius: '40px', borderTopRightRadius: '40px', position: 'relative', zIndex: 2, scrollMarginTop: '80px' }}>
         <Container maxWidth="xl" sx={{ mt: -10, mb: 10 }}>
           <Grid container spacing={{ xs: 2, md: 4 }}>
             

@@ -13,7 +13,7 @@ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import type { AdminProfile } from '../../types/admin';
 import { updateAdminUser, logAdminEvent } from '../../lib/adminFirebase';
 import { PageHeader } from './shared/PageHeader';
-import { auth, storage } from '../../lib/firebase';
+import { adminAuth as auth, adminStorage as storage } from '../../lib/firebase';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

@@ -67,6 +67,7 @@ service cloud.firestore {
       allow create: if isAuthenticated() && (
         isAdmin() || 
         (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) && 
+         getStudentData().get('isActive', true) != false &&
          request.resource.data.studentId == getStudentData().studentId &&
          isActivityOpen(request.resource.data.activityDocId))
       );
@@ -74,9 +75,21 @@ service cloud.firestore {
     }
 
     // 5. universityUsers (Student profiles)
+    // เจ้าของแก้โปรไฟล์ตัวเองได้ แต่ห้ามแก้สถานะบัญชี (isActive / isVerified)
     match /universityUsers/{uid} {
       allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
-      allow write: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      allow create: if isAuthenticated() && (
+        isAdmin() || (
+          request.auth.uid == uid &&
+          request.resource.data.get('isActive', true) == true
+        )
+      );
+      allow update: if isAdmin() || (
+        isAuthenticated() && request.auth.uid == uid &&
+        request.resource.data.get('isActive', true) == resource.data.get('isActive', true) &&
+        request.resource.data.get('isVerified', true) == resource.data.get('isVerified', true)
+      );
+      allow delete: if isAdmin();
     }
 
     // 6. logs (System logs)
@@ -115,6 +128,64 @@ service cloud.firestore {
     match /systemSettings/{settingId} {
       allow read: if true; // Publicly readable (e.g. check maintenance mode)
       allow write: if isAdmin();
+    }
+
+    // 11. customShortLinks
+    match /customShortLinks/{linkId} {
+      allow read, write: if isAdmin();
+    }
+
+    // 12. shortLinkVisits
+    match /shortLinkVisits/{visitId} {
+      allow read: if isAdmin();
+      allow write: if false; // Only written via Admin SDK on the server
+    }
+
+    // 13. surveyResponses (คำตอบแบบประเมินกิจกรรม)
+    match /surveyResponses/{responseId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // 14. users (โปรไฟล์ compat เดิม — mirror ของ universityUsers)
+    // กฎเดียวกับ universityUsers: ห้ามเจ้าของแก้สถานะบัญชีเอง
+    match /users/{uid} {
+      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      allow create: if isAuthenticated() && (
+        isAdmin() || (
+          request.auth.uid == uid &&
+          request.resource.data.get('isActive', true) == true
+        )
+      );
+      allow update: if isAdmin() || (
+        isAuthenticated() && request.auth.uid == uid &&
+        request.resource.data.get('isActive', true) == resource.data.get('isActive', true) &&
+        request.resource.data.get('isVerified', true) == resource.data.get('isVerified', true)
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 15. adminSettings (การตั้งค่าแบรนด์/ฟอร์มลงทะเบียน — หน้า register ต้องอ่านได้)
+    match /adminSettings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 16. loginSessions (เซสชันจำกัดการล็อกอินของนักศึกษา)
+    match /loginSessions/{uid} {
+      allow read, write: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+    }
+
+    // 17. activityClaims (โหมดผู้ใช้เดียว — จองสิทธิ์ระหว่างทำ transaction ลงทะเบียน)
+    match /activityClaims/{claimId} {
+      allow read, create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // 18. adminNotifications (กระดิ่งแจ้งเตือนในหน้าแอดมิน)
+    match /adminNotifications/{notifId} {
+      allow read, write: if isAdmin();
     }
   }
 }

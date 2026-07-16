@@ -177,6 +177,8 @@ const StatusBar = styled(
   transition: 'all .3s ease-in-out',
 }));
 
+const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
+
 /* ============== Component ============== */
 const GeofenceMap: React.FC<GeofenceMapProps> = ({
   center,
@@ -196,7 +198,9 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
 
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
+    libraries,
   });
+
 
   const [map, setMap] = useState<any | null>(null);
   const [mode, setMode] = useState<'roadmap' | 'satellite'>('satellite');

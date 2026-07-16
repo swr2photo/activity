@@ -1,6 +1,30 @@
 import { NextRequest } from 'next/server';
 import { getAdminAuth, getAdminDb } from './firebaseAdmin';
 
+/**
+ * ตรวจสอบว่าผู้ใช้เข้าสู่ระบบ (Firebase Auth) โดยไม่ต้องเป็น Admin
+ * ใช้สำหรับ API ที่ต้องการเพียง "ล็อกอินแล้ว" ก็เข้าถึงได้
+ */
+export async function verifyUserToken(req: NextRequest) {
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new Error('กรุณาเข้าสู่ระบบก่อนใช้งาน');
+  }
+
+  const token = authHeader.split('Bearer ')[1];
+  if (!token) {
+    throw new Error('Token is missing');
+  }
+
+  const auth = getAdminAuth();
+  const decodedToken = await auth.verifyIdToken(token);
+
+  return {
+    uid: decodedToken.uid,
+    email: decodedToken.email,
+  };
+}
+
 export async function verifyAdminToken(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization');

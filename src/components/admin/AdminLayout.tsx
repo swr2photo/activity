@@ -8,10 +8,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, CalendarDays, QrCode, Users, BarChart3,
   ShieldCheck, Settings, LogOut, Bell, ChevronDown, ChevronRight,
-  Menu, X, UserCircle, PanelLeftClose, PanelLeft, Shield, ClipboardList
+  Menu, X, UserCircle, PanelLeftClose, PanelLeft, Shield, ClipboardList, Link2,
+  ClipboardCheck
 } from 'lucide-react';
 
-import { auth, db } from '@/lib/firebase';
+import { adminAuth as auth, adminDb as db } from '@/lib/firebase';
 import { cn } from '@/lib/utils';
 import type { AdminProfile, AdminPermission } from '@/types/admin';
 import { DEPARTMENT_LABELS, ROLE_LABELS, ROLE_PERMISSIONS } from '@/types/admin';
@@ -21,6 +22,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import NotificationBell from './NotificationBell';
+import ThemeToggle from '@/components/common/ThemeToggle';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -55,10 +57,12 @@ const SECTION_PERM_REQUIRED: Record<string, AdminPermission | undefined> = {
   dashboard: undefined,
   'activity-list': 'manage_activities',
   'qr-generator': 'manage_activities',
+  'short-links': 'manage_activities',
   activities: 'manage_activities',
   users: 'manage_users',
   reports: 'view_reports',
   'registration-history': 'view_reports',
+  'survey-results': 'view_reports',
   'admin-management': 'manage_admins',
   settings: 'system_settings',
   profile: undefined,
@@ -145,11 +149,13 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       children: [
         { id: 'activity-list', label: 'รายการกิจกรรม', icon: <CalendarDays className="h-4 w-4" /> },
         { id: 'qr-generator', label: 'สร้าง QR Code', icon: <QrCode className="h-4 w-4" /> },
+        { id: 'short-links', label: 'ลิงก์ย่อ & Dynamic QR', icon: <Link2 className="h-4 w-4" /> },
       ],
     },
     { id: 'users', label: 'จัดการผู้ใช้', icon: <Users className="h-5 w-5" />, permission: 'manage_users' },
     { id: 'reports', label: 'รายงาน', icon: <BarChart3 className="h-5 w-5" />, permission: 'view_reports' },
     { id: 'registration-history', label: 'ประวัติลงทะเบียน', icon: <ClipboardList className="h-5 w-5" />, permission: 'view_reports' },
+    { id: 'survey-results', label: 'ผลแบบประเมิน', icon: <ClipboardCheck className="h-5 w-5" />, permission: 'view_reports' },
     { id: 'admin-management', label: 'จัดการแอดมิน', icon: <ShieldCheck className="h-5 w-5" />, permission: 'manage_admins' },
     { id: 'settings', label: 'ตั้งค่าระบบ', icon: <Settings className="h-5 w-5" />, permission: 'system_settings' },
   ];
@@ -377,7 +383,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   );
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
       {/* Desktop Sidebar */}
       {!isMobile && (
         <aside
@@ -419,14 +425,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         style={{ marginLeft: isMobile ? 0 : sidebarWidth }}
       >
         {/* Header */}
-        <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-xl border-b border-slate-200/80 flex items-center px-4 gap-3 shrink-0">
+        <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800 flex items-center px-4 gap-3 shrink-0">
           {/* Mobile menu toggle */}
           {isMobile ? (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setMobileOpen(true)}
-              className="text-slate-600"
+              className="text-slate-600 dark:text-slate-300"
             >
               <Menu className="h-5 w-5" />
             </Button>
@@ -435,7 +441,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
               variant="ghost"
               size="icon"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="text-slate-600"
+              className="text-slate-600 dark:text-slate-300"
               title={sidebarCollapsed ? 'ขยาย Sidebar' : 'ย่อ Sidebar'}
             >
               {sidebarCollapsed ? (
@@ -446,9 +452,11 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             </Button>
           )}
 
-          <h1 className="text-base font-semibold text-slate-800 truncate flex-1">
+          <h1 className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate flex-1">
             ระบบจัดการกิจกรรม
           </h1>
+
+          <ThemeToggle appearance="plain" />
 
           {/* Notification */}
           <NotificationBell currentAdmin={liveAdmin} />
@@ -456,7 +464,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           {/* Profile dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 p-1 rounded-lg hover:bg-slate-100 transition-colors">
+              <button className="flex items-center gap-2 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                 <Avatar className="h-8 w-8">
                   <AvatarImage src={liveAdmin.profileImage} />
                   <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">

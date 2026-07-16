@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Bell } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb as db } from '@/lib/firebase';
 import type { AdminProfile } from '@/types/admin';
 
 import { Button } from '@/components/ui/button';
@@ -80,6 +80,9 @@ const NotificationBell: React.FC<{
             .sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
             .slice(0, 50);
         });
+      }, (err) => {
+        // ไม่มีสิทธิ์อ่าน/คอลเลกชันยังไม่มี — ปิดกระดิ่งเงียบ ๆ ไม่ต้อง crash console
+        console.warn(`NotificationBell: ไม่สามารถฟัง ${colName}`, err?.code || err);
       });
       unsubscribers.push(un);
     };

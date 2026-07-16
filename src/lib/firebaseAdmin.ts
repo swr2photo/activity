@@ -55,6 +55,17 @@ export function getAdminDb() {
 export function getAdminAuth() {
   return ensureApp().auth();
 }
+export function getAdminBucket() {
+  const bucketName = (
+    process.env.FIREBASE_STORAGE_BUCKET ||
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
+    ''
+  ).replace(/^gs:\/\//, '');
+  if (!bucketName) {
+    throw new Error('Storage bucket is not configured (NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)');
+  }
+  return ensureApp().storage().bucket(bucketName);
+}
 
 export const FieldValue = admin.firestore.FieldValue;
 export const Timestamp = admin.firestore.Timestamp;

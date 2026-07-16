@@ -27,7 +27,7 @@ const mapContainerStyle = {
 };
 
 // กำหนด libraries array นอก component
-const libraries: ("places" | "geometry")[] = ['places', 'geometry'];
+const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
 
 const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({ 
   latitude, 

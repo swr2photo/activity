@@ -1,23 +1,21 @@
 // app/my-history/page.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useDeferredValue, startTransition } from 'react';
 import {
   Box,
   Container,
   Typography,
-  Card,
-  CardContent,
   Chip,
   Stack,
   TextField,
   InputAdornment,
   CircularProgress,
   Button,
-  Grid,
   Skeleton,
   Avatar,
-  Divider,
+  IconButton,
+  Collapse,
 } from '@mui/material';
 import {
   Search,
@@ -34,19 +32,19 @@ import {
   Assignment as SurveyIcon,
   Launch as LaunchIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   Description as FileIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
-import { collection, query, where, getDocs, orderBy, doc, getDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db, auth } from '../../lib/firebase';
 import { useAuth } from '../../lib/firebaseAuth';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
 
-// Types
 type RegistrationRecord = {
   id: string;
   activityCode: string;
@@ -64,55 +62,77 @@ type RegistrationRecord = {
   sessions?: any[];
 };
 
-// Animation variants
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
-};
-
-const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 24 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: { type: 'spring', stiffness: 300, damping: 24 },
-  },
-};
+type FilterKey = 'all' | 'survey' | 'files';
 
 const formatDate = (d: Date) =>
-  d.toLocaleDateString('th-TH', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  d.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
 
 const formatTime = (d: Date) =>
   d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
+const formatShortDate = (d: Date) =>
+  d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+
+function countFiles(r: RegistrationRecord) {
+  const main = r.files?.length || 0;
+  const sess = (r.sessions || []).reduce((n, s) => n + (s.files?.length || 0), 0);
+  return main + sess;
+}
+
 const MyHistoryPage: React.FC = () => {
   const { user, userData, loading: authLoading, login: userLogin } = useAuth();
+  const alertDialog = useAlertDialog();
 
   const [records, setRecords] = useState<RegistrationRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [enriching, setEnriching] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const deferredSearch = useDeferredValue(searchText);
+  const [filter, setFilter] = useState<FilterKey>('all');
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
-  // Fetch registration records for this user
+  const handleAuthDownload = async (fileUrl: string) => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        await alertDialog('ต้องเข้าสู่ระบบ', 'กรุณาเข้าสู่ระบบก่อนดาวน์โหลดไฟล์', 'warning');
+        return;
+      }
+      const token = await currentUser.getIdToken();
+      const encodedUrl = btoa(fileUrl);
+      const res = await fetch(`/api/download?file=${encodedUrl}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        await alertDialog('ดาวน์โหลดไม่สำเร็จ', err?.error || 'ดาวน์โหลดไม่สำเร็จ', 'warning');
+        return;
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (e: any) {
+      console.error('Download error:', e);
+      await alertDialog('เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการดาวน์โหลด', 'warning');
+    }
+  };
+
   useEffect(() => {
     if (!userData?.studentId) return;
 
+    let cancelled = false;
+
     const fetchRecords = async () => {
       setLoading(true);
+      setEnriching(false);
       try {
-        // Query activityRecords by studentId
         const q = query(
           collection(db, 'activityRecords'),
           where('studentId', '==', userData.studentId)
         );
         const snap = await getDocs(q);
+        if (cancelled) return;
 
         const rawRecords: RegistrationRecord[] = snap.docs.map((d) => {
           const data: any = d.data();
@@ -123,6 +143,7 @@ const MyHistoryPage: React.FC = () => {
           return {
             id: d.id,
             activityCode: data.activityCode || '',
+            activityName: data.activityName || data.activityCode || '',
             studentId: data.studentId || '',
             firstName: data.firstName || '',
             lastName: data.lastName || '',
@@ -131,38 +152,49 @@ const MyHistoryPage: React.FC = () => {
           };
         });
 
-        // Fetch survey responses to check completion
+        rawRecords.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        setRecords(rawRecords);
+        setLoading(false);
+
+        // Enrich in background so list appears first
+        setEnriching(true);
         let completedSurveyCodes = new Set<string>();
         if (user?.uid) {
-          const surveyQ = query(
-            collection(db, 'surveyResponses'),
-            where('userId', '==', user.uid)
-          );
-          const surveySnap = await getDocs(surveyQ);
-          completedSurveyCodes = new Set(surveySnap.docs.map(d => (d.data().activityCode || '').toUpperCase()));
+          try {
+            const surveyQ = query(collection(db, 'surveyResponses'), where('userId', '==', user.uid));
+            const surveySnap = await getDocs(surveyQ);
+            completedSurveyCodes = new Set(
+              surveySnap.docs.map((d) => (d.data().activityCode || '').toUpperCase())
+            );
+          } catch (err) {
+            console.error('Error fetching surveys:', err);
+          }
         }
 
-        // Enrich with activity info (name, location, banner, surveyConfig, files, sessions) from activityQRCodes
         const uniqueCodes = [...new Set(rawRecords.map((r) => r.activityCode))].filter(Boolean);
-        const activityMap: Record<string, { activityName?: string; location?: string; bannerUrl?: string; surveyEnabled?: boolean; files?: any[]; sessions?: any[] }> = {};
+        const activityMap: Record<
+          string,
+          {
+            activityName?: string;
+            location?: string;
+            bannerUrl?: string;
+            surveyEnabled?: boolean;
+            files?: any[];
+            sessions?: any[];
+          }
+        > = {};
 
         if (uniqueCodes.length > 0) {
-          // Batch fetch up to 30 at a time using 'in' query
           const chunks: string[][] = [];
           for (let i = 0; i < uniqueCodes.length; i += 30) {
             chunks.push(uniqueCodes.slice(i, i + 30));
           }
-
           try {
-            const actPromises = chunks.map(async (chunk) => {
-              const actQ = query(
-                collection(db, 'activityQRCodes'),
-                where('activityCode', 'in', chunk)
-              );
-              return getDocs(actQ);
-            });
-
-            const actSnaps = await Promise.all(actPromises);
+            const actSnaps = await Promise.all(
+              chunks.map((chunk) =>
+                getDocs(query(collection(db, 'activityQRCodes'), where('activityCode', 'in', chunk)))
+              )
+            );
             actSnaps.forEach((actSnap) => {
               actSnap.forEach((d) => {
                 const actData = d.data() as any;
@@ -184,725 +216,769 @@ const MyHistoryPage: React.FC = () => {
           }
         }
 
-        // Merge
+        if (cancelled) return;
+
         const enriched = rawRecords.map((r) => ({
           ...r,
-          activityName: activityMap[r.activityCode]?.activityName || r.activityCode,
+          activityName: activityMap[r.activityCode]?.activityName || r.activityName || r.activityCode,
           location: activityMap[r.activityCode]?.location,
           bannerUrl: activityMap[r.activityCode]?.bannerUrl,
           surveyEnabled: activityMap[r.activityCode]?.surveyEnabled || false,
-          surveyCompleted: completedSurveyCodes.has(r.activityCode.toUpperCase()),
+          surveyCompleted: completedSurveyCodes.has((r.activityCode || '').toUpperCase()),
           files: activityMap[r.activityCode]?.files || [],
           sessions: activityMap[r.activityCode]?.sessions || [],
         }));
-
-        // Sort by timestamp desc
-        enriched.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
         setRecords(enriched);
       } catch (e) {
         console.error('Error fetching history:', e);
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setEnriching(false);
+        }
       }
     };
 
     fetchRecords();
+    return () => {
+      cancelled = true;
+    };
   }, [userData?.studentId, user?.uid]);
 
-  // Filtered records
+  const surveyPendingCount = useMemo(
+    () => records.filter((r) => r.surveyEnabled && !r.surveyCompleted).length,
+    [records]
+  );
+  const withFilesCount = useMemo(() => records.filter((r) => countFiles(r) > 0).length, [records]);
+
   const filteredRecords = useMemo(() => {
-    if (!searchText.trim()) return records;
-    const s = searchText.toLowerCase();
-    return records.filter(
+    let list = records;
+    if (filter === 'survey') {
+      list = list.filter((r) => r.surveyEnabled && !r.surveyCompleted);
+    } else if (filter === 'files') {
+      list = list.filter((r) => countFiles(r) > 0);
+    }
+    const s = deferredSearch.trim().toLowerCase();
+    if (!s) return list;
+    return list.filter(
       (r) =>
         r.activityCode.toLowerCase().includes(s) ||
         (r.activityName || '').toLowerCase().includes(s) ||
         (r.location || '').toLowerCase().includes(s) ||
         r.department.toLowerCase().includes(s)
     );
-  }, [records, searchText]);
+  }, [records, deferredSearch, filter]);
 
-  // Group by date
   const groupedByDate = useMemo(() => {
-    const groups: Record<string, RegistrationRecord[]> = {};
+    const groups: { key: string; label: string; items: RegistrationRecord[] }[] = [];
+    const map = new Map<string, RegistrationRecord[]>();
     filteredRecords.forEach((r) => {
       const dateKey = r.timestamp.toDateString();
-      if (!groups[dateKey]) groups[dateKey] = [];
-      groups[dateKey].push(r);
+      if (!map.has(dateKey)) map.set(dateKey, []);
+      map.get(dateKey)!.push(r);
+    });
+    map.forEach((items, key) => {
+      groups.push({ key, label: formatDate(items[0].timestamp), items });
     });
     return groups;
   }, [filteredRecords]);
 
-  // If still loading auth
+  const toggleExpand = (id: string) => {
+    setExpandedCards((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const pageShell = (children: React.ReactNode) => (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        bgcolor: 'var(--page-bg)',
+        color: 'var(--page-text)',
+      }}
+    >
+      <Navbar />
+      {children}
+      <Footer />
+    </Box>
+  );
+
   if (authLoading) {
-    return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: '#000000' }}>
-        <Navbar />
-        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <CircularProgress sx={{ color: '#fff' }} />
-        </Box>
-        <Footer />
+    return pageShell(
+      <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', py: 12 }}>
+        <CircularProgress size={36} />
       </Box>
     );
   }
 
-  // If not logged in
   if (!user) {
-    return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: '#000000' }}>
-        <Navbar />
-        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', py: 12 }}>
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+    return pageShell(
+      <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2, py: 10 }}>
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+          <Box
+            sx={{
+              maxWidth: 420,
+              mx: 'auto',
+              p: { xs: 3.5, sm: 4.5 },
+              borderRadius: '24px',
+              textAlign: 'center',
+              bgcolor: 'var(--page-card-solid)',
+              border: '1px solid var(--page-border)',
+              boxShadow: 'var(--page-shadow)',
+            }}
           >
-            <Card
+            <Box
               sx={{
-                maxWidth: 480,
+                width: 64,
+                height: 64,
+                borderRadius: '18px',
+                background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 mx: 'auto',
-                p: { xs: 4, md: 6 },
-                borderRadius: '32px',
-                textAlign: 'center',
-                bgcolor: 'rgba(255,255,255,0.95)',
-                backdropFilter: 'blur(40px)',
-                boxShadow: '0 32px 64px rgba(0,0,0,0.15)',
-                border: '1px solid rgba(255,255,255,0.3)',
+                mb: 2.5,
               }}
             >
-              <Box
-                sx={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: '24px',
-                  background: 'linear-gradient(135deg, #0071e3 0%, #34c759 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  mx: 'auto',
-                  mb: 3,
-                  boxShadow: '0 12px 24px rgba(0, 113, 227, 0.3)',
-                }}
-              >
-                <HistoryIcon sx={{ fontSize: 40, color: '#fff' }} />
-              </Box>
-              <Typography variant="h5" fontWeight={800} sx={{ mb: 1, color: '#1d1d1f' }}>
-                ประวัติการลงทะเบียน
-              </Typography>
-              <Typography variant="body1" sx={{ color: '#86868b', mb: 4, lineHeight: 1.6 }}>
-                กรุณาเข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย เพื่อดูประวัติกิจกรรมที่คุณเคยลงทะเบียน
-              </Typography>
-              <Button
-                variant="contained"
-                size="large"
-                onClick={userLogin}
-                startIcon={<LoginOutlined />}
-                sx={{
-                  borderRadius: '16px',
-                  px: 5,
-                  py: 1.8,
-                  fontWeight: 700,
-                  fontSize: '1rem',
-                  textTransform: 'none',
-                  background: 'linear-gradient(135deg, #0071e3 0%, #0077ed 100%)',
-                  boxShadow: '0 8px 24px rgba(0, 113, 227, 0.35)',
-                  transition: 'all 0.3s',
-                  '&:hover': {
-                    boxShadow: '0 12px 32px rgba(0, 113, 227, 0.5)',
-                    transform: 'translateY(-2px)',
-                  },
-                }}
-              >
-                เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย
-              </Button>
-            </Card>
-          </motion.div>
-        </Box>
-        <Footer />
+              <HistoryIcon sx={{ fontSize: 32, color: '#fff' }} />
+            </Box>
+            <Typography variant="h5" fontWeight={800} sx={{ mb: 1, letterSpacing: '-0.02em' }}>
+              ประวัติการลงทะเบียน
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'var(--page-text-secondary)', mb: 3, lineHeight: 1.65 }}>
+              เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย เพื่อดูกิจกรรมที่เคยลงทะเบียน เอกสาร และแบบประเมินที่ค้างอยู่
+            </Typography>
+            <Button
+              variant="contained"
+              size="large"
+              fullWidth
+              onClick={userLogin}
+              startIcon={<LoginOutlined />}
+              sx={{
+                borderRadius: '14px',
+                py: 1.5,
+                fontWeight: 700,
+                textTransform: 'none',
+                bgcolor: '#0a6bcf',
+                boxShadow: '0 8px 20px rgba(10, 107, 207, 0.28)',
+                '&:hover': { bgcolor: '#0858ad' },
+              }}
+            >
+              เข้าสู่ระบบ
+            </Button>
+          </Box>
+        </motion.div>
       </Box>
     );
   }
 
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: '#000000' }}>
-      <Navbar />
-
-      {/* Hero Header */}
+  return pageShell(
+    <Box sx={{ flexGrow: 1, pb: { xs: 12, lg: 8 }, pt: { xs: 2, lg: 0 } }}>
+      {/* Compact sticky toolbar — content above the fold */}
       <Box
         sx={{
-          position: 'relative',
-          bgcolor: '#000000',
-          color: 'white',
-          pt: { xs: 14, md: 18 },
-          pb: { xs: 16, md: 22 },
-          textAlign: 'center',
-          overflow: 'hidden',
-          zIndex: 1,
+          position: 'sticky',
+          // มือถือ: navbar อยู่ล่าง → ติดบนจอ | เดสก์ท็อป: ติดใต้ navbar (~64px)
+          top: { xs: 0, lg: 64 },
+          zIndex: 20,
+          pt: { xs: 1.5, lg: 1.25 },
+          pb: 1.5,
+          bgcolor: 'color-mix(in srgb, var(--page-bg) 88%, transparent)',
+          backdropFilter: 'blur(16px) saturate(160%)',
+          borderBottom: '1px solid var(--page-border)',
         }}
       >
-        {/* Gradient Background */}
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: 'radial-gradient(ellipse at 50% 20%, rgba(0, 113, 227, 0.15) 0%, transparent 70%)',
-            zIndex: -1,
-          }}
-        />
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            width: '100%',
-            height: '50%',
-            background: 'linear-gradient(to top, #000000 0%, transparent 100%)',
-            zIndex: -1,
-          }}
-        />
-
         <Container maxWidth="md">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: 'easeOut' }}
-          >
-            <Typography
-              variant="h1"
-              fontWeight={800}
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }} spacing={1}>
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+              <Avatar
+                src={userData?.photoURL || user?.photoURL || undefined}
+                sx={{ width: 44, height: 44, border: '2px solid color-mix(in srgb, #0a6bcf 35%, transparent)', flexShrink: 0 }}
+              >
+                {(userData?.firstName?.charAt(0) || user?.displayName?.charAt(0) || '?').toUpperCase()}
+              </Avatar>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  component="h1"
+                  noWrap
+                  sx={{
+                    fontWeight: 800,
+                    fontSize: { xs: '1rem', sm: '1.15rem' },
+                    letterSpacing: '-0.02em',
+                    lineHeight: 1.25,
+                  }}
+                >
+                  {userData?.username?.trim() ||
+                    userData?.displayName ||
+                    [userData?.firstName, userData?.lastName].filter(Boolean).join(' ') ||
+                    user?.displayName ||
+                    'ผู้ใช้'}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  noWrap
+                  sx={{ color: 'var(--page-text-secondary)', fontWeight: 600, display: 'block' }}
+                >
+                  {userData?.department && userData.department !== 'ไม่ระบุ'
+                    ? userData.department
+                    : userData?.faculty && userData.faculty !== 'ไม่ระบุ'
+                      ? userData.faculty
+                      : '—'}
+                </Typography>
+              </Box>
+            </Stack>
+            <IconButton
+              component={Link}
+              href="/"
+              aria-label="กลับหน้าแรก"
+              size="small"
               sx={{
-                fontSize: { xs: '2.5rem', md: '4rem' },
-                mb: 2,
-                letterSpacing: '-0.04em',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                background: 'linear-gradient(135deg, #ffffff 30%, #a1a1a6 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
+                border: '1px solid var(--page-border)',
+                bgcolor: 'var(--page-card)',
+                flexShrink: 0,
               }}
             >
-              ประวัติกิจกรรมของคุณ.
-            </Typography>
-            <Typography
-              variant="h6"
-              sx={{
-                color: '#a1a1a6',
-                fontWeight: 500,
-                mb: 1,
-                fontSize: { xs: '1rem', md: '1.2rem' },
-                letterSpacing: '-0.01em',
-              }}
-            >
-              ตรวจสอบกิจกรรมทั้งหมดที่คุณเคยลงทะเบียนเข้าร่วม
-            </Typography>
-          </motion.div>
+              <ArrowBack fontSize="small" />
+            </IconButton>
+          </Stack>
+
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="ค้นหาชื่อ รหัส หรือสถานที่…"
+            value={searchText}
+            onChange={(e) => startTransition(() => setSearchText(e.target.value))}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search sx={{ color: 'var(--page-text-secondary)', fontSize: 20 }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchText ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" aria-label="ล้างคำค้น" onClick={() => setSearchText('')}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : undefined,
+              sx: {
+                borderRadius: '14px',
+                bgcolor: 'var(--page-card-solid)',
+                '& fieldset': { borderColor: 'var(--page-border)' },
+                '& input': { py: 1.15, fontSize: '0.95rem' },
+              },
+            }}
+          />
+
+          <Stack direction="row" spacing={1} sx={{ mt: 1.25, overflowX: 'auto', pb: 0.25, scrollbarWidth: 'none' }}>
+            {(
+              [
+                { key: 'all' as FilterKey, label: 'ทั้งหมด', count: records.length },
+                { key: 'survey' as FilterKey, label: 'ค้างแบบประเมิน', count: surveyPendingCount },
+                { key: 'files' as FilterKey, label: 'มีเอกสาร', count: withFilesCount },
+              ] as const
+            ).map((f) => {
+              const active = filter === f.key;
+              return (
+                <Chip
+                  key={f.key}
+                  clickable
+                  onClick={() => setFilter(f.key)}
+                  label={`${f.label}${f.count ? ` (${f.count})` : ''}`}
+                  sx={{
+                    fontWeight: 700,
+                    fontSize: '0.8rem',
+                    height: 32,
+                    borderRadius: '10px',
+                    bgcolor: active ? '#0a6bcf' : 'var(--page-card-solid)',
+                    color: active ? '#fff' : 'var(--page-text)',
+                    border: active ? '1px solid #0a6bcf' : '1px solid var(--page-border)',
+                    '&:hover': { bgcolor: active ? '#0858ad' : 'color-mix(in srgb, var(--page-card) 80%, #0a6bcf)' },
+                  }}
+                />
+              );
+            })}
+          </Stack>
         </Container>
       </Box>
 
-      {/* Main Content */}
-      <Box
-        sx={{
-          bgcolor: '#f5f5f7',
-          flexGrow: 1,
-          borderTopLeftRadius: '40px',
-          borderTopRightRadius: '40px',
-          position: 'relative',
-          zIndex: 2,
-        }}
-      >
-        <Container maxWidth="lg" sx={{ mt: -8, mb: 10 }}>
-          {/* User Info + Search Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2, type: 'spring', stiffness: 200 }}
-          >
-            <Card
-              sx={{
-                p: { xs: 2.5, md: 3.5 },
-                borderRadius: '24px',
-                boxShadow: '0 24px 48px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.5) inset',
-                border: '1px solid rgba(0, 0, 0, 0.05)',
-                backdropFilter: 'blur(40px)',
-                bgcolor: 'rgba(255, 255, 255, 0.75)',
-                mb: 4,
-              }}
-            >
-              <Grid container spacing={2} alignItems="center">
-                {/* User Info */}
-                <Grid size={{ xs: 12, md: 5 }}>
-                  <Stack direction="row" spacing={2} alignItems="center">
-                    <Avatar
-                      src={userData?.photoURL || user?.photoURL || undefined}
-                      sx={{
-                        width: 52,
-                        height: 52,
-                        border: '3px solid rgba(0, 113, 227, 0.2)',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                      }}
-                    >
-                      {(userData?.firstName?.charAt(0) || user?.displayName?.charAt(0) || '?').toUpperCase()}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="subtitle1" fontWeight={800} sx={{ color: '#1d1d1f', lineHeight: 1.2 }}>
-                        {userData?.firstName} {userData?.lastName}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: '#86868b', display: 'block' }}>
-                        {userData?.studentId && `รหัส ${userData.studentId}`}
-                        {userData?.faculty && ` • ${userData.faculty}`}
-                      </Typography>
-                      <Chip
-                        icon={<EventAvailable sx={{ fontSize: '0.9rem !important' }} />}
-                        label={`ลงทะเบียนแล้ว ${records.length} กิจกรรม`}
-                        size="small"
-                        sx={{
-                          mt: 0.5,
-                          bgcolor: 'rgba(52, 199, 89, 0.12)',
-                          color: '#248a3d',
-                          fontWeight: 700,
-                          fontSize: '0.8rem',
-                          border: '1px solid rgba(52, 199, 89, 0.2)',
-                        }}
-                      />
-                    </Box>
-                  </Stack>
-                </Grid>
-
-                {/* Search */}
-                <Grid size={{ xs: 12, md: 5 }}>
-                  <TextField
-                    fullWidth
-                    placeholder="ค้นหาชื่อกิจกรรม รหัส หรือสถานที่..."
-                    value={searchText}
-                    onChange={(e) => setSearchText(e.target.value)}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Search sx={{ color: '#86868b' }} />
-                        </InputAdornment>
-                      ),
-                      sx: {
-                        borderRadius: '16px',
-                        bgcolor: '#ffffff',
-                        border: '1px solid rgba(0,0,0,0.04)',
-                        boxShadow: '0 2px 12px rgba(0,0,0,0.02) inset',
-                        '& fieldset': { border: 'none' },
-                        '& input': { py: 1.5, fontSize: '0.95rem', color: '#1d1d1f' },
-                        transition: 'all 0.3s ease',
-                        '&.Mui-focused': { boxShadow: '0 0 0 4px rgba(0, 113, 227, 0.15)' },
-                      },
-                    }}
-                  />
-                </Grid>
-
-                {/* Back */}
-                <Grid size={{ xs: 12, md: 2 }}>
-                  <Button
-                    component={Link}
-                    href="/"
-                    variant="outlined"
-                    startIcon={<ArrowBack />}
-                    fullWidth
-                    sx={{
-                      borderRadius: '14px',
-                      py: 1.3,
-                      fontWeight: 700,
-                      borderColor: 'rgba(0,0,0,0.1)',
-                      color: '#1d1d1f',
-                      '&:hover': { bgcolor: 'rgba(0,0,0,0.03)' },
-                    }}
-                  >
-                    กลับ
-                  </Button>
-                </Grid>
-              </Grid>
-            </Card>
-          </motion.div>
-
-          {/* Records List */}
-          {loading ? (
-            <Stack spacing={3}>
-              {[1, 2, 3].map((i) => (
-                <Card key={i} sx={{ borderRadius: '24px', p: 3 }}>
-                  <Stack direction="row" spacing={3} alignItems="center">
-                    <Skeleton variant="rounded" width={80} height={80} sx={{ borderRadius: '16px' }} />
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Skeleton width="60%" height={28} sx={{ mb: 1 }} />
-                      <Skeleton width="40%" height={20} sx={{ mb: 0.5 }} />
-                      <Skeleton width="30%" height={20} />
-                    </Box>
-                  </Stack>
-                </Card>
-              ))}
-            </Stack>
-          ) : filteredRecords.length === 0 ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <Box sx={{ textAlign: 'center', py: 14 }}>
-                <InfoOutlined sx={{ fontSize: 90, color: '#d2d2d7', mb: 3 }} />
-                <Typography variant="h5" fontWeight={700} color="#1d1d1f" mb={1}>
-                  {records.length === 0
-                    ? 'ยังไม่มีประวัติการลงทะเบียน'
-                    : 'ไม่พบกิจกรรมที่คุณมองหา'}
-                </Typography>
-                <Typography variant="body1" color="#86868b" mb={3}>
-                  {records.length === 0
-                    ? 'เมื่อคุณลงทะเบียนกิจกรรมแล้ว ประวัติจะแสดงที่นี่'
-                    : 'ลองปรับคำค้นหาใหม่'}
-                </Typography>
-                {records.length === 0 && (
-                  <Button
-                    component={Link}
-                    href="/"
-                    variant="contained"
-                    sx={{
-                      borderRadius: '14px',
-                      px: 5,
-                      py: 1.5,
-                      fontWeight: 700,
-                      background: 'linear-gradient(135deg, #0071e3 0%, #0077ed 100%)',
-                      boxShadow: '0 8px 24px rgba(0, 113, 227, 0.3)',
-                    }}
-                  >
-                    ดูกิจกรรมทั้งหมด
-                  </Button>
-                )}
+      <Container maxWidth="md" sx={{ mt: 2.5 }}>
+        {loading ? (
+          <Stack spacing={1.5}>
+            {[1, 2, 3, 4].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  p: 2,
+                  borderRadius: '16px',
+                  bgcolor: 'var(--page-card-solid)',
+                  border: '1px solid var(--page-border)',
+                }}
+              >
+                <Stack direction="row" spacing={2} alignItems="center">
+                  <Skeleton variant="rounded" width={56} height={56} sx={{ borderRadius: '12px', flexShrink: 0 }} />
+                  <Box sx={{ flexGrow: 1 }}>
+                    <Skeleton width="70%" height={22} sx={{ mb: 0.75 }} />
+                    <Skeleton width="45%" height={16} />
+                  </Box>
+                </Stack>
               </Box>
-            </motion.div>
-          ) : (
-            <motion.div variants={containerVariants} initial="hidden" animate="show">
-              {Object.entries(groupedByDate).map(([dateKey, dateRecords]) => (
-                <Box key={dateKey} sx={{ mb: 4 }}>
-                  {/* Date Header */}
-                  <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, px: 1 }}>
-                    <CalendarToday sx={{ fontSize: 18, color: '#86868b' }} />
-                    <Typography
-                      variant="subtitle2"
-                      fontWeight={700}
-                      sx={{ color: '#86868b', letterSpacing: '-0.01em' }}
-                    >
-                      {formatDate(dateRecords[0].timestamp)}
-                    </Typography>
-                    <Chip
-                      label={`${dateRecords.length} กิจกรรม`}
-                      size="small"
-                      sx={{
-                        bgcolor: 'rgba(0, 113, 227, 0.08)',
-                        color: '#0071e3',
-                        fontWeight: 700,
-                        fontSize: '0.75rem',
-                        height: 24,
-                      }}
-                    />
-                  </Stack>
+            ))}
+          </Stack>
+        ) : filteredRecords.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 10, px: 2 }}>
+            <InfoOutlined sx={{ fontSize: 56, color: 'var(--page-text-secondary)', opacity: 0.45, mb: 1.5 }} />
+            <Typography variant="h6" fontWeight={800} sx={{ mb: 0.75 }}>
+              {records.length === 0
+                ? 'ยังไม่มีประวัติ'
+                : filter === 'survey'
+                  ? 'ไม่มีแบบประเมินค้าง'
+                  : filter === 'files'
+                    ? 'ไม่พบเอกสารแนบ'
+                    : 'ไม่พบผลลัพธ์'}
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'var(--page-text-secondary)', mb: 2.5 }}>
+              {records.length === 0
+                ? 'เมื่อลงทะเบียนกิจกรรมแล้ว จะแสดงที่นี่ทันที'
+                : 'ลองเปลี่ยนตัวกรองหรือคำค้นหา'}
+            </Typography>
+            {records.length === 0 ? (
+              <Button
+                component={Link}
+                href="/"
+                variant="contained"
+                sx={{
+                  borderRadius: '12px',
+                  px: 3.5,
+                  py: 1.2,
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  bgcolor: '#0a6bcf',
+                }}
+              >
+                ดูกิจกรรมทั้งหมด
+              </Button>
+            ) : (
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  setFilter('all');
+                  setSearchText('');
+                }}
+                sx={{ borderRadius: '12px', fontWeight: 700, textTransform: 'none' }}
+              >
+                ล้างตัวกรอง
+              </Button>
+            )}
+          </Box>
+        ) : (
+          <Stack spacing={3}>
+            {groupedByDate.map((group) => (
+              <Box key={group.key}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25, px: 0.5 }}>
+                  <CalendarToday sx={{ fontSize: 15, color: 'var(--page-text-secondary)' }} />
+                  <Typography variant="caption" fontWeight={800} sx={{ color: 'var(--page-text-secondary)' }}>
+                    {group.label}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'var(--page-text-secondary)', opacity: 0.7 }}>
+                    · {group.items.length}
+                  </Typography>
+                </Stack>
 
-                  {/* Activity Cards for this date */}
-                  <Stack spacing={2}>
-                    <AnimatePresence>
-                      {dateRecords.map((record) => (
-                        <motion.div key={record.id} variants={itemVariants} layout>
-                          <Card
-                            elevation={0}
+                <Stack spacing={1.25}>
+                  <AnimatePresence initial={false}>
+                    {group.items.map((record, idx) => {
+                      const fileCount = countFiles(record);
+                      const needsSurvey = Boolean(record.surveyEnabled && !record.surveyCompleted);
+                      const expanded = Boolean(expandedCards[record.id]);
+                      const hasDetails = fileCount > 0 || (record.sessions && record.sessions.length > 0);
+
+                      return (
+                        <motion.div
+                          key={record.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.28, delay: Math.min(idx * 0.03, 0.18) }}
+                        >
+                          <Box
                             sx={{
-                              borderRadius: '20px',
-                              border: '1px solid rgba(0,0,0,0.06)',
-                              bgcolor: '#ffffff',
+                              borderRadius: '16px',
+                              bgcolor: 'var(--page-card-solid)',
+                              border: needsSurvey
+                                ? '1px solid color-mix(in srgb, #e8a317 55%, var(--page-border))'
+                                : '1px solid var(--page-border)',
                               overflow: 'hidden',
-                              transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+                              transition: 'border-color 0.2s, box-shadow 0.2s',
                               '&:hover': {
-                                transform: 'translateY(-4px)',
-                                boxShadow: '0 20px 40px rgba(0,0,0,0.08)',
-                                borderColor: 'rgba(0, 113, 227, 0.15)',
+                                boxShadow: '0 10px 28px rgba(0,0,0,0.06)',
                               },
                             }}
                           >
-                            <CardContent sx={{ p: { xs: 2, md: 3 }, '&:last-child': { pb: { xs: 2, md: 3 } } }}>
-                              <Grid container spacing={2} alignItems="center">
-                                {/* Activity Banner/Icon */}
-                                <Grid size={{ xs: 'auto' }}>
+                            <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
+                              <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                                {/* Thumb */}
+                                <Box sx={{ flexShrink: 0 }}>
                                   {record.bannerUrl ? (
                                     <Box
                                       sx={{
                                         position: 'relative',
-                                        width: { xs: 64, md: 80 },
-                                        height: { xs: 64, md: 80 },
-                                        borderRadius: '16px',
+                                        width: { xs: 52, sm: 60 },
+                                        height: { xs: 52, sm: 60 },
+                                        borderRadius: '12px',
                                         overflow: 'hidden',
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                                       }}
                                     >
                                       <Image
                                         src={record.bannerUrl}
-                                        alt={record.activityName || ''}
+                                        alt=""
                                         fill
-                                        sizes="(max-width: 768px) 64px, 80px"
+                                        sizes="60px"
                                         style={{ objectFit: 'cover' }}
                                       />
                                     </Box>
                                   ) : (
                                     <Box
                                       sx={{
-                                        width: { xs: 64, md: 80 },
-                                        height: { xs: 64, md: 80 },
-                                        borderRadius: '16px',
-                                        background: 'linear-gradient(135deg, #0071e3 0%, #34c759 100%)',
+                                        width: { xs: 52, sm: 60 },
+                                        height: { xs: 52, sm: 60 },
+                                        borderRadius: '12px',
+                                        background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        boxShadow: '0 4px 12px rgba(0, 113, 227, 0.25)',
                                       }}
                                     >
-                                      <EventAvailable sx={{ fontSize: 32, color: '#fff' }} />
+                                      <EventAvailable sx={{ fontSize: 26, color: '#fff' }} />
                                     </Box>
                                   )}
-                                </Grid>
+                                </Box>
 
-                                {/* Activity Info */}
-                                <Grid size="grow">
+                                {/* Meta */}
+                                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                                   <Typography
-                                    variant="subtitle1"
                                     fontWeight={800}
                                     sx={{
-                                      color: '#1d1d1f',
+                                      fontSize: { xs: '0.95rem', sm: '1.02rem' },
                                       lineHeight: 1.3,
-                                      mb: 0.5,
-                                      fontSize: { xs: '0.95rem', md: '1.05rem' },
+                                      letterSpacing: '-0.02em',
+                                      mb: 0.35,
                                     }}
                                   >
-                                    {record.activityName}
+                                    {record.activityName || record.activityCode}
                                   </Typography>
 
                                   <Stack
                                     direction="row"
-                                    spacing={2}
+                                    spacing={1.25}
                                     flexWrap="wrap"
-                                    sx={{ rowGap: 0.5 }}
+                                    useFlexGap
+                                    sx={{ color: 'var(--page-text-secondary)', rowGap: 0.25 }}
                                   >
-                                    <Stack direction="row" spacing={0.5} alignItems="center">
-                                      <AccessTime sx={{ fontSize: 14, color: '#86868b' }} />
-                                      <Typography variant="caption" sx={{ color: '#86868b', fontWeight: 600 }}>
-                                        {formatTime(record.timestamp)}
+                                    <Stack direction="row" spacing={0.35} alignItems="center">
+                                      <AccessTime sx={{ fontSize: 13 }} />
+                                      <Typography variant="caption" fontWeight={600}>
+                                        {formatShortDate(record.timestamp)} · {formatTime(record.timestamp)}
                                       </Typography>
                                     </Stack>
                                     {record.location && (
-                                      <Stack direction="row" spacing={0.5} alignItems="center">
-                                        <LocationOn sx={{ fontSize: 14, color: '#86868b' }} />
-                                        <Typography variant="caption" sx={{ color: '#86868b', fontWeight: 600 }}>
+                                      <Stack direction="row" spacing={0.35} alignItems="center">
+                                        <LocationOn sx={{ fontSize: 13 }} />
+                                        <Typography
+                                          variant="caption"
+                                          fontWeight={600}
+                                          sx={{
+                                            maxWidth: 160,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                          }}
+                                        >
                                           {record.location}
                                         </Typography>
                                       </Stack>
                                     )}
                                     {record.department && (
-                                      <Stack direction="row" spacing={0.5} alignItems="center">
-                                        <School sx={{ fontSize: 14, color: '#86868b' }} />
-                                        <Typography variant="caption" sx={{ color: '#86868b', fontWeight: 600 }}>
+                                      <Stack direction="row" spacing={0.35} alignItems="center" sx={{ display: { xs: 'none', sm: 'flex' } }}>
+                                        <School sx={{ fontSize: 13 }} />
+                                        <Typography variant="caption" fontWeight={600}>
                                           {record.department}
                                         </Typography>
                                       </Stack>
                                     )}
                                   </Stack>
-                                </Grid>
 
-                                 {/* Status Badge */}
-                                 <Grid size={{ xs: 12, md: 'auto' }} sx={{ display: 'flex', flexDirection: { xs: 'row', md: 'column' }, gap: 1, alignItems: 'center', justifyContent: { xs: 'flex-start', md: 'center' } }}>
-                                   <Chip
-                                     icon={<CheckCircleOutline sx={{ fontSize: '1rem !important' }} />}
-                                     label="ลงทะเบียนแล้ว"
-                                     size="small"
-                                     sx={{
-                                       bgcolor: 'rgba(52, 199, 89, 0.12)',
-                                       color: '#248a3d',
-                                       fontWeight: 700,
-                                       fontSize: '0.78rem',
-                                       border: '1px solid rgba(52, 199, 89, 0.2)',
-                                       borderRadius: '10px',
-                                       px: 0.5,
-                                     }}
-                                   />
-                                   
-                                   {record.surveyEnabled && (
-                                     record.surveyCompleted ? (
-                                       <Chip
-                                         icon={<SurveyIcon sx={{ fontSize: '0.9rem !important' }} />}
-                                         label="ทำแบบประเมินแล้ว"
-                                         size="small"
-                                         color="success"
-                                         sx={{
-                                           fontWeight: 700,
-                                           fontSize: '0.78rem',
-                                           borderRadius: '10px',
-                                           px: 0.5,
-                                         }}
-                                       />
-                                     ) : (
-                                       <Button
-                                         component={Link}
-                                         href={`/register?activity=${record.activityCode}`}
-                                         variant="contained"
-                                         color="warning"
-                                         size="small"
-                                         startIcon={<SurveyIcon />}
-                                         sx={{
-                                           fontWeight: 700,
-                                           fontSize: '0.75rem',
-                                           borderRadius: '10px',
-                                           py: 0.4,
-                                           px: 1.5,
-                                           textTransform: 'none',
-                                           boxShadow: 'none',
-                                           '&:hover': { boxShadow: 'none', bgcolor: 'warning.dark' }
-                                         }}
-                                       >
-                                         ทำแบบประเมิน
-                                       </Button>
-                                     )
-                                   )}
-                                 </Grid>
-                               </Grid>
+                                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                                    <Chip
+                                      size="small"
+                                      icon={<CheckCircleOutline sx={{ fontSize: '0.9rem !important' }} />}
+                                      label="ลงทะเบียนแล้ว"
+                                      sx={{
+                                        height: 24,
+                                        fontWeight: 700,
+                                        fontSize: '0.7rem',
+                                        bgcolor: 'rgba(26, 163, 90, 0.12)',
+                                        color: '#1a7a45',
+                                        borderRadius: '8px',
+                                      }}
+                                    />
+                                    {fileCount > 0 && (
+                                      <Chip
+                                        size="small"
+                                        icon={<FileIcon sx={{ fontSize: '0.85rem !important' }} />}
+                                        label={`เอกสาร ${fileCount}`}
+                                        onClick={() => toggleExpand(record.id)}
+                                        sx={{
+                                          height: 24,
+                                          fontWeight: 700,
+                                          fontSize: '0.7rem',
+                                          bgcolor: 'rgba(10, 107, 207, 0.1)',
+                                          color: '#0a6bcf',
+                                          borderRadius: '8px',
+                                          cursor: 'pointer',
+                                        }}
+                                      />
+                                    )}
+                                    {record.surveyEnabled && record.surveyCompleted && (
+                                      <Chip
+                                        size="small"
+                                        icon={<SurveyIcon sx={{ fontSize: '0.85rem !important' }} />}
+                                        label="ทำแบบประเมินแล้ว"
+                                        sx={{
+                                          height: 24,
+                                          fontWeight: 700,
+                                          fontSize: '0.7rem',
+                                          borderRadius: '8px',
+                                        }}
+                                      />
+                                    )}
+                                  </Stack>
+                                </Box>
+                              </Stack>
 
-                               {/* Expand Toggle Button Row */}
-                               <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, pt: 1, borderTop: '1px solid rgba(0,0,0,0.04)' }}>
-                                 <Button
-                                   size="small"
-                                   variant="text"
-                                   startIcon={expandedCards[record.id] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                   onClick={() => setExpandedCards(prev => ({ ...prev, [record.id]: !prev[record.id] }))}
-                                   sx={{ fontSize: '0.8rem', color: '#86868b', textTransform: 'none', fontWeight: 600 }}
-                                 >
-                                   {expandedCards[record.id] ? 'ซ่อนเอกสารและรายละเอียด' : 'ดูเอกสารและรายละเอียด'}
-                                 </Button>
-                               </Box>
-                             </CardContent>
+                              {/* Primary actions — always visible */}
+                              <Stack
+                                direction={{ xs: 'column', sm: 'row' }}
+                                spacing={1}
+                                sx={{ mt: 1.5 }}
+                                alignItems={{ sm: 'center' }}
+                              >
+                                {needsSurvey && (
+                                  <Button
+                                    component={Link}
+                                    href={`/register?activity=${record.activityCode}`}
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={<SurveyIcon />}
+                                    sx={{
+                                      flex: { sm: 1 },
+                                      fontWeight: 800,
+                                      fontSize: '0.8rem',
+                                      borderRadius: '10px',
+                                      textTransform: 'none',
+                                      py: 0.85,
+                                      bgcolor: '#e8a317',
+                                      color: '#1d1d1f',
+                                      boxShadow: 'none',
+                                      '&:hover': { bgcolor: '#d4920f', boxShadow: 'none' },
+                                    }}
+                                  >
+                                    ทำแบบประเมิน
+                                  </Button>
+                                )}
+                                {hasDetails && (
+                                  <Button
+                                    size="small"
+                                    variant={needsSurvey ? 'outlined' : 'contained'}
+                                    endIcon={
+                                      <ExpandMoreIcon
+                                        sx={{
+                                          transform: expanded ? 'rotate(180deg)' : 'none',
+                                          transition: 'transform 0.2s',
+                                        }}
+                                      />
+                                    }
+                                    onClick={() => toggleExpand(record.id)}
+                                    sx={{
+                                      flex: { sm: needsSurvey ? undefined : 1 },
+                                      fontWeight: 700,
+                                      fontSize: '0.8rem',
+                                      borderRadius: '10px',
+                                      textTransform: 'none',
+                                      py: 0.85,
+                                      ...(needsSurvey
+                                        ? {}
+                                        : {
+                                            bgcolor: '#0a6bcf',
+                                            boxShadow: 'none',
+                                            '&:hover': { bgcolor: '#0858ad', boxShadow: 'none' },
+                                          }),
+                                    }}
+                                  >
+                                    {expanded ? 'ซ่อนรายละเอียด' : fileCount > 0 ? `เอกสาร (${fileCount})` : 'รายละเอียด'}
+                                  </Button>
+                                )}
+                              </Stack>
+                            </Box>
 
-                             {/* Expanded Content Box (Files and Session Info) */}
-                             <AnimatePresence>
-                               {expandedCards[record.id] && (
-                                 <motion.div
-                                   initial={{ height: 0, opacity: 0 }}
-                                   animate={{ height: 'auto', opacity: 1 }}
-                                   exit={{ height: 0, opacity: 0 }}
-                                   transition={{ duration: 0.25 }}
-                                   style={{ overflow: 'hidden' }}
-                                 >
-                                   <Box sx={{ p: { xs: 2, md: 3 }, pt: 0, bgcolor: 'rgba(0,0,0,0.015)', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                                     {/* Main Activity Files */}
-                                     {record.files && record.files.length > 0 && (
-                                       <Box sx={{ mt: 2 }}>
-                                         <Typography variant="subtitle2" fontWeight={800} sx={{ color: '#1d1d1f', mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                           <FileIcon sx={{ fontSize: '1rem', color: '#0071e3' }} /> เอกสารและข้อมูลประกอบกิจกรรมหลัก
-                                         </Typography>
-                                         <Stack spacing={1} sx={{ pl: 1 }}>
-                                           {record.files.map((file: any) => (
-                                             <Box key={file.id} sx={{ p: 1.5, border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', bgcolor: '#ffffff' }}>
-                                               <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
-                                                 <Box sx={{ flexGrow: 1 }}>
-                                                   <Typography variant="body2" fontWeight={700} color="#1d1d1f">{file.name}</Typography>
-                                                   {file.description && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.2 }}>{file.description}</Typography>}
-                                                 </Box>
-                                                 {file.type === 'text' ? (
-                                                   <Box sx={{ bgcolor: 'grey.50', p: 1, borderRadius: '8px', border: '1px solid rgba(0,0,0,0.05)', maxWidth: '60%', minWidth: '150px' }}>
-                                                     <Typography variant="caption" color="text.primary" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', display: 'block' }}>
-                                                       {file.url}
-                                                     </Typography>
-                                                   </Box>
-                                                 ) : (
-                                                   <Button
-                                                     size="small"
-                                                     variant="outlined"
-                                                     startIcon={<LaunchIcon />}
-                                                     href={file.type === 'link' ? file.url : `/api/download?file=${btoa(file.url)}`}
-                                                     target="_blank"
-                                                     rel="noopener noreferrer"
-                                                     sx={{ borderRadius: '8px', textTransform: 'none', px: 2 }}
-                                                   >
-                                                     เปิดดู
-                                                   </Button>
-                                                 )}
-                                               </Stack>
-                                             </Box>
-                                           ))}
-                                         </Stack>
-                                       </Box>
-                                     )}
+                            <Collapse in={expanded} timeout={220} unmountOnExit>
+                              <Box
+                                sx={{
+                                  px: { xs: 1.5, sm: 2 },
+                                  pb: 2,
+                                  pt: 0.5,
+                                  bgcolor: 'color-mix(in srgb, var(--page-bg) 65%, transparent)',
+                                  borderTop: '1px solid var(--page-border)',
+                                }}
+                              >
+                                {record.files && record.files.length > 0 && (
+                                  <Box sx={{ mt: 1.25 }}>
+                                    <Typography
+                                      variant="caption"
+                                      fontWeight={800}
+                                      sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}
+                                    >
+                                      <FileIcon sx={{ fontSize: 14, color: '#0a6bcf' }} />
+                                      เอกสารกิจกรรม
+                                    </Typography>
+                                    <Stack spacing={0.75}>
+                                      {record.files.map((file: any) => (
+                                        <FileRow key={file.id} file={file} onDownload={handleAuthDownload} />
+                                      ))}
+                                    </Stack>
+                                  </Box>
+                                )}
 
-                                     {/* Sub-activities (Sessions) Files */}
-                                     {record.sessions && record.sessions.length > 0 && (
-                                       <Box sx={{ mt: 2.5 }}>
-                                         <Typography variant="subtitle2" fontWeight={800} sx={{ color: '#1d1d1f', mb: 1.2 }}>
-                                           กิจกรรมย่อย / รอบกิจกรรม
-                                         </Typography>
-                                         <Stack spacing={1.5} sx={{ pl: 1 }}>
-                                           {record.sessions.map((sess: any) => (
-                                             <Box key={sess.id} sx={{ p: 1.5, border: '1px solid rgba(0,0,0,0.05)', borderRadius: '12px', bgcolor: '#ffffff' }}>
-                                               <Typography variant="body2" fontWeight={750} color="#1d1d1f">{sess.name}</Typography>
-                                               {sess.files && sess.files.length > 0 ? (
-                                                 <Stack spacing={1} sx={{ mt: 1, pl: 1 }}>
-                                                   {sess.files.map((file: any) => (
-                                                     <Box key={file.id} sx={{ p: 1, border: '1px dashed rgba(0,0,0,0.08)', borderRadius: '8px', bgcolor: 'rgba(0,0,0,0.005)' }}>
-                                                       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
-                                                         <Box sx={{ flexGrow: 1 }}>
-                                                           <Typography variant="caption" fontWeight={700} color="#1d1d1f">{file.name}</Typography>
-                                                           {file.description && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.1 }}>{file.description}</Typography>}
-                                                         </Box>
-                                                         {file.type === 'text' ? (
-                                                           <Box sx={{ bgcolor: 'grey.50', p: 0.8, borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)', maxWidth: '60%', minWidth: '120px' }}>
-                                                             <Typography variant="caption" color="text.primary" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', display: 'block', fontSize: '0.72rem' }}>
-                                                               {file.url}
-                                                             </Typography>
-                                                           </Box>
-                                                         ) : (
-                                                           <Button
-                                                             size="small"
-                                                             variant="outlined"
-                                                             startIcon={<LaunchIcon />}
-                                                             href={file.type === 'link' ? file.url : `/api/download?file=${btoa(file.url)}`}
-                                                             target="_blank"
-                                                             rel="noopener noreferrer"
-                                                             sx={{ borderRadius: '6px', textTransform: 'none', py: 0.2, px: 1, minWidth: 0, fontSize: '0.75rem' }}
-                                                           >
-                                                             เปิดดู
-                                                           </Button>
-                                                         )}
-                                                       </Stack>
-                                                     </Box>
-                                                   ))}
-                                                 </Stack>
-                                               ) : (
-                                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, pl: 1 }}>ไม่มีเอกสารแนบสำหรับรอบกิจกรรมย่อยนี้</Typography>
-                                               )}
-                                             </Box>
-                                           ))}
-                                         </Stack>
-                                       </Box>
-                                     )}
+                                {record.sessions && record.sessions.length > 0 && (
+                                  <Box sx={{ mt: 1.75 }}>
+                                    <Typography variant="caption" fontWeight={800} sx={{ mb: 0.75, display: 'block' }}>
+                                      กิจกรรมย่อย / รอบ
+                                    </Typography>
+                                    <Stack spacing={1}>
+                                      {record.sessions.map((sess: any) => (
+                                        <Box
+                                          key={sess.id}
+                                          sx={{
+                                            p: 1.25,
+                                            borderRadius: '12px',
+                                            bgcolor: 'var(--page-card-solid)',
+                                            border: '1px solid var(--page-border)',
+                                          }}
+                                        >
+                                          <Typography variant="body2" fontWeight={700}>
+                                            {sess.name}
+                                          </Typography>
+                                          {sess.files && sess.files.length > 0 ? (
+                                            <Stack spacing={0.75} sx={{ mt: 0.75 }}>
+                                              {sess.files.map((file: any) => (
+                                                <FileRow key={file.id} file={file} onDownload={handleAuthDownload} dense />
+                                              ))}
+                                            </Stack>
+                                          ) : (
+                                            <Typography variant="caption" sx={{ color: 'var(--page-text-secondary)', mt: 0.35, display: 'block' }}>
+                                              ไม่มีเอกสารแนบ
+                                            </Typography>
+                                          )}
+                                        </Box>
+                                      ))}
+                                    </Stack>
+                                  </Box>
+                                )}
 
-                                     {/* If no files or sessions */}
-                                     {(!record.files || record.files.length === 0) && (!record.sessions || record.sessions.length === 0) && (
-                                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2, textAlign: 'center' }}>
-                                         ไม่มีเอกสารแนบหรือข้อมูลกิจกรรมย่อย
-                                       </Typography>
-                                     )}
-                                   </Box>
-                                 </motion.div>
-                               )}
-                             </AnimatePresence>
-                           </Card>
+                                {(!record.files || record.files.length === 0) &&
+                                  (!record.sessions || record.sessions.length === 0) && (
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ display: 'block', textAlign: 'center', py: 1.5, color: 'var(--page-text-secondary)' }}
+                                    >
+                                      ไม่มีเอกสารแนบหรือข้อมูลกิจกรรมย่อย
+                                    </Typography>
+                                  )}
+                              </Box>
+                            </Collapse>
+                          </Box>
                         </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  </Stack>
-                </Box>
-              ))}
-            </motion.div>
-          )}
-        </Container>
-      </Box>
-
-      <Footer />
+                      );
+                    })}
+                  </AnimatePresence>
+                </Stack>
+              </Box>
+            ))}
+          </Stack>
+        )}
+      </Container>
     </Box>
   );
 };
+
+function FileRow({
+  file,
+  onDownload,
+  dense,
+}: {
+  file: any;
+  onDownload: (url: string) => void;
+  dense?: boolean;
+}) {
+  return (
+    <Box
+      sx={{
+        p: dense ? 1 : 1.25,
+        borderRadius: '12px',
+        bgcolor: 'var(--page-card-solid)',
+        border: '1px solid var(--page-border)',
+      }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.5}>
+        <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+          <Typography variant={dense ? 'caption' : 'body2'} fontWeight={700} noWrap>
+            {file.name}
+          </Typography>
+          {file.description && (
+            <Typography
+              variant="caption"
+              sx={{ color: 'var(--page-text-secondary)', display: 'block', mt: 0.15 }}
+              noWrap
+            >
+              {file.description}
+            </Typography>
+          )}
+        </Box>
+        {file.type === 'text' ? (
+          <Typography
+            variant="caption"
+            sx={{
+              maxWidth: '45%',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              color: 'var(--page-text-secondary)',
+            }}
+          >
+            {file.url}
+          </Typography>
+        ) : (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<LaunchIcon />}
+            {...(file.type === 'link'
+              ? { href: file.url, target: '_blank', rel: 'noopener noreferrer', component: 'a' as const }
+              : { onClick: () => onDownload(file.url) })}
+            sx={{
+              borderRadius: '8px',
+              textTransform: 'none',
+              fontWeight: 700,
+              fontSize: dense ? '0.72rem' : '0.8rem',
+              flexShrink: 0,
+              px: dense ? 1 : 1.5,
+            }}
+          >
+            เปิด
+          </Button>
+        )}
+      </Stack>
+    </Box>
+  );
+}
 
 export default MyHistoryPage;

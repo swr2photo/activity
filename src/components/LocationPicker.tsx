@@ -1,6 +1,9 @@
+'use client';
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { GoogleMap, MarkerF, CircleF, useLoadScript } from '@react-google-maps/api';
 import { Button, Box } from '@mui/material';
+import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
 
 interface LocationPickerProps {
   location: { latitude: number; longitude: number };
@@ -13,9 +16,10 @@ const mapContainerStyle = {
   height: '300px',
 };
 
-const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places'];
+const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
 
 const LocationPicker: React.FC<LocationPickerProps> = ({ location, radius, onLocationChange }) => {
+  const alertDialog = useAlertDialog();
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
     libraries,
@@ -60,7 +64,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ location, radius, onLoc
               errorMessage += 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ';
               break;
           }
-          alert(errorMessage);
+          void alertDialog('ไม่สามารถดึงตำแหน่งได้', errorMessage, 'warning');
         },
         {
           enableHighAccuracy: true,
@@ -69,7 +73,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ location, radius, onLoc
         }
       );
     } else {
-      alert('เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง');
+      void alertDialog('ไม่รองรับตำแหน่ง', 'เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง', 'warning');
     }
   };
 

@@ -35,8 +35,6 @@ import {
   Menu,
   ListItemIcon,
   ListItemText,
-  Tabs,
-  Tab,
   TableContainer,
   Table,
   TableHead,
@@ -86,7 +84,9 @@ import {
   Badge as BadgeIcon,
   Close as CloseIcon,
   AttachFile as AttachFileIcon,
+  AutoAwesome as SparklesIcon,
 } from '@mui/icons-material';
+
 
 import dayjs, { Dayjs } from 'dayjs';
 import { DatePicker, ConfigProvider } from 'antd';
@@ -119,12 +119,14 @@ import {
   deleteDoc,
   deleteField,
 } from 'firebase/firestore';
-import { db, storage } from '../../lib/firebase';
+import { adminDb as db, adminStorage as storage, adminAuth as auth } from '../../lib/firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 import GeofenceMap from '../maps/GeofenceMap';
 import { useLoadScript } from '@react-google-maps/api';
 import { PageHeader } from './shared/PageHeader';
+import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
+import { useSnackbar } from 'notistack';
 
 /* ===================== Small utils ===================== */
 const clean = <T extends Record<string, any>>(obj: T): T => {
@@ -548,6 +550,7 @@ const FileConfigSection: React.FC<{
   activityCode: string;
   department: string;
 }> = ({ title, files = [], onChange, activityCode, department }) => {
+  const { enqueueSnackbar } = useSnackbar();
   const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   const addFile = () => {
@@ -591,7 +594,7 @@ const FileConfigSection: React.FC<{
       };
       onChange(newFiles);
     } catch (err: any) {
-      alert('อัปโหลดไฟล์ล้มเหลว: ' + err.message);
+      enqueueSnackbar('อัปโหลดไฟล์ล้มเหลว: ' + err.message, { variant: 'error' });
     } finally {
       setUploadingId(null);
     }
@@ -721,7 +724,7 @@ interface QRCodeAdminPanelProps {
   currentAdmin: AdminProfile;
 }
 
-const googleLibraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places'];
+const googleLibraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
 
 const GooglePlaceAutocomplete: React.FC<{
   value: string;
@@ -814,6 +817,8 @@ const Transition = React.forwardRef(function Transition(
 });
 
 const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => {
+  const confirm = useConfirm();
+  const { enqueueSnackbar } = useSnackbar();
   const { isLoaded: isGoogleMapsLoaded } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
     libraries: googleLibraries,
@@ -831,6 +836,258 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   const [saving, setSaving] = useState(false);
   const [errMsg, setErrMsg] = useState('');
   const [openPreview, setOpenPreview] = useState(false);
+
+  // Magnific AI states
+  const [magnificOpen, setMagnificOpen] = useState(false);
+  const [magnificPrompt, setMagnificPrompt] = useState('');
+  const [magnificRatio, setMagnificRatio] = useState('widescreen_16_9');
+  const [magnificModel, setMagnificModel] = useState('realism');
+  const [magnificLoading, setMagnificLoading] = useState(false);
+  const [magnificStatus, setMagnificStatus] = useState<'IDLE' | 'CREATED' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED'>('IDLE');
+  const [magnificTaskId, setMagnificTaskId] = useState<string | null>(null);
+  const [magnificResultUrl, setMagnificResultUrl] = useState<string | null>(null);
+  const [magnificError, setMagnificError] = useState('');
+
+  // Polling Magnific AI task status
+  useEffect(() => {
+    if (!magnificTaskId || magnificStatus === 'COMPLETED' || magnificStatus === 'FAILED') return;
+
+    let timerId: any;
+
+    const checkStatus = async () => {
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        if (!idToken) throw new Error('ไม่พบข้อมูลการเข้าสู่ระบบ');
+
+        const res = await fetch(`/api/magnific?taskId=${magnificTaskId}`, {
+          headers: {
+            'Authorization': `Bearer ${idToken}`,
+          },
+        });
+        const json = await res.json();
+        
+        if (!res.ok) {
+          throw new Error(json.error || 'ตรวจสอบสถานะล้มเหลว');
+        }
+
+        const data = json.data;
+        if (data) {
+          if (data.status === 'COMPLETED') {
+            setMagnificStatus('COMPLETED');
+            if (data.generated && data.generated.length > 0) {
+              setMagnificResultUrl(data.generated[0]);
+            } else {
+              throw new Error('ไม่พบ URL รูปภาพที่สร้างขึ้น');
+            }
+          } else if (data.status === 'FAILED') {
+            setMagnificStatus('FAILED');
+            throw new Error('การสร้างรูปภาพล้มเหลว (Failed)');
+          } else {
+            setMagnificStatus('IN_PROGRESS');
+          }
+        }
+      } catch (err: any) {
+        setMagnificError(err.message || 'เกิดข้อผิดพลาดในการตรวจสอบสถานะ');
+        setMagnificStatus('FAILED');
+        setMagnificTaskId(null);
+      }
+    };
+
+    timerId = setInterval(checkStatus, 3000);
+
+    return () => clearInterval(timerId);
+  }, [magnificTaskId, magnificStatus]);
+
+  const handleGenerateImage = async () => {
+    try {
+      setMagnificLoading(true);
+      setMagnificError('');
+      setMagnificResultUrl(null);
+      setMagnificStatus('CREATED');
+
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('ไม่พบข้อมูลการเข้าสู่ระบบ');
+
+      const res = await fetch('/api/magnific', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          prompt: magnificPrompt,
+          aspect_ratio: magnificRatio,
+          model: magnificModel,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'ไม่สามารถเริ่มต้นสร้างรูปภาพได้');
+      }
+
+      if (json.data && json.data.task_id) {
+        setMagnificTaskId(json.data.task_id);
+        setMagnificStatus('IN_PROGRESS');
+      } else {
+        throw new Error('ไม่ได้รับข้อมูล Task ID จากระบบ');
+      }
+    } catch (err: any) {
+      setMagnificError(err.message || 'เกิดข้อผิดพลาดในการสร้างรูปภาพ');
+      setMagnificStatus('FAILED');
+    } finally {
+      setMagnificLoading(false);
+    }
+  };
+
+  const handleUseGeneratedImage = async () => {
+    if (!magnificResultUrl) return;
+    try {
+      setMagnificLoading(true);
+      setMagnificError('');
+
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('ไม่พบข้อมูลการเข้าสู่ระบบ');
+
+      // Fetch via proxy to avoid CORS
+      const proxyUrl = `/api/magnific?proxyUrl=${encodeURIComponent(magnificResultUrl)}`;
+      const res = await fetch(proxyUrl, {
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('ไม่สามารถดาวน์โหลดรูปภาพผ่าน proxy ได้');
+      }
+
+      const blob = await res.blob();
+      const ext = blob.type.split('/')[1] || 'jpg';
+      const file = new File([blob], `magnific_${Date.now()}.${ext}`, { type: blob.type });
+
+      updateForm('bannerFile', file as any);
+      updateForm('bannerUrl', URL.createObjectURL(file) as any);
+
+      // Close and Reset Dialog
+      setMagnificOpen(false);
+      setMagnificResultUrl(null);
+      setMagnificTaskId(null);
+      setMagnificStatus('IDLE');
+    } catch (err: any) {
+      setMagnificError(err.message || 'เกิดข้อผิดพลาดในการดึงรูปภาพมาใช้');
+    } finally {
+      setMagnificLoading(false);
+    }
+  };
+
+  // ===================== Magnific AI Upscale (แบนเนอร์) =====================
+  const [upscaling, setUpscaling] = useState(false);
+  const [upscaleError, setUpscaleError] = useState('');
+
+  const fileToBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        // ตัด prefix "data:image/...;base64," ให้เหลือ base64 ล้วน
+        resolve(result.includes(',') ? result.split(',')[1] : result);
+      };
+      reader.onerror = () => reject(new Error('อ่านไฟล์รูปไม่สำเร็จ'));
+      reader.readAsDataURL(file);
+    });
+
+  const handleUpscaleBanner = async () => {
+    try {
+      setUpscaling(true);
+      setUpscaleError('');
+
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('ไม่พบข้อมูลการเข้าสู่ระบบ');
+
+      // เตรียมรูปต้นฉบับ: ไฟล์ในเครื่อง → base64, รูปที่อัปโหลดแล้ว → ส่งเป็น URL
+      let image: string;
+      if (form.bannerFile) {
+        image = await fileToBase64(form.bannerFile);
+      } else if (form.bannerUrl && form.bannerUrl.startsWith('https://')) {
+        image = form.bannerUrl;
+      } else if (form.bannerUrl && form.bannerUrl.startsWith('blob:')) {
+        const blob = await (await fetch(form.bannerUrl)).blob();
+        image = await fileToBase64(new File([blob], 'banner.jpg', { type: blob.type }));
+      } else {
+        throw new Error('ไม่พบรูปแบนเนอร์ที่จะปรับความคมชัด');
+      }
+
+      const res = await fetch('/api/magnific', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          action: 'upscale',
+          image,
+          scale_factor: 2,
+          flavor: 'photo',
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'ไม่สามารถเริ่มปรับความคมชัดได้');
+
+      const taskId = json?.data?.task_id;
+      if (!taskId) throw new Error('ไม่ได้รับ Task ID จากระบบ');
+
+      // Poll จนกว่างานจะเสร็จ (สูงสุด ~4 นาที)
+      let resultUrl: string | null = null;
+      for (let i = 0; i < 80; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const statusRes = await fetch(`/api/magnific?taskId=${taskId}`, {
+          headers: { 'Authorization': `Bearer ${idToken}` },
+        });
+        const statusJson = await statusRes.json();
+        if (!statusRes.ok) throw new Error(statusJson.error || 'ตรวจสอบสถานะล้มเหลว');
+
+        const data = statusJson.data;
+        if (data?.status === 'COMPLETED') {
+          if (!data.generated || data.generated.length === 0) {
+            throw new Error('ไม่พบ URL รูปภาพที่ปรับความคมชัดแล้ว');
+          }
+          resultUrl = data.generated[0];
+          break;
+        }
+        if (data?.status === 'FAILED') {
+          throw new Error('การปรับความคมชัดล้มเหลว (Failed)');
+        }
+      }
+      if (!resultUrl) throw new Error('หมดเวลารอผลลัพธ์ กรุณาลองใหม่อีกครั้ง');
+
+      // ดาวน์โหลดผ่าน proxy แล้วแทนที่รูปแบนเนอร์ในฟอร์ม
+      const proxied = await fetch(`/api/magnific?proxyUrl=${encodeURIComponent(resultUrl)}`, {
+        headers: { 'Authorization': `Bearer ${idToken}` },
+      });
+      if (!proxied.ok) throw new Error('ไม่สามารถดาวน์โหลดรูปที่ปรับแล้วได้');
+
+      const blob = await proxied.blob();
+      const ext = blob.type.split('/')[1] || 'jpg';
+      const file = new File([blob], `magnific_upscaled_${Date.now()}.${ext}`, { type: blob.type });
+      updateForm('bannerFile', file as any);
+      updateForm('bannerUrl', URL.createObjectURL(file) as any);
+    } catch (err: any) {
+      setUpscaleError(err.message || 'เกิดข้อผิดพลาดในการปรับความคมชัด');
+    } finally {
+      setUpscaling(false);
+    }
+  };
+
+  // อัปโหลดรูปประกอบ (จาก Magnific AI) สำหรับแทรกใน rich description
+  // เก็บใน desc-images/ ซึ่ง rules ปิด read ตรง — เสิร์ฟผ่าน /api/images เท่านั้น
+  const uploadDescriptionImage = async (file: File): Promise<string> => {
+    const ext = file.name.split('.').pop() || 'jpg';
+    const path = `desc-images/${currentAdmin.department}/desc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+    const r = ref(storage, path);
+    await uploadBytes(r, file);
+    return `/api/images?path=${encodeURIComponent(path)}`;
+  };
+
 
   // edit
   const [openEdit, setOpenEdit] = useState(false);
@@ -1362,7 +1619,19 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   };
 
   const handleDeleteActivity = async (a: Activity) => {
-    const confirmed = window.confirm(`ต้องการลบกิจกรรม "${a.activityName}" และ QR ที่เกี่ยวข้องหรือไม่?`);
+    const confirmed = await confirm({
+      title: 'ยืนยันลบกิจกรรม',
+      description: (
+        <>
+          ต้องการลบกิจกรรม <b>&quot;{a.activityName}&quot;</b> และ QR ที่เกี่ยวข้องหรือไม่?
+          <br /><br />
+          การลบนี้ไม่สามารถย้อนกลับได้
+        </>
+      ),
+      confirmText: 'ลบกิจกรรม',
+      cancelText: 'ยกเลิก',
+      variant: 'destructive',
+    });
     if (!confirmed) return;
     try {
       const qQr = query(
@@ -1403,8 +1672,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         } catch {}
       }
       await load();
+      enqueueSnackbar('ลบกิจกรรมสำเร็จ', { variant: 'success' });
     } catch (e) {
-      alert('ลบ/ปิดกิจกรรมไม่สำเร็จ (ตรวจสอบสิทธิ์และ rules)');
+      enqueueSnackbar('ลบ/ปิดกิจกรรมไม่สำเร็จ (ตรวจสอบสิทธิ์และ rules)', { variant: 'error' });
     }
   };
 
@@ -1454,61 +1724,78 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
     return (
       <Paper
-        elevation={2}
+        elevation={0}
         sx={{
-          borderRadius: 2,
+          borderRadius: 0,
           overflow: 'hidden',
-          border: '1px solid',
-          borderColor: 'divider',
-          maxWidth: 380,
-          mx: 'auto',
+          border: 'none',
+          width: '100%',
+          bgcolor: 'transparent',
+          boxShadow: 'none',
         }}
       >
-        <Box sx={{ height: 90, ...style }} />
-        <Box sx={{ p: 2 }}>
-          <Stack spacing={1} alignItems="center">
-            <Typography variant="subtitle2" color="text.secondary">
+        <Box sx={{ height: { xs: 72, sm: 96 }, ...style }} />
+        <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
+          <Stack spacing={0.75} alignItems="center">
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
               {dept}
             </Typography>
-            <Typography variant="h6" fontWeight={800} textAlign="center">
+            <Typography
+              variant="subtitle1"
+              fontWeight={800}
+              textAlign="center"
+              sx={{
+                fontSize: { xs: '1rem', sm: '1.1rem' },
+                lineHeight: 1.3,
+                px: 0.5,
+                wordBreak: 'break-word',
+              }}
+            >
               {title}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ px: 0.5 }}>
               {when}
             </Typography>
             {place && (
-              <Typography variant="caption" color="text.secondary">
-                <PlaceIcon fontSize="inherit" sx={{ mr: 0.5 }} />
+              <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <PlaceIcon fontSize="inherit" />
                 {place}
               </Typography>
             )}
             <Box
               sx={{
-                mt: 1.5,
-                p: 1,
+                mt: 1,
+                p: { xs: 0.75, sm: 1 },
                 borderRadius: 2,
                 border: '1px dashed',
                 borderColor: 'divider',
                 position: 'relative',
+                width: 'min(200px, 70vw)',
+                aspectRatio: '1 / 1',
               }}
             >
-              {qr ? <img src={qr} alt="QR" style={{ width: 200, height: 200 }} /> : <Box sx={{ width: 200, height: 200, bgcolor: 'grey.100' }} />}
+              {qr ? (
+                <Box component="img" src={qr} alt="QR" sx={{ width: '100%', height: '100%', display: 'block' }} />
+              ) : (
+                <Box sx={{ width: '100%', height: '100%', bgcolor: 'action.hover', borderRadius: 1 }} />
+              )}
               {!scanEnabled && (
                 <Box
                   sx={{
                     position: 'absolute',
                     inset: 0,
-                    bgcolor: 'rgba(255,255,255,.65)',
+                    bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(0,0,0,.55)' : 'rgba(255,255,255,.65)'),
                     borderRadius: 2,
                     display: 'grid',
                     placeItems: 'center',
+                    p: 1,
                   }}
                 >
-                  <Chip color="warning" label="ปิดการสแกนชั่วคราว" />
+                  <Chip color="warning" size="small" label="ปิดการสแกนชั่วคราว" />
                 </Box>
               )}
             </Box>
-            <Chip size="small" label={`รหัสกิจกรรม: ${code}`} />
+            <Chip size="small" label={code} sx={{ fontFamily: 'ui-monospace, monospace', maxWidth: '100%' }} />
           </Stack>
         </Box>
       </Paper>
@@ -2080,22 +2367,55 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
   /* ===================== Render ===================== */
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-4 sm:space-y-6 relative w-full min-w-0">
       <PageHeader
         title="จัดการ QR Code & กิจกรรม"
-        subtitle={`สังกัด: ${deptLabelOf(currentAdmin.department)} | ฐาน: ${getBaseUrl()}`}
+        subtitle={
+          <span className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-x-2 gap-y-0.5">
+            <span>สังกัด: {deptLabelOf(currentAdmin.department)}</span>
+            <span className="hidden sm:inline text-slate-300 dark:text-slate-600">|</span>
+            <span className="truncate max-w-full sm:max-w-[min(420px,60vw)]" title={getBaseUrl()}>
+              ฐาน: {getBaseUrl()}
+            </span>
+          </span>
+        }
         icon={<QrCodeIcon className="h-6 w-6" />}
         actions={
-          <div className="flex items-center gap-4">
-            <Tabs
-              value={view === 'cards' ? 0 : 1}
-              onChange={(_, v) => setView(v === 0 ? 'cards' : 'table')}
-              sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36 } }}
+          <div className="flex flex-col xs:flex-row sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+            <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden self-start">
+              <button
+                type="button"
+                title="มุมมองการ์ด"
+                onClick={() => setView('cards')}
+                className={`px-3 py-2 text-sm font-medium inline-flex items-center gap-1.5 transition-colors ${
+                  view === 'cards'
+                    ? 'bg-primary text-white'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                <GridIcon fontSize="small" />
+                <span className="hidden sm:inline">การ์ด</span>
+              </button>
+              <button
+                type="button"
+                title="มุมมองตาราง"
+                onClick={() => setView('table')}
+                className={`px-3 py-2 text-sm font-medium inline-flex items-center gap-1.5 border-l border-slate-200 dark:border-slate-700 transition-colors ${
+                  view === 'table'
+                    ? 'bg-primary text-white'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                <TableIcon fontSize="small" />
+                <span className="hidden sm:inline">ตาราง</span>
+              </button>
+            </div>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleOpenCreate}
+              sx={{ width: { xs: '100%', sm: 'auto' }, whiteSpace: 'nowrap' }}
             >
-              <Tab icon={<GridIcon />} label="การ์ด" />
-              <Tab icon={<TableIcon />} label="ตาราง" />
-            </Tabs>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>
               สร้างกิจกรรมใหม่
             </Button>
           </div>
@@ -2103,54 +2423,56 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       />
 
       {/* Stats */}
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h3" color="primary">
-                {activeCount}
-              </Typography>
-              <Typography>กิจกรรมที่เปิดอยู่</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h3" color="success.main">
-                {activities.length}
-              </Typography>
-              <Typography>กิจกรรมทั้งหมด</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3 }}>
+          <CardContent sx={{ textAlign: 'center', py: { xs: 2, sm: 2.5 }, '&:last-child': { pb: { xs: 2, sm: 2.5 } } }}>
+            <Typography variant="h4" color="primary" fontWeight={800} sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+              {activeCount}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+              เปิดอยู่
+            </Typography>
+          </CardContent>
+        </Card>
+        <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3 }}>
+          <CardContent sx={{ textAlign: 'center', py: { xs: 2, sm: 2.5 }, '&:last-child': { pb: { xs: 2, sm: 2.5 } } }}>
+            <Typography variant="h4" color="success.main" fontWeight={800} sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+              {activities.length}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+              ทั้งหมด
+            </Typography>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* List */}
-      <Card>
-        <CardContent>
+      <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3 }, '&:last-child': { pb: { xs: 1.5, sm: 2, md: 3 } } }}>
           {loading ? (
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <CircularProgress />
             </Box>
           ) : activities.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 6 }}>
-              <QrCodeIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
-              <Typography sx={{ mt: 1 }}>ยังไม่มีกิจกรรม</Typography>
+            <Box sx={{ textAlign: 'center', py: { xs: 5, sm: 6 }, px: 2 }}>
+              <QrCodeIcon sx={{ fontSize: { xs: 48, sm: 64 }, color: 'text.disabled' }} />
+              <Typography sx={{ mt: 1 }} color="text.secondary">ยังไม่มีกิจกรรม</Typography>
               <Button sx={{ mt: 2 }} variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>
                 สร้างกิจกรรมใหม่
               </Button>
             </Box>
           ) : view === 'cards' ? (
-            <Grid container spacing={2}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
               {activities.map((a) => {
                 const st = statusOf(a);
                 const when = `${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`;
                 const bannerColor = (a as any).bannerColor as string | undefined;
 
                 return (
-                  <Grid key={a.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                  <div
+                    key={a.id}
+                    className="flex flex-col rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden shadow-sm"
+                  >
                     <QrPreviewCard
                       title={a.activityName || 'กิจกรรม'}
                       code={a.activityCode}
@@ -2163,77 +2485,85 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                       bannerColor={bannerColor}
                     />
 
-                    <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 1 }}>
-                      <Button size="small" variant="outlined" onClick={() => handleToggle(a)}>
+                    <div className="px-3 pb-3 pt-1 space-y-2 border-t border-slate-100 dark:border-slate-800 mt-auto">
+                      <div className="flex justify-center">
+                        <Chip size="small" label={st.label} color={st.color} />
+                      </div>
+
+                      <Button
+                        size="small"
+                        fullWidth
+                        variant={a.isActive ? 'outlined' : 'contained'}
+                        color={a.isActive ? 'warning' : 'success'}
+                        onClick={() => handleToggle(a)}
+                      >
                         {a.isActive ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}
                       </Button>
 
-                      <Tooltip title="แก้ไข">
-                        <IconButton color="primary" size="small" onClick={() => openEditDialog(a)}>
-                          <EditIcon />
-                        </IconButton>
-                      </Tooltip>
-
-                      <Tooltip title="ดาวน์โหลด">
-                        <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)}>
-                          <DownloadIcon />
-                        </IconButton>
-                      </Tooltip>
-
-                      <Tooltip title="รายชื่อผู้ลงทะเบียน">
-                        <IconButton
-                          color="info"
-                          size="small"
-                          onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}
-                        >
-                          <PeopleIcon />
-                        </IconButton>
-                      </Tooltip>
-
-                      <Tooltip title="ดูหน้าลงทะเบียน">
-                        <IconButton color="info" size="small" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}>
-                          <ViewIcon />
-                        </IconButton>
-                      </Tooltip>
-
-                      <Tooltip title="ลบ">
-                        <IconButton color="error" size="small" onClick={() => handleDeleteActivity(a)}>
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-
-                      {a.dynamicQREnabled && (
-                        <Tooltip title="เปิดหน้าจอ Dynamic QR">
-                          <IconButton
-                            color="secondary"
-                            size="small"
-                            onClick={() => window.open(`/admin/dynamic-qr/${a.activityCode}`, '_blank')}
-                          >
-                            <MonitorPlay size={20} />
+                      {/* ปุ่มจัดการ — ห่อได้บนมือถือ ไม่ล้นจอ */}
+                      <div className="flex flex-wrap justify-center gap-1.5">
+                        <Tooltip title="แก้ไข">
+                          <IconButton color="primary" size="small" onClick={() => openEditDialog(a)} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                            <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                      )}
-                    </Stack>
-
-                    <Box sx={{ mt: 1, textAlign: 'center' }}>
-                      <Chip size="small" label={st.label} color={st.color} />
-                    </Box>
-                  </Grid>
+                        <Tooltip title="ดาวน์โหลด">
+                          <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                            <DownloadIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="รายชื่อผู้ลงทะเบียน">
+                          <IconButton
+                            color="info"
+                            size="small"
+                            onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}
+                            sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}
+                          >
+                            <PeopleIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="ดูหน้าลงทะเบียน">
+                          <IconButton color="info" size="small" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                            <ViewIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        {a.dynamicQREnabled && (
+                          <Tooltip title="เปิดหน้าจอ Dynamic QR">
+                            <IconButton
+                              color="secondary"
+                              size="small"
+                              onClick={() => window.open(`/admin/dynamic-qr/${a.activityCode}`, '_blank')}
+                              sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}
+                            >
+                              <MonitorPlay size={18} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <Tooltip title="ลบ">
+                          <IconButton color="error" size="small" onClick={() => handleDeleteActivity(a)} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
-            </Grid>
+            </div>
           ) : (
-            <ActivityTable
-              activities={activities}
-              onToggleStatus={handleToggle}
-              onEdit={openEditDialog}
-              onDelete={handleDeleteActivity}
-              onDownload={openDownloadMenu}
-              onViewParticipants={(code) => window.open(`/admin/records?activity=${encodeURIComponent(code)}`, '_blank')}
-              onViewRegistration={(code) => window.open(makeRegisterUrl(code), '_blank')}
-              isSuperAdmin={currentAdmin.role === 'super_admin'}
-              currentDept={currentAdmin.department}
-            />
+            <div className="min-w-0 -mx-1.5 sm:mx-0">
+              <ActivityTable
+                activities={activities}
+                onToggleStatus={handleToggle}
+                onEdit={openEditDialog}
+                onDelete={handleDeleteActivity}
+                onDownload={openDownloadMenu}
+                onViewParticipants={(code) => window.open(`/admin/records?activity=${encodeURIComponent(code)}`, '_blank')}
+                onViewRegistration={(code) => window.open(makeRegisterUrl(code), '_blank')}
+                isSuperAdmin={currentAdmin.role === 'super_admin'}
+                currentDept={currentAdmin.department}
+              />
+            </div>
           )}
         </CardContent>
       </Card>
@@ -2281,40 +2611,47 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         TransitionComponent={Transition}
       >
         <AppBar position="sticky" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary' }}>
-          <Toolbar>
+          <Toolbar sx={{ gap: 1, flexWrap: 'wrap', minHeight: { xs: 56, sm: 64 }, py: { xs: 1, sm: 0 } }}>
             <IconButton edge="start" color="inherit" onClick={handleCloseCreate} aria-label="close">
               <CloseIcon />
             </IconButton>
-            <Typography sx={{ ml: 2, flex: 1, fontWeight: 600 }} variant="h6" component="div">
+            <Typography sx={{ flex: 1, fontWeight: 600, fontSize: { xs: '0.95rem', sm: '1.15rem' }, minWidth: 0 }} noWrap>
               สร้างกิจกรรม & QR Code
             </Typography>
-            <Button
-              startIcon={<PreviewIcon />}
-              variant="outlined"
-              sx={{ mr: 2 }}
-              onClick={async () => {
-                const code = form.activityCode.trim();
-                const url = code ? makeShortUrl(code) : '';
-                const data = url ? await generateQrPng(url, 600) : '';
-                updateForm('qrDataUrl', data as any);
-                setOpenPreview(true);
-              }}
-            >
-              พรีวิวหน้าลงทะเบียน
-            </Button>
-            <Button
-              autoFocus
-              variant="contained"
-              onClick={handleCreateSubmit}
-              disabled={saving}
-              startIcon={saving ? <CircularProgress size={18} /> : <AddIcon />}
-            >
-              บันทึก & สร้าง QR
-            </Button>
+            <Stack direction="row" spacing={1} sx={{ width: { xs: '100%', sm: 'auto' }, ml: { xs: 0, sm: 'auto' } }}>
+              <Button
+                startIcon={<PreviewIcon />}
+                variant="outlined"
+                size="small"
+                sx={{ flex: { xs: 1, sm: 'none' } }}
+                onClick={async () => {
+                  const code = form.activityCode.trim();
+                  const url = code ? makeShortUrl(code) : '';
+                  const data = url ? await generateQrPng(url, 600) : '';
+                  updateForm('qrDataUrl', data as any);
+                  setOpenPreview(true);
+                }}
+              >
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>พรีวิวหน้าลงทะเบียน</Box>
+                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>พรีวิว</Box>
+              </Button>
+              <Button
+                autoFocus
+                variant="contained"
+                size="small"
+                sx={{ flex: { xs: 1, sm: 'none' }, whiteSpace: 'nowrap' }}
+                onClick={handleCreateSubmit}
+                disabled={saving}
+                startIcon={saving ? <CircularProgress size={18} /> : <AddIcon />}
+              >
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>บันทึก & สร้าง QR</Box>
+                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>บันทึก</Box>
+              </Button>
+            </Stack>
           </Toolbar>
         </AppBar>
 
-        <DialogContent sx={{ bgcolor: 'grey.50', p: { xs: 2, md: 4 } }}>
+        <DialogContent sx={{ bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.50'), p: { xs: 1.5, sm: 2, md: 4 } }}>
           <Container maxWidth="md" disableGutters>
             <Paper elevation={0} sx={{ p: { xs: 2, md: 4 }, borderRadius: 3, border: 1, borderColor: 'divider' }}>
           {errMsg && (
@@ -2418,9 +2755,36 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                       />
                     </Button>
 
+                    <Button
+                      variant="outlined"
+                      color="secondary"
+                      startIcon={<SparklesIcon />}
+                      onClick={() => {
+                        if (form.activityName.trim()) {
+                          setMagnificPrompt(`A beautiful premium promotional banner for university activity: ${form.activityName.trim()}`);
+                        } else {
+                          setMagnificPrompt('A beautiful premium modern abstract banner for a university science activity');
+                        }
+                        setMagnificRatio('widescreen_16_9');
+                        setMagnificOpen(true);
+                      }}
+                    >
+                      สร้างรูปด้วย Magnific AI
+                    </Button>
+
+
                     {form.bannerUrl && (
                       <Stack direction="row" spacing={1} alignItems="center">
                         <img src={form.bannerUrl} alt="banner-preview" style={{ height: 60, borderRadius: 8 }} />
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={upscaling ? <CircularProgress size={14} color="inherit" /> : <SparklesIcon sx={{ fontSize: 16 }} />}
+                          disabled={upscaling}
+                          onClick={handleUpscaleBanner}
+                        >
+                          {upscaling ? 'กำลังปรับความคมชัด...' : 'เพิ่มความคมชัด (AI Upscale)'}
+                        </Button>
                         <IconButton
                           color="error"
                           onClick={() => {
@@ -2433,6 +2797,11 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                       </Stack>
                     )}
                   </Stack>
+                  {upscaleError && (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                      {upscaleError}
+                    </Typography>
+                  )}
                 </Grid>
               )}
 
@@ -2512,6 +2881,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                   value={form.description}
                   onChange={(val) => updateForm('description', val as any)}
                   placeholder="เขียนรายละเอียดกิจกรรม และจัดรูปแบบได้ที่นี่..."
+                  onUploadImage={uploadDescriptionImage}
                 />
               </Grid>
 
@@ -2656,17 +3026,19 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>
                   พรีวิว QR & รายละเอียด
                 </Typography>
-                <QrPreviewCard
-                  title={form.activityName || 'กิจกรรม'}
-                  code={form.activityCode}
-                  qr={form.qrDataUrl}
-                  dept={deptLabelOf(currentAdmin.department)}
-                  when={`${fmt(form.startDateTime)} - ${fmt(form.endDateTime)}`}
-                  place={form.location || ''}
-                  scanEnabled={form.scanEnabled}
-                  bannerUrl={form.bannerUrl}
-                  bannerColor={form.bannerColor}
-                />
+                <Box sx={{ borderRadius: 3, overflow: 'hidden', border: 1, borderColor: 'divider', bgcolor: 'background.paper', maxWidth: 420 }}>
+                  <QrPreviewCard
+                    title={form.activityName || 'กิจกรรม'}
+                    code={form.activityCode}
+                    qr={form.qrDataUrl}
+                    dept={deptLabelOf(currentAdmin.department)}
+                    when={`${fmt(form.startDateTime)} - ${fmt(form.endDateTime)}`}
+                    place={form.location || ''}
+                    scanEnabled={form.scanEnabled}
+                    bannerUrl={form.bannerUrl}
+                    bannerColor={form.bannerColor}
+                  />
+                </Box>
               </Grid>
             </Grid>
           </>
@@ -2751,7 +3123,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             title={form.activityName || 'จุดกิจกรรม'}
           />
 
-          <Box sx={{ mt: 2 }}>
+          <Box sx={{ mt: 2, maxWidth: 420, mx: 'auto', borderRadius: 3, overflow: 'hidden', border: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
             <QrPreviewCard
               title={form.activityName || 'กิจกรรม'}
               code={form.activityCode}
@@ -2779,16 +3151,18 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         TransitionComponent={Transition}
       >
         <AppBar position="sticky" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary' }}>
-          <Toolbar>
+          <Toolbar sx={{ gap: 1, flexWrap: 'wrap', minHeight: { xs: 56, sm: 64 }, py: { xs: 1, sm: 0 } }}>
             <IconButton edge="start" color="inherit" onClick={handleCloseEdit} aria-label="close">
               <CloseIcon />
             </IconButton>
-            <Typography sx={{ ml: 2, flex: 1, fontWeight: 600 }} variant="h6" component="div">
+            <Typography sx={{ flex: 1, fontWeight: 600, fontSize: { xs: '0.95rem', sm: '1.15rem' }, minWidth: 0 }} noWrap>
               แก้ไขกิจกรรม
             </Typography>
             <Button
               autoFocus
               variant="contained"
+              size="small"
+              sx={{ width: { xs: '100%', sm: 'auto' } }}
               onClick={handleEditSubmit}
               disabled={editing}
               startIcon={editing ? <CircularProgress size={18} /> : <EditIcon />}
@@ -2798,7 +3172,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           </Toolbar>
         </AppBar>
 
-        <DialogContent sx={{ bgcolor: 'grey.50', p: { xs: 2, md: 4 } }}>
+        <DialogContent sx={{ bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.50'), p: { xs: 1.5, sm: 2, md: 4 } }}>
           <Container maxWidth="md" disableGutters>
             <Paper elevation={0} sx={{ p: { xs: 2, md: 4 }, borderRadius: 3, border: 1, borderColor: 'divider' }}>
           {errMsg && (
@@ -2856,9 +3230,36 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                       />
                     </Button>
 
+                    <Button
+                      variant="outlined"
+                      color="secondary"
+                      startIcon={<SparklesIcon />}
+                      onClick={() => {
+                        if (form.activityName.trim()) {
+                          setMagnificPrompt(`A beautiful premium promotional banner for university activity: ${form.activityName.trim()}`);
+                        } else {
+                          setMagnificPrompt('A beautiful premium modern abstract banner for a university science activity');
+                        }
+                        setMagnificRatio('widescreen_16_9');
+                        setMagnificOpen(true);
+                      }}
+                    >
+                      สร้างรูปด้วย Magnific AI
+                    </Button>
+
+
                     {form.bannerUrl ? (
                       <Stack direction="row" spacing={1} alignItems="center">
                         <img src={form.bannerUrl} alt="banner-preview" style={{ height: 60, borderRadius: 8 }} />
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={upscaling ? <CircularProgress size={14} color="inherit" /> : <SparklesIcon sx={{ fontSize: 16 }} />}
+                          disabled={upscaling}
+                          onClick={handleUpscaleBanner}
+                        >
+                          {upscaling ? 'กำลังปรับความคมชัด...' : 'เพิ่มความคมชัด (AI Upscale)'}
+                        </Button>
                         <Button
                           color="error"
                           startIcon={<ClearIcon />}
@@ -2877,6 +3278,11 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                       </Typography>
                     )}
                   </Stack>
+                  {upscaleError && (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                      {upscaleError}
+                    </Typography>
+                  )}
                 </Grid>
               )}
 
@@ -2956,6 +3362,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                   value={form.description}
                   onChange={(val) => updateForm('description', val as any)}
                   placeholder="เขียนรายละเอียดกิจกรรม และจัดรูปแบบได้ที่นี่..."
+                  onUploadImage={uploadDescriptionImage}
                 />
               </Grid>
 
@@ -3099,8 +3506,187 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           </Container>
         </DialogContent>
       </Dialog>
+
+      {/* ===================== Magnific AI Generation Dialog ===================== */}
+      <Dialog
+        open={magnificOpen}
+        onClose={() => !magnificLoading && setMagnificOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: '24px',
+            boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
+            overflow: 'hidden',
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 700, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          borderBottom: '1px solid rgba(0,0,0,0.08)',
+          py: 2,
+          px: 3,
+        }}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <SparklesIcon sx={{ color: '#0071e3' }} />
+            <Typography variant="h6" fontWeight={700}>สร้างรูปภาพส่วนหัวด้วย Magnific AI</Typography>
+          </Stack>
+          {!magnificLoading && (
+            <IconButton onClick={() => setMagnificOpen(false)} size="small">
+              <CloseIcon />
+            </IconButton>
+          )}
+        </DialogTitle>
+
+        <DialogContent sx={{ px: 3, py: 3, bgcolor: '#f5f5f7' }}>
+          <Grid container spacing={3}>
+            {/* Left side: Inputs */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Stack spacing={2.5}>
+                <TextField
+                  label="คำอธิบายรูปภาพ (Prompt) *เป็นภาษาอังกฤษจะดีที่สุด*"
+                  multiline
+                  rows={4}
+                  fullWidth
+                  required
+                  value={magnificPrompt}
+                  onChange={(e) => setMagnificPrompt(e.target.value)}
+                  placeholder="เช่น A futuristic science lab with glowing holographic UI, widescreen, hyperrealistic..."
+                  disabled={magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}
+                />
+
+                <FormControl fullWidth disabled={magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}>
+                  <InputLabel>สัดส่วนภาพ (Aspect Ratio)</InputLabel>
+                  <Select
+                    value={magnificRatio}
+                    label="สัดส่วนภาพ (Aspect Ratio)"
+                    onChange={(e) => setMagnificRatio(e.target.value)}
+                  >
+                    <MenuItem value="widescreen_16_9">16:9 (แนะนำสำหรับแบนเนอร์)</MenuItem>
+                    <MenuItem value="square_1_1">1:1 (จัตุรัส)</MenuItem>
+                    <MenuItem value="classic_4_3">4:3 (คลาสสิก)</MenuItem>
+                    <MenuItem value="social_post_4_5">4:5 (โซเชียลแนวตั้ง)</MenuItem>
+                    <MenuItem value="social_story_9_16">9:16 (สตอรี่)</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <FormControl fullWidth disabled={magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}>
+                  <InputLabel>โมเดล AI (Model)</InputLabel>
+                  <Select
+                    value={magnificModel}
+                    label="โมเดล AI (Model)"
+                    onChange={(e) => setMagnificModel(e.target.value)}
+                  >
+                    <MenuItem value="realism">Realism (ภาพถ่ายสมจริง)</MenuItem>
+                    <MenuItem value="fluid">Fluid (จินตนาการ/อิง Prompt ดีที่สุด)</MenuItem>
+                    <MenuItem value="zen">Zen (เรียบง่าย/สะอาดตา)</MenuItem>
+                    <MenuItem value="flexible">Flexible (สีสันสดใส/อาร์ต)</MenuItem>
+                    <MenuItem value="super_real">Super Real (เน้นความคมชัดสูงสุด)</MenuItem>
+                  </Select>
+                </FormControl>
+
+                {magnificError && (
+                  <Alert severity="error" sx={{ borderRadius: '12px' }}>
+                    {magnificError}
+                  </Alert>
+                )}
+
+                <Button
+                  variant="contained"
+                  color="primary"
+                  size="large"
+                  disabled={!magnificPrompt.trim() || magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}
+                  onClick={handleGenerateImage}
+                  startIcon={magnificLoading ? <CircularProgress size={20} color="inherit" /> : <SparklesIcon />}
+                  sx={{ py: 1.5, borderRadius: '12px', fontWeight: 600 }}
+                >
+                  {magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS' ? 'กำลังส่งข้อมูล...' : 'เริ่มสร้างรูปภาพ'}
+                </Button>
+              </Stack>
+            </Grid>
+
+            {/* Right side: Preview and status */}
+            <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <Paper
+                variant="outlined"
+                sx={{
+                  width: '100%',
+                  height: 320,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  bgcolor: '#000000',
+                  borderRadius: '16px',
+                  overflow: 'hidden',
+                  position: 'relative',
+                  border: '1px solid rgba(0,0,0,0.08)',
+                }}
+              >
+                {magnificResultUrl ? (
+                  <img
+                    src={magnificResultUrl}
+                    alt="Generated Banner"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <Stack spacing={2} alignItems="center" sx={{ color: '#a1a1a6', px: 4, textAlign: 'center' }}>
+                    {magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS' ? (
+                      <>
+                        <CircularProgress size={48} sx={{ color: '#0071e3' }} />
+                        <Typography variant="body1" fontWeight={600} color="#ffffff">
+                          กำลังประมวลผลโดย Magnific AI...
+                        </Typography>
+                        <Typography variant="caption" color="grey.400">
+                          (อาจใช้เวลาประมาณ 10-30 วินาที ระบบกำลังอัปเดตสถานะอัตโนมัติ)
+                        </Typography>
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon sx={{ fontSize: 64, color: 'rgba(255,255,255,0.2)' }} />
+                        <Typography variant="body2">
+                          ยังไม่มีรูปภาพที่สร้างขึ้น กรุณากรอก Prompt และกดปุ่มเริ่มสร้างรูปภาพ
+                        </Typography>
+                      </>
+                    )}
+                  </Stack>
+                )}
+              </Paper>
+            </Grid>
+          </Grid>
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, py: 2.5, borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+          <Button 
+            onClick={() => {
+              setMagnificOpen(false);
+              setMagnificResultUrl(null);
+              setMagnificTaskId(null);
+              setMagnificStatus('IDLE');
+              setMagnificError('');
+            }}
+            disabled={magnificLoading}
+          >
+            ยกเลิก
+          </Button>
+          <Button
+            variant="contained"
+            color="success"
+            disabled={!magnificResultUrl || magnificLoading}
+            onClick={handleUseGeneratedImage}
+            startIcon={magnificLoading ? <CircularProgress size={18} color="inherit" /> : null}
+            sx={{ fontWeight: 600, borderRadius: '8px' }}
+          >
+            ใช้รูปภาพนี้เป็นแบนเนอร์
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 };
+
 
 export default QRCodeAdminPanel;

@@ -22,7 +22,7 @@ import {
 } from 'firebase/firestore';
 
 // ✅ ใช้ Absolute Import เพื่อป้องกัน Path Error
-import { db, auth } from '@/lib/firebase';
+import { adminDb as db, adminAuth as auth } from '@/lib/firebase';
 import {
   onAuthStateChanged,
   GoogleAuthProvider,
@@ -37,7 +37,7 @@ import type {
   AdminRole,
   AdminPermission,
 } from '@/types/admin';
-import { ROLE_PERMISSIONS } from '@/types/admin';
+import { ROLE_PERMISSIONS, normalizeDepartment, deptEquals } from '@/types/admin';
 
 /* =========================
  * Constants & Utils
@@ -259,6 +259,12 @@ export interface Activity {
   dynamicQREnabled?: boolean;
   dynamicToken?: string;
   previousDynamicToken?: string;
+  dynamicQrBgUrl?: string;
+  customCode?: string;
+  clicksCount?: number;
+  linkEnabled?: boolean;
+  linkStartAt?: Date;
+  linkEndAt?: Date;
   sessions?: ActivitySession[]; // กิจกรรมย่อย
   surveyConfig?: SurveyConfig;  // แบบประเมิน
   files?: ActivityFile[];       // ไฟล์/เอกสารสำหรับกิจกรรมหลัก
@@ -291,6 +297,8 @@ export interface UnivUser {
   isActive: boolean;
   photoURL?: string;
   createdAt?: Date;
+  lastLoginAt?: Date;
+  loginCount?: number;
 }
 
 // ดึงทั้งหมดจากคอลเลกชันหลัก (fallback ไป legacy ถ้าไม่มี)
@@ -384,6 +392,7 @@ export const getActivitiesByDepartment = async (
       dynamicQREnabled: data.dynamicQREnabled === true,
       dynamicToken: data.dynamicToken,
       previousDynamicToken: data.previousDynamicToken,
+      dynamicQrBgUrl: data.dynamicQrBgUrl,
       sessions: data.sessions?.map((s: any) => ({
         ...s,
         startDateTime: toDateSafe(s.startDateTime),
@@ -427,6 +436,12 @@ export const subscribeActivities = (
       dynamicQREnabled: data.dynamicQREnabled === true,
       dynamicToken: data.dynamicToken,
       previousDynamicToken: data.previousDynamicToken,
+      dynamicQrBgUrl: data.dynamicQrBgUrl,
+      customCode: data.customCode,
+      clicksCount: data.clicksCount ?? 0,
+      linkEnabled: data.linkEnabled !== false,
+      linkStartAt: toDateSafe(data.linkStartAt),
+      linkEndAt: toDateSafe(data.linkEndAt),
       sessions: data.sessions?.map((s: any) => ({
         ...s,
         startDateTime: toDateSafe(s.startDateTime),
@@ -717,116 +732,89 @@ export const adjustParticipantsByActivityCode = async (
 /* =========================
  * Users
  * ========================= */
+const mapUnivUser = (d: { id: string; data: () => any }): UnivUser => {
+  const data = d.data() as any;
+  return {
+    uid: d.id,
+    displayName: data.displayName,
+    firstName: data.firstName,
+    lastName: data.lastName,
+    email: data.email,
+    studentId: data.studentId,
+    faculty: data.faculty,
+    department: data.department,
+    degreeLevel: data.degreeLevel,
+    isVerified: data.isVerified ?? true,
+    isActive: data.isActive ?? true,
+    photoURL: data.photoURL,
+    createdAt: toDateSafe(data.createdAt),
+    lastLoginAt: toDateSafe(data.lastLoginAt),
+    loginCount: typeof data.loginCount === 'number' ? data.loginCount : undefined,
+  };
+};
+
+/** นักศึกษาเก็บชื่อคณะ/สาขาเป็นภาษาไทย — แมปเข้าสังกัดแอดมิน */
+const userBelongsToAdminDept = (u: UnivUser, department: AdminDepartment): boolean => {
+  if (department === 'all') return true;
+  return (
+    deptEquals(u.faculty, department) ||
+    deptEquals(String(u.department || ''), department) ||
+    normalizeDepartment(u.faculty) === department ||
+    normalizeDepartment(String(u.department || '')) === department
+  );
+};
+
+/** อัปเดตสถานะทั้ง universityUsers และ users (mirror) */
+const patchUserStatus = async (uid: string, patch: Record<string, any>) => {
+  const cleaned = { ...patch, updatedAt: serverTimestamp() };
+  await updateDoc(doc(db, 'universityUsers', uid), cleaned);
+  try {
+    const mirror = doc(db, 'users', uid);
+    const snap = await getDoc(mirror);
+    if (snap.exists()) await updateDoc(mirror, cleaned);
+  } catch {
+    /* best-effort */
+  }
+};
+
 export const getAllUsers = async (): Promise<UnivUser[]> => {
   const snap = await getDocs(collection(db, 'universityUsers'));
-  return snap.docs.map((d) => {
-    const data = d.data() as any;
-    return {
-      uid: d.id,
-      displayName: data.displayName,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      email: data.email,
-      studentId: data.studentId,
-      faculty: data.faculty,
-      department: data.department,
-      degreeLevel: data.degreeLevel,
-      isVerified: data.isVerified ?? false,
-      isActive: data.isActive ?? true,
-      photoURL: data.photoURL,
-      createdAt: toDateSafe(data.createdAt),
-    } as UnivUser;
-  });
+  return snap.docs.map((d) => mapUnivUser(d));
 };
 
 export const getPendingUsers = async (): Promise<UnivUser[]> => {
-  const qy = query(collection(db, 'universityUsers'), where('isVerified', '==', false));
-  const snap = await getDocs(qy);
-  return snap.docs.map((d) => {
-    const data = d.data() as any;
-    return {
-      uid: d.id,
-      displayName: data.displayName,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      email: data.email,
-      studentId: data.studentId,
-      faculty: data.faculty,
-      department: data.department,
-      degreeLevel: data.degreeLevel,
-      isVerified: data.isVerified ?? false,
-      isActive: data.isActive ?? true,
-      photoURL: data.photoURL,
-      createdAt: toDateSafe(data.createdAt),
-    } as UnivUser;
-  });
+  const all = await getAllUsers();
+  return all.filter((u) => u.isVerified === false);
 };
 
 export const getUsersByDepartment = async (
   department: AdminDepartment
 ): Promise<UnivUser[]> => {
-  if (department === 'all') return getAllUsers();
-  const qy = query(collection(db, 'universityUsers'), where('department', '==', department));
-  const snap = await getDocs(qy);
-  return snap.docs.map((d) => {
-    const data = d.data() as any;
-    return {
-      uid: d.id,
-      displayName: data.displayName,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      email: data.email,
-      studentId: data.studentId,
-      faculty: data.faculty,
-      department: data.department,
-      degreeLevel: data.degreeLevel,
-      isVerified: data.isVerified ?? false,
-      isActive: data.isActive ?? true,
-      photoURL: data.photoURL,
-      createdAt: toDateSafe(data.createdAt),
-    } as UnivUser;
-  });
+  const all = await getAllUsers();
+  if (department === 'all') return all;
+  return all.filter((u) => userBelongsToAdminDept(u, department));
 };
 
 export const getPendingUsersByDepartment = async (
   department: AdminDepartment
 ): Promise<UnivUser[]> => {
-  if (department === 'all') return getPendingUsers();
-  const qy = query(
-    collection(db, 'universityUsers'),
-    where('department', '==', department),
-    where('isVerified', '==', false)
-  );
-  const snap = await getDocs(qy);
-  return snap.docs.map((d) => {
-    const data = d.data() as any;
-    return {
-      uid: d.id,
-      displayName: data.displayName,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      email: data.email,
-      studentId: data.studentId,
-      faculty: data.faculty,
-      department: data.department,
-      degreeLevel: data.degreeLevel,
-      isVerified: data.isVerified ?? false,
-      isActive: data.isActive ?? true,
-      photoURL: data.photoURL,
-      createdAt: toDateSafe(data.createdAt),
-    } as UnivUser;
-  });
+  const users = await getUsersByDepartment(department);
+  return users.filter((u) => u.isVerified === false);
 };
 
 /* =========================
  * User status
  * ========================= */
 export const approveUser = async (uid: string): Promise<void> => {
-  await updateDoc(doc(db, 'universityUsers', uid), { isVerified: true, isActive: true });
+  await patchUserStatus(uid, { isVerified: true, isActive: true });
 };
 
 export const suspendUser = async (uid: string): Promise<void> => {
-  await updateDoc(doc(db, 'universityUsers', uid), { isActive: false });
+  await patchUserStatus(uid, { isActive: false });
+};
+
+export const activateUser = async (uid: string): Promise<void> => {
+  await patchUserStatus(uid, { isActive: true });
 };
 
 /* =========================

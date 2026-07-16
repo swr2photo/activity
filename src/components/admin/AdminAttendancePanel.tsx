@@ -17,7 +17,7 @@ import {
   type ActivityRecord
 } from '../../lib/adminFirebase';
 
-import { db } from '../../lib/firebase';
+import { adminDb as db } from '../../lib/firebase';
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
   onSnapshot, Timestamp, QueryConstraint, startAfter
@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
 import { Label } from '@/components/ui/label';
 import { PageHeader } from './shared/PageHeader';
 
@@ -67,6 +68,7 @@ type AdminNotif = {
 // --- Main Component ---
 const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   const { enqueueSnackbar } = useSnackbar();
+  const confirm = useConfirm();
 
   // Data State
   const [records, setRecords] = useState<ActivityRecord[]>([]);
@@ -249,7 +251,14 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
       enqueueSnackbar('ต้องเป็น Super Admin เท่านั้น', { variant: 'warning' });
       return;
     }
-    if (!confirm(`ยืนยันลบ ${ids.length} รายการ?`)) return;
+    const ok = await confirm({
+      title: 'ยืนยันลบรายการลงทะเบียน',
+      description: `ต้องการลบ ${ids.length} รายการที่เลือกหรือไม่? การลบนี้ไม่สามารถย้อนกลับได้`,
+      confirmText: 'ลบรายการ',
+      cancelText: 'ยกเลิก',
+      variant: 'destructive',
+    });
+    if (!ok) return;
 
     setLoading(true);
     try {

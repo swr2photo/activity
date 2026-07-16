@@ -358,14 +358,22 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
     if (existingUser.exists()) {
       const existing = existingUser.data() as UniversityUserData;
+
+      // ✅ บัญชีที่ถูกระงับโดยแอดมิน ห้ามเข้าสู่ระบบ (และห้ามเขียนทับ isActive)
+      if (existing.isActive === false) {
+        await signOut(auth);
+        const msg = 'บัญชีของคุณถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ';
+        setError(msg);
+        onLoginError?.(msg);
+        return;
+      }
+
       finalUserData = {
         ...existing,
         displayName: firebaseUser.displayName || existing.displayName,
         photoURL: firebaseUser.photoURL || existing.photoURL,
         updatedAt: serverTimestamp(),
         lastLoginAt: serverTimestamp(),
-        isActive: true,
-        isVerified: true,
       } as UniversityUserData;
       await setDoc(userDocRef, finalUserData, { merge: true });
     } else {

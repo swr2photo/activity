@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 import { Lock } from 'lucide-react';
 import { useSnackbar } from 'notistack';
 
-import { auth } from '@/lib/firebase';
+import { adminAuth as auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 import { signInAdmin } from '@/lib/adminFirebase';
 import { startSession } from '@/lib/useAdminSession';
@@ -16,6 +16,7 @@ import type { AdminProfile } from '@/types/admin';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import ThemeToggle from '@/components/common/ThemeToggle';
 
 type Props = {
   onLoginSuccess: (adminUser: AdminProfile) => void;
@@ -70,21 +71,24 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 bg-slate-50">
+    <div className="min-h-screen flex items-center justify-center py-12 px-4 bg-slate-50 dark:bg-slate-950 relative">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle appearance="plain" />
+      </div>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
         className="w-full max-w-md"
       >
-        <Card className="border-slate-200 shadow-xl shadow-slate-200/50">
+        <Card className="border-slate-200 dark:border-slate-800 shadow-xl shadow-slate-200/50 dark:shadow-black/40 dark:bg-slate-900">
           <CardContent className="p-8">
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 mb-5">
-                <Lock className="h-7 w-7 text-indigo-600" />
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900 mb-5">
+                <Lock className="h-7 w-7 text-indigo-600 dark:text-indigo-400" />
               </div>
-              <h2 className="text-2xl font-bold text-slate-900 tracking-tight">เข้าสู่ระบบผู้ดูแล</h2>
-              <p className="text-sm text-slate-500 mt-2">ใช้บัญชีที่ได้รับสิทธิ์ในระบบเท่านั้น</p>
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 tracking-tight">เข้าสู่ระบบผู้ดูแล</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">ใช้บัญชีที่ได้รับสิทธิ์ในระบบเท่านั้น</p>
             </div>
 
             {err && (
@@ -94,7 +98,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
             )}
 
             <Button
-              className="w-full h-12 text-sm font-bold bg-white text-slate-700 border border-slate-200 shadow-sm hover:bg-slate-50 hover:text-slate-900 transition-all duration-200"
+              className="w-full h-12 text-sm font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-all duration-200"
               onClick={handleGoogleLogin}
               disabled={loading}
             >

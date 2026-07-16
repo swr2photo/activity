@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { GoogleMap, MarkerF, CircleF, useLoadScript } from '@react-google-maps/api';
 import { Box, Button, Stack, Typography, Slider } from '@mui/material';
+import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
 
 export interface LocationPickerProps {
   location: { latitude: number; longitude: number };
@@ -19,7 +20,7 @@ export interface LocationPickerProps {
 
 const mapContainerStyle = { width: '100%', height: '320px' } as const;
 
-const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places'];
+const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
 
 const LocationPicker: React.FC<LocationPickerProps> = ({
   location,
@@ -30,6 +31,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
   userLocation = null,
   zoom = 16,
 }) => {
+  const alertDialog = useAlertDialog();
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
     libraries,
@@ -43,7 +45,10 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
   useEffect(() => setR(Math.max(5, radius)), [radius]);
 
   const handleUseCurrentLocation = () => {
-    if (!navigator.geolocation) return alert('เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง');
+    if (!navigator.geolocation) {
+      void alertDialog('ไม่รองรับตำแหน่ง', 'เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง', 'warning');
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
@@ -57,7 +62,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
         else if (error.code === error.POSITION_UNAVAILABLE) msg += 'ไม่สามารถระบุตำแหน่งได้';
         else if (error.code === error.TIMEOUT) msg += 'หมดเวลาในการขอตำแหน่ง';
         else msg += 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ';
-        alert(msg);
+        void alertDialog('ไม่สามารถดึงตำแหน่งได้', msg, 'warning');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );

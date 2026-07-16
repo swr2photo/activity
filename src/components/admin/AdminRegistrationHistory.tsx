@@ -4,10 +4,11 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Search, Download, RefreshCw, Filter, Calendar,
-  Users, FileText, ChevronDown, X,
+  Users, FileText, ChevronDown, X, List, Layers,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb as db } from '@/lib/firebase';
 import type { AdminProfile } from '@/types/admin';
 
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,8 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
   const [dateTo, setDateTo] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<'all' | 'grouped'>('all');
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -141,8 +144,28 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
     return Array.from(set).sort();
   }, [records]);
 
-  // Export CSV
-  const exportCSV = () => {
+  // จัดกลุ่มรายการตามกิจกรรม (เคารพ search/date filters เหมือนตารางรวม)
+  const groups = useMemo(() => {
+    const map = new Map<string, ActivityRecord[]>();
+    filtered.forEach((r) => {
+      const key = r.activityCode || '(ไม่ระบุ)';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    });
+    return Array.from(map.entries())
+      .map(([code, rows]) => ({
+        code,
+        name: rows.find((r) => r.activityName)?.activityName || '',
+        rows,
+        uniqueStudents: new Set(rows.map((r) => r.studentId)).size,
+        latest: rows.reduce((mx, r) => (r.timestamp > mx ? r.timestamp : mx), rows[0].timestamp),
+      }))
+      .sort((a, b) => b.latest.getTime() - a.latest.getTime());
+  }, [filtered]);
+
+  // Export CSV (ไม่ส่ง rows = ใช้รายการที่กรองอยู่ทั้งหมด)
+  const exportCSV = (rows?: ActivityRecord[], filenameSuffix?: string) => {
+    const data = rows ?? filtered;
     const headers = [
       'วันที่/เวลา',
       'รหัสนักศึกษา',
@@ -150,15 +173,17 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
       'นามสกุล',
       'สาขา',
       'รหัสกิจกรรม',
+      'ชื่อกิจกรรม',
     ];
 
-    const body = filtered.map((r) => [
+    const body = data.map((r) => [
       r.timestamp.toLocaleString('th-TH'),
       r.studentId,
       r.firstName,
       r.lastName,
       r.department,
       r.activityCode,
+      r.activityName || '',
     ]);
 
     const csv = [headers, ...body]
@@ -173,7 +198,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
 
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    const codePart = activityFilter ? `_${activityFilter}` : '';
+    const codePart = filenameSuffix ?? (activityFilter ? `_${activityFilter}` : '');
     a.download = `registration_history${codePart}_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
   };
@@ -250,6 +275,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
               />
               {searchText && (
                 <button
+                  title="ล้างคำค้นหา"
                   onClick={() => setSearchText('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-slate-600"
                 >
@@ -260,6 +286,31 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
 
             {/* Filter & Actions */}
             <div className="flex gap-2">
+              {/* สลับมุมมอง รวม / แยกกิจกรรม */}
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                <button
+                  title="ดูรายการรวม"
+                  onClick={() => setViewMode('all')}
+                  className={cn(
+                    'px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors',
+                    viewMode === 'all' ? 'bg-primary text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                  )}
+                >
+                  <List className="h-4 w-4" />
+                  รวม
+                </button>
+                <button
+                  title="ดูแยกตามกิจกรรม"
+                  onClick={() => setViewMode('grouped')}
+                  className={cn(
+                    'px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors border-l border-slate-200',
+                    viewMode === 'grouped' ? 'bg-primary text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                  )}
+                >
+                  <Layers className="h-4 w-4" />
+                  แยกกิจกรรม
+                </button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -286,7 +337,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
               </Button>
               <Button
                 size="sm"
-                onClick={exportCSV}
+                onClick={() => exportCSV()}
                 disabled={filtered.length === 0}
                 className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
               >
@@ -304,6 +355,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                 <div>
                   <label className="text-xs font-semibold text-slate-600 mb-1 block">กิจกรรม</label>
                   <select
+                    title="เลือกกิจกรรม"
                     value={activityFilter}
                     onChange={(e) => setActivityFilter(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -322,6 +374,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                   <label className="text-xs font-semibold text-slate-600 mb-1 block">ตั้งแต่วันที่</label>
                   <input
                     type="date"
+                    title="ตั้งแต่วันที่"
                     value={dateFrom}
                     onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -333,6 +386,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                   <label className="text-xs font-semibold text-slate-600 mb-1 block">ถึงวันที่</label>
                   <input
                     type="date"
+                    title="ถึงวันที่"
                     value={dateTo}
                     onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1); }}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -356,7 +410,118 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
         </CardContent>
       </Card>
 
+      {/* มุมมองแยกตามกิจกรรม */}
+      {viewMode === 'grouped' && (
+        <div className="space-y-3">
+          {loading ? (
+            <Card>
+              <CardContent className="flex items-center justify-center py-16">
+                <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+              </CardContent>
+            </Card>
+          ) : groups.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-16 text-muted-foreground">
+                <Layers className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                <p className="font-semibold">ไม่มีข้อมูลการลงทะเบียน</p>
+                <p className="text-sm mt-1">ลองปรับเงื่อนไขการค้นหาหรือตัวกรอง</p>
+              </CardContent>
+            </Card>
+          ) : (
+            groups.map((g) => {
+              const expanded = expandedGroup === g.code;
+              return (
+                <Card key={g.code} className="overflow-hidden">
+                  {/* หัวการ์ดกิจกรรม — คลิกเพื่อกาง/หุบ */}
+                  <button
+                    className="w-full text-left px-5 py-4 flex flex-wrap items-center gap-3 hover:bg-slate-50/80 transition-colors"
+                    onClick={() => setExpandedGroup(expanded ? null : g.code)}
+                  >
+                    <div className="flex-1 min-w-[220px]">
+                      <p className="font-bold text-slate-900 truncate">
+                        {g.name || <span className="text-slate-400 font-medium">(ไม่มีชื่อกิจกรรม)</span>}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge className="text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 border-0">
+                          {g.code}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          ล่าสุด {g.latest.toLocaleDateString('th-TH')} {g.latest.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 shrink-0">
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-slate-900">{g.rows.length.toLocaleString()}</p>
+                        <p className="text-[11px] text-muted-foreground">รายการ</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-slate-900">{g.uniqueStudents.toLocaleString()}</p>
+                        <p className="text-[11px] text-muted-foreground">นักศึกษา</p>
+                      </div>
+                      <ChevronDown className={cn('h-5 w-5 text-slate-400 transition-transform', expanded && 'rotate-180')} />
+                    </div>
+                  </button>
+
+                  {/* รายการในกิจกรรม */}
+                  {expanded && (
+                    <div className="border-t border-slate-100">
+                      <div className="flex justify-end px-4 pt-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => exportCSV(g.rows, `_${g.code}`)}
+                          className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                        >
+                          <Download className="h-4 w-4" />
+                          ส่งออกกิจกรรมนี้
+                        </Button>
+                      </div>
+                      <div className="overflow-x-auto max-h-96 overflow-y-auto mt-2">
+                        <table className="w-full">
+                          <thead className="sticky top-0 bg-slate-50">
+                            <tr className="border-b border-slate-100">
+                              {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'สาขา'].map((h) => (
+                                <th key={h} className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {g.rows.map((r, idx) => (
+                              <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="px-4 py-2.5 text-sm text-slate-400 font-mono">{idx + 1}</td>
+                                <td className="px-4 py-2.5 whitespace-nowrap text-sm text-slate-700">
+                                  {r.timestamp.toLocaleDateString('th-TH')}{' '}
+                                  <span className="text-xs text-muted-foreground">
+                                    {r.timestamp.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 text-sm font-mono font-bold text-slate-800">{r.studentId}</td>
+                                <td className="px-4 py-2.5 text-sm text-slate-700">{r.firstName}</td>
+                                <td className="px-4 py-2.5 text-sm text-slate-700">{r.lastName}</td>
+                                <td className="px-4 py-2.5">
+                                  <Badge variant="secondary" className="text-xs font-medium">
+                                    {r.department || '-'}
+                                  </Badge>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              );
+            })
+          )}
+        </div>
+      )}
+
       {/* Table */}
+      {viewMode === 'all' && (
       <Card>
         <CardContent className="p-0">
           {loading ? (
@@ -481,6 +646,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 };

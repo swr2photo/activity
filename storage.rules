@@ -37,5 +37,11 @@ service firebase.storage {
       allow read: if true;
       allow write: if isAdmin();
     }
+
+    // 5. Description images (served only through /api/images — no direct access)
+    match /desc-images/{department}/{filename} {
+      allow read: if false;
+      allow write: if isAdmin();
+    }
   }
 }

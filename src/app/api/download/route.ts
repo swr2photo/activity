@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyUserToken } from '../../../lib/apiAuth';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // ตรวจสอบว่าผู้ใช้เข้าสู่ระบบแล้ว
+  try {
+    await verifyUserToken(request);
+  } catch {
+    return NextResponse.json(
+      { error: 'กรุณาเข้าสู่ระบบก่อนดาวน์โหลดไฟล์' },
+      { status: 401 }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const encodedUrl = searchParams.get('file');
 

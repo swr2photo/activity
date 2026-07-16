@@ -67,7 +67,9 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
         : ({ vertical: 'top', horizontal: 'right' } as const),
     [isMobile]
   );
-
+  if (!mounted) {
+    return <>{children}</>;
+  }
 
   return (
     <SnackbarProvider

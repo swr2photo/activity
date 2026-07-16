@@ -44,6 +44,7 @@ import { glassNavSx, pageColors } from '../../lib/uiTheme';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { UniversityUserProfile } from '../../lib/firebaseAuth';
+import ThemeToggle from '../common/ThemeToggle';
 
 /* ===================== types: แจ้งเตือน ===================== */
 export type NavNotice = {
@@ -408,6 +409,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({
             </Box>
 
             <Box sx={{ flex: 1 }} />
+
+            <ThemeToggle />
 
             {/* โปรไฟล์ + กระดิ่ง (ขวาสุด) */}
             {user ? (

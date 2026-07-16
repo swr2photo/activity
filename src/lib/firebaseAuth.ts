@@ -208,6 +208,13 @@ export const signInWithMicrosoft = async (): Promise<{
   let userData: UniversityUserProfile;
   if (existing.exists()) {
     const prev = existing.data() as UniversityUserProfile;
+
+    // ✅ บัญชีที่ถูกระงับโดยแอดมิน ห้ามเข้าสู่ระบบ (และห้ามเขียนทับ isActive)
+    if (prev.isActive === false) {
+      await firebaseSignOut(auth);
+      throw new Error('บัญชีของคุณถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+    }
+
     userData = {
       ...prev,
       displayName: firebaseUser.displayName || prev.displayName,
@@ -215,7 +222,6 @@ export const signInWithMicrosoft = async (): Promise<{
       updatedAt: serverTimestamp(),
       lastLoginAt: serverTimestamp(),
       loginCount: (prev.loginCount || 0) + 1,
-      isActive: true,
       isVerified: true, // no admin gate — always true
     };
     await setDoc(userDocRef, userData, { merge: true });
@@ -335,7 +341,15 @@ export const useAuth = () => {
     setAuthState({ user: null, userData: null, loading: false, error: null });
   };
 
-  return { ...authState, login, logout };
+  const refreshUserData = async () => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return null;
+    const userData = await getUserProfile(firebaseUser.uid);
+    setAuthState((prev) => ({ ...prev, user: firebaseUser, userData }));
+    return userData;
+  };
+
+  return { ...authState, login, logout, refreshUserData };
 };
 
 /** สำหรับ admin (คงฟังก์ชันไว้เพื่อความเข้ากันได้) */

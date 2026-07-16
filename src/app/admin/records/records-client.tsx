@@ -25,7 +25,7 @@ import {
 } from "@mui/icons-material";
 import { useRouter, useSearchParams } from "next/navigation";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
-import { db } from "../../../lib/firebase";
+import { adminDb as db } from "../../../lib/firebase";
 
 type ActivityRecord = {
   id: string;

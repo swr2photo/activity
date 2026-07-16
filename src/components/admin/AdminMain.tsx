@@ -18,10 +18,12 @@ import SystemSettingsPanel from './SystemSettingsPanel';
 import AdminProfileEditor from './AdminProfileEditor';
 import AdminLogsPanel from './AdminLogsPanel';
 import AdminRegistrationHistory from './AdminRegistrationHistory';
+import ShortLinkDynamicQRPanel from './ShortLinkDynamicQRPanel';
+import SurveyResultsPanel from './SurveyResultsPanel';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
+  <div className="p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-4 sm:space-y-6 overflow-x-hidden">
     {children}
   </div>
 );
@@ -30,10 +32,12 @@ type ActiveSection =
   | 'dashboard'
   | 'activity-list'
   | 'qr-generator'
+  | 'short-links'
   | 'users'
   | 'admin-management'
   | 'reports'
   | 'registration-history'
+  | 'survey-results'
   | 'settings'
   | 'profile';
 
@@ -81,6 +85,13 @@ export const AdminMain: React.FC<AdminMainProps> = ({
           </AdminRoleGuard>
         );
 
+      case 'short-links':
+        return (
+          <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_activities">
+            <ShortLinkDynamicQRPanel currentAdmin={currentAdmin} />
+          </AdminRoleGuard>
+        );
+
       case 'users':
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="manage_users">
@@ -102,6 +113,13 @@ export const AdminMain: React.FC<AdminMainProps> = ({
         return (
           <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="view_reports">
             <AdminRegistrationHistory currentAdmin={currentAdmin} />
+          </AdminRoleGuard>
+        );
+
+      case 'survey-results':
+        return (
+          <AdminRoleGuard currentAdmin={currentAdmin} requiredPermission="view_reports">
+            <SurveyResultsPanel currentAdmin={currentAdmin} />
           </AdminRoleGuard>
         );
 

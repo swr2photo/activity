@@ -5,12 +5,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import {
   Search, RefreshCw, Download, User as PersonIcon,
-  CheckCircle, Ban, Eye, ShieldAlert, Users,
+  CheckCircle, Ban, Eye, EyeOff, ShieldAlert, Users, UserCheck,
 } from 'lucide-react';
 
 import {
   DEPARTMENT_LABELS,
   ROLE_PERMISSIONS,
+  hasPermission,
   type AdminProfile,
   type AdminDepartment,
   type AdminRole,
@@ -24,12 +25,13 @@ import {
   getPendingUsersByDepartment,
   approveUser,
   suspendUser,
+  activateUser,
   type UnivUser,
   createAdminUser,
   logAdminEvent,
 } from '../../lib/adminFirebase';
 
-import { db } from '../../lib/firebase';
+import { adminDb as db } from '../../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,6 +45,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { PageHeader } from './shared/PageHeader';
+import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
+import { useSnackbar } from 'notistack';
+
 interface Props {
   currentAdmin: AdminProfile;
 }
@@ -102,12 +107,43 @@ const PERMISSION_META: Record<
   },
 };
 
+/* ---------- ปิดบังข้อมูลอ่อนไหว (PDPA) ---------- */
+const maskEmail = (email?: string) => {
+  if (!email) return '-';
+  const [local, domain] = email.split('@');
+  if (!domain) return email;
+  const head = local.slice(0, 3);
+  return `${head}${'•'.repeat(Math.max(2, local.length - 3))}@${domain}`;
+};
+const maskStudentId = (sid?: string) => {
+  if (!sid) return '-';
+  if (sid.length <= 4) return sid;
+  return `${sid.slice(0, 2)}${'•'.repeat(sid.length - 4)}${sid.slice(-2)}`;
+};
+
+/* ---------- กัน CSV formula injection ---------- */
+const csvCell = (v: any) => {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+};
+
 const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
+  const confirm = useConfirm();
+  const { enqueueSnackbar } = useSnackbar();
   const [allUsers, setAllUsers] = useState<UnivUser[]>([]);
   const [pendingUsers, setPendingUsers] = useState<UnivUser[]>([]);
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState(0); // 0: pending, 1: all
+  /** 0=ทั้งหมด 1=ใช้งานได้ 2=ถูกระงับ 3=รออนุมัติ (แสดงเมื่อมีเท่านั้น) */
+  const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [busyUid, setBusyUid] = useState<string | null>(null);
+  const [showSensitive, setShowSensitive] = useState(false);
+  const [loadError, setLoadError] = useState('');
+
+  const canExport = hasPermission(currentAdmin, 'export_data') || currentAdmin.role === 'super_admin';
+  const canPromote = hasPermission(currentAdmin, 'manage_admins') || currentAdmin.role === 'super_admin';
+  const canManage = hasPermission(currentAdmin, 'manage_users') || currentAdmin.role === 'super_admin';
 
   // view dialog
   const [open, setOpen] = useState(false);
@@ -126,6 +162,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
 
   const load = async () => {
     setLoading(true);
+    setLoadError('');
     try {
       if (currentAdmin.department === 'all') {
         const [a, p] = await Promise.all([getAllUsers(), getPendingUsers()]);
@@ -139,6 +176,9 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
         setAllUsers(a);
         setPendingUsers(p);
       }
+    } catch (e: any) {
+      console.error(e);
+      setLoadError(e?.message || 'โหลดรายชื่อผู้ใช้ไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
@@ -149,7 +189,14 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAdmin.department]);
 
-  const source = tab === 0 ? pendingUsers : allUsers;
+  const activeUsers = useMemo(() => allUsers.filter((u) => u.isActive !== false), [allUsers]);
+  const suspendedUsers = useMemo(() => allUsers.filter((u) => !u.isActive), [allUsers]);
+
+  const source =
+    tab === 0 ? allUsers :
+    tab === 1 ? activeUsers :
+    tab === 2 ? suspendedUsers :
+    pendingUsers;
   const filtered = useMemo(() => {
     if (!search.trim()) return source;
     const s = search.trim().toLowerCase();
@@ -166,6 +213,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   }, [source, search]);
 
   const exportCSV = async () => {
+    if (!canExport) return;
     const rows = filtered.map((u) => [
       u.studentId || '',
       u.firstName || '',
@@ -174,14 +222,16 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       u.faculty || '',
       String(u.department || ''),
       u.degreeLevel || '',
-      u.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ',
+      u.isActive ? 'ใช้งานได้' : 'ถูกระงับ',
       u.createdAt ? new Date(u.createdAt).toLocaleDateString('th-TH') : '',
     ]);
 
     const csv = [
-      ['รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'อีเมล', 'คณะ', 'สาขา', 'ระดับปริญญา', 'สถานะ', 'วันที่สร้าง'].join(','),
-      ...rows.map((r) => r.join(',')),
-    ].join('\n');
+      ['รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'อีเมล', 'คณะ', 'สาขา', 'ระดับปริญญา', 'สถานะ', 'วันที่สร้าง'],
+      ...rows,
+    ]
+      .map((r) => r.map(csvCell).join(','))
+      .join('\n');
 
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -194,13 +244,84 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     await logAdminEvent(
       'EXPORT_USERS',
       {
-        tab: tab === 0 ? 'pending' : 'all',
+        tab: tab === 0 ? 'all' : tab === 1 ? 'active' : tab === 2 ? 'suspended' : 'pending',
         filteredCount: filtered.length,
         query: search,
         department: currentAdmin.department,
+        revealedSensitive: showSensitive,
       },
       { uid: currentAdmin.uid, email: currentAdmin.email }
     );
+  };
+
+  /* ---------- ระงับ / คืนสถานะ (มี confirm + audit log) ---------- */
+  const doSuspend = async (u: UnivUser) => {
+    const name = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.displayName || 'ผู้ใช้';
+    const ok = await confirm({
+      title: 'ยืนยันระงับการใช้งานบัญชี',
+      description: (
+        <>
+          ต้องการระงับบัญชี <b>&quot;{name}&quot;</b> ({u.studentId || u.email || u.uid}) หรือไม่?
+          <br /><br />
+          ผู้ใช้จะเข้าสู่ระบบและลงทะเบียนกิจกรรมไม่ได้จนกว่าจะคืนสถานะ
+        </>
+      ),
+      confirmText: 'ระงับบัญชี',
+      cancelText: 'ยกเลิก',
+      variant: 'warning',
+    });
+    if (!ok) return;
+    setBusyUid(u.uid);
+    try {
+      await suspendUser(u.uid);
+      await logAdminEvent('SUSPEND_USER', { targetUid: u.uid, studentId: u.studentId }, { uid: currentAdmin.uid, email: currentAdmin.email });
+      await load();
+      enqueueSnackbar('ระงับการใช้งานสำเร็จ', { variant: 'success' });
+    } catch (e: any) {
+      enqueueSnackbar(e?.message || 'ระงับการใช้งานไม่สำเร็จ', { variant: 'error' });
+    } finally {
+      setBusyUid(null);
+    }
+  };
+
+  const doActivate = async (u: UnivUser) => {
+    const name = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.displayName || 'ผู้ใช้';
+    const ok = await confirm({
+      title: 'ยืนยันคืนสถานะการใช้งาน',
+      description: (
+        <>
+          คืนสถานะให้บัญชี <b>&quot;{name}&quot;</b> ({u.studentId || u.email || u.uid}) เพื่อให้ใช้งานระบบได้อีกครั้ง?
+        </>
+      ),
+      confirmText: 'คืนสถานะ',
+      cancelText: 'ยกเลิก',
+      variant: 'default',
+    });
+    if (!ok) return;
+    setBusyUid(u.uid);
+    try {
+      await activateUser(u.uid);
+      await logAdminEvent('ACTIVATE_USER', { targetUid: u.uid, studentId: u.studentId }, { uid: currentAdmin.uid, email: currentAdmin.email });
+      await load();
+      enqueueSnackbar('คืนสถานะสำเร็จ', { variant: 'success' });
+    } catch (e: any) {
+      enqueueSnackbar(e?.message || 'คืนสถานะไม่สำเร็จ', { variant: 'error' });
+    } finally {
+      setBusyUid(null);
+    }
+  };
+
+  const toggleSensitive = async () => {
+    const next = !showSensitive;
+    setShowSensitive(next);
+    if (next) {
+      // เก็บ audit log เมื่อมีการเปิดดูข้อมูลอ่อนไหวแบบเต็ม
+      await logAdminEvent(
+        'VIEW_SENSITIVE_USER_DATA',
+        { department: currentAdmin.department },
+        { uid: currentAdmin.uid, email: currentAdmin.email }
+      );
+    }
   };
 
   const openPromote = async (u: UnivUser) => {
@@ -265,7 +386,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       );
 
       setPromoteOpen(false);
-      alert('ตั้งค่าผู้ดูแลสำเร็จ! ผู้ใช้จะได้รับสิทธิ์เมื่อล็อกอินครั้งถัดไป');
+      enqueueSnackbar('ตั้งค่าผู้ดูแลสำเร็จ! ผู้ใช้จะได้รับสิทธิ์เมื่อล็อกอินครั้งถัดไป', { variant: 'success' });
     } catch (e: any) {
       setPromoteErr(e?.message || 'ไม่สามารถตั้งผู้ใช้เป็นแอดมินได้');
     } finally {
@@ -281,51 +402,39 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
         icon={<Users className="h-6 w-6" />}
       />
 
+      {loadError && (
+        <Alert variant="destructive">
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+      )}
+
+      {!canManage && (
+        <Alert variant="warning">
+          <AlertDescription>บัญชีนี้ไม่มีสิทธิ์จัดการผู้ใช้ — สามารถดูรายชื่อได้เท่านั้น</AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-6">
-            <div className="p-3 bg-primary/10 text-primary rounded-full">
-              <PersonIcon className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{allUsers.length.toLocaleString()}</p>
-              <p className="text-sm text-muted-foreground">ผู้ใช้ทั้งหมด</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-6">
-            <div className="p-3 bg-amber-500/10 text-amber-600 rounded-full">
-              <PersonIcon className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{pendingUsers.length.toLocaleString()}</p>
-              <p className="text-sm text-muted-foreground">รออนุมัติ</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-6">
-            <div className="p-3 bg-emerald-500/10 text-emerald-600 rounded-full">
-              <PersonIcon className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{allUsers.filter(u => u.isVerified).length.toLocaleString()}</p>
-              <p className="text-sm text-muted-foreground">อนุมัติแล้ว</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-6">
-            <div className="p-3 bg-rose-500/10 text-rose-600 rounded-full">
-              <PersonIcon className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{allUsers.filter(u => !u.isActive).length.toLocaleString()}</p>
-              <p className="text-sm text-muted-foreground">ถูกระงับ</p>
-            </div>
-          </CardContent>
-        </Card>
+        {[
+          { label: 'ผู้ใช้ทั้งหมด', value: allUsers.length, tab: 0, iconBg: 'bg-primary/10 text-primary', icon: <PersonIcon className="h-6 w-6" /> },
+          { label: 'ใช้งานได้', value: activeUsers.length, tab: 1, iconBg: 'bg-emerald-500/10 text-emerald-600', icon: <UserCheck className="h-6 w-6" /> },
+          { label: 'ถูกระงับ', value: suspendedUsers.length, tab: 2, iconBg: 'bg-rose-500/10 text-rose-600', icon: <Ban className="h-6 w-6" /> },
+          { label: 'รออนุมัติ', value: pendingUsers.length, tab: 3, iconBg: 'bg-amber-500/10 text-amber-600', icon: <CheckCircle className="h-6 w-6" /> },
+        ].map((s) => (
+          <Card
+            key={s.label}
+            className={cn('cursor-pointer transition-shadow hover:shadow-md', tab === s.tab && 'ring-2 ring-primary/40')}
+            onClick={() => setTab(s.tab)}
+          >
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className={cn('p-3 rounded-full', s.iconBg)}>{s.icon}</div>
+              <div>
+                <p className="text-2xl font-bold">{s.value.toLocaleString()}</p>
+                <p className="text-sm text-muted-foreground">{s.label}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       <Card>
@@ -341,39 +450,70 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
           </div>
           <div className="flex-1" />
           <div className="flex gap-2 w-full md:w-auto">
+            <Button variant="outline" onClick={toggleSensitive} className="flex-1 md:flex-none">
+              {showSensitive ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+              {showSensitive ? 'ปิดบังข้อมูล' : 'แสดงข้อมูลเต็ม'}
+            </Button>
             <Button variant="outline" onClick={load} disabled={loading} className="flex-1 md:flex-none">
               <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
               รีเฟรช
             </Button>
-            <Button variant="outline" onClick={exportCSV} disabled={filtered.length === 0} className="flex-1 md:flex-none text-emerald-600">
-              <Download className="h-4 w-4 mr-2" />
-              ส่งออก
-            </Button>
+            {canExport && (
+              <Button variant="outline" onClick={exportCSV} disabled={filtered.length === 0} className="flex-1 md:flex-none text-emerald-600">
+                <Download className="h-4 w-4 mr-2" />
+                ส่งออก
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="p-0 border-b">
-          <div className="flex gap-4 px-4 pt-4">
-            <button
-              className={cn("pb-3 text-sm font-medium border-b-2 transition-colors", tab === 0 ? "border-primary text-primary" : "border-transparent text-muted-foreground")}
-              onClick={() => setTab(0)}
-            >
-              รออนุมัติ {pendingUsers.length > 0 && <span className="ml-1 bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{pendingUsers.length}</span>}
-            </button>
-            <button
-              className={cn("pb-3 text-sm font-medium border-b-2 transition-colors", tab === 1 ? "border-primary text-primary" : "border-transparent text-muted-foreground")}
-              onClick={() => setTab(1)}
-            >
-              ผู้ใช้ทั้งหมด ({allUsers.length})
-            </button>
+          <div className="flex flex-wrap gap-4 px-4 pt-4">
+            {[
+              { id: 0, label: `ผู้ใช้ทั้งหมด (${allUsers.length})` },
+              { id: 1, label: `ใช้งานได้ (${activeUsers.length})` },
+              { id: 2, label: `ถูกระงับ (${suspendedUsers.length})`, badge: suspendedUsers.length > 0 ? suspendedUsers.length : 0, badgeClass: 'bg-rose-500' },
+              ...(pendingUsers.length > 0
+                ? [{ id: 3, label: `รออนุมัติ (${pendingUsers.length})`, badge: pendingUsers.length, badgeClass: 'bg-amber-500' }]
+                : []),
+            ].map((t) => (
+              <button
+                key={t.id}
+                className={cn(
+                  'pb-3 text-sm font-medium border-b-2 transition-colors inline-flex items-center',
+                  tab === t.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'
+                )}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+                {!!t.badge && (
+                  <span className={cn('ml-1.5 text-white text-[10px] px-1.5 py-0.5 rounded-full', t.badgeClass)}>
+                    {t.badge}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
         </CardHeader>
         <CardContent className="p-4">
-          {filtered.length === 0 ? (
+          {!showSensitive && filtered.length > 0 && (
+            <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1.5">
+              <EyeOff className="h-3.5 w-3.5" />
+              กำลังปิดบังอีเมลและรหัสนักศึกษา — กด &quot;แสดงข้อมูลเต็ม&quot; เพื่อดู (มีการบันทึก audit log)
+            </p>
+          )}
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground">
+              <RefreshCw className="h-6 w-6 animate-spin mr-2" /> กำลังโหลด...
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground">
-              {tab === 0 ? 'ไม่มีผู้ใช้ที่รออนุมัติ' : 'ไม่มีผู้ใช้ในระบบ'}
+              {tab === 0 ? 'ไม่มีผู้ใช้ในระบบ' :
+               tab === 1 ? 'ไม่มีผู้ใช้ที่ใช้งานได้' :
+               tab === 2 ? 'ไม่มีผู้ใช้ที่ถูกระงับ' :
+               'ไม่มีผู้ใช้ที่รออนุมัติ'}
             </div>
           ) : (
             <div className="space-y-3">
@@ -386,18 +526,15 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                   
                   <div className="min-w-[200px]">
                     <p className="font-semibold">{u.firstName} {u.lastName}</p>
-                    <p className="text-xs text-muted-foreground">{u.email}</p>
+                    <p className="text-xs text-muted-foreground">{showSensitive ? (u.email || '-') : maskEmail(u.email)}</p>
                   </div>
 
                   <div className="min-w-[180px]">
-                    <p className="text-sm">รหัส: <b>{u.studentId || '-'}</b></p>
+                    <p className="text-sm">รหัส: <b>{showSensitive ? (u.studentId || '-') : maskStudentId(u.studentId)}</b></p>
                     <p className="text-xs text-muted-foreground">{u.faculty} • {String(u.department || '')}</p>
                   </div>
 
                   <div className="flex gap-2">
-                    <Badge variant={u.isVerified ? 'success' : 'warning'}>
-                      {u.isVerified ? 'อนุมัติแล้ว' : 'รออนุมัติ'}
-                    </Badge>
                     <Badge variant={u.isActive ? 'success' : 'destructive'}>
                       {u.isActive ? 'ใช้งานได้' : 'ถูกระงับ'}
                     </Badge>
@@ -409,7 +546,11 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" onClick={() => { setSel(u); setOpen(true); }}>
+                          <Button variant="ghost" size="icon" onClick={async () => {
+                            setSel(u);
+                            setOpen(true);
+                            await logAdminEvent('VIEW_USER_DETAIL', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
+                          }}>
                             <Eye className="h-4 w-4 text-blue-500" />
                           </Button>
                         </TooltipTrigger>
@@ -417,11 +558,11 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                       </Tooltip>
                     </TooltipProvider>
 
-                    {!u.isVerified && (
+                    {canManage && !u.isVerified && (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" onClick={async () => {
+                            <Button variant="ghost" size="icon" disabled={busyUid === u.uid} onClick={async () => {
                               await approveUser(u.uid);
                               await logAdminEvent('APPROVE_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
                               await load();
@@ -434,33 +575,42 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                       </TooltipProvider>
                     )}
 
-                    {u.isActive && (
+                    {canManage && (u.isActive ? (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon" onClick={async () => {
-                              await suspendUser(u.uid);
-                              await logAdminEvent('SUSPEND_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
-                              await load();
-                            }}>
+                            <Button variant="ghost" size="icon" disabled={busyUid === u.uid} onClick={() => doSuspend(u)}>
                               <Ban className="h-4 w-4 text-rose-500" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>ระงับการใช้งาน</TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
-                    )}
+                    ) : (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" disabled={busyUid === u.uid} onClick={() => doActivate(u)}>
+                              <UserCheck className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>คืนสถานะการใช้งาน</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ))}
 
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" onClick={() => openPromote(u)}>
-                            <ShieldAlert className="h-4 w-4 text-indigo-500" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>ตั้งเป็นแอดมิน</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                    {canPromote && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => openPromote(u)}>
+                              <ShieldAlert className="h-4 w-4 text-indigo-500" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>ตั้งเป็นแอดมิน</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                   </div>
                 </div>
               ))}
@@ -483,14 +633,27 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                 </DialogTitle>
               </DialogHeader>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
+              <div className="flex gap-2 mb-2">
+                <Badge variant={sel.isActive ? 'success' : 'destructive'}>
+                  {sel.isActive ? 'ใช้งานได้' : 'ถูกระงับ'}
+                </Badge>
+                {!sel.isVerified && <Badge variant="secondary">รออนุมัติ</Badge>}
+              </div>
+
+              {!showSensitive && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+                  ข้อมูลอ่อนไหวถูกปิดบังอยู่ — ปิดหน้าต่างนี้แล้วกด &quot;แสดงข้อมูลเต็ม&quot; ก่อนเปิดดูอีกครั้ง
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
                 <div>
                   <p className="text-xs text-muted-foreground">อีเมล</p>
-                  <p className="text-sm font-medium">{sel.email}</p>
+                  <p className="text-sm font-medium break-all">{showSensitive ? (sel.email || '-') : maskEmail(sel.email)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">รหัสนักศึกษา</p>
-                  <p className="text-sm font-medium">{sel.studentId || '-'}</p>
+                  <p className="text-sm font-medium font-mono">{showSensitive ? (sel.studentId || '-') : maskStudentId(sel.studentId)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">คณะ</p>
@@ -505,14 +668,29 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                   <p className="text-sm font-medium">{sel.degreeLevel || '-'}</p>
                 </div>
                 <div>
+                  <p className="text-xs text-muted-foreground">เข้าสู่ระบบล่าสุด</p>
+                  <p className="text-sm font-medium">
+                    {sel.lastLoginAt
+                      ? new Date(sel.lastLoginAt).toLocaleString('th-TH')
+                      : '-'}
+                    {typeof sel.loginCount === 'number' && (
+                      <span className="text-xs text-muted-foreground ml-1">({sel.loginCount} ครั้ง)</span>
+                    )}
+                  </p>
+                </div>
+                <div>
                   <p className="text-xs text-muted-foreground">สร้างเมื่อ</p>
                   <p className="text-sm font-medium">{sel.createdAt ? new Date(sel.createdAt).toLocaleDateString('th-TH') : '-'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">UID</p>
+                  <p className="text-xs font-mono text-slate-500 break-all">{showSensitive ? sel.uid : `${sel.uid.slice(0, 8)}…`}</p>
                 </div>
               </div>
 
               <DialogFooter className="gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button>
-                {!sel.isVerified && (
+                {canManage && !sel.isVerified && (
                   <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => {
                     await approveUser(sel.uid);
                     await logAdminEvent('APPROVE_USER', { targetUid: sel.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
@@ -522,16 +700,21 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                     <CheckCircle className="h-4 w-4 mr-2" /> อนุมัติ
                   </Button>
                 )}
-                {sel.isActive && (
-                  <Button variant="destructive" onClick={async () => {
-                    await suspendUser(sel.uid);
-                    await logAdminEvent('SUSPEND_USER', { targetUid: sel.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
+                {canManage && (sel.isActive ? (
+                  <Button variant="destructive" disabled={busyUid === sel.uid} onClick={async () => {
+                    await doSuspend(sel);
                     setOpen(false);
-                    await load();
                   }}>
                     <Ban className="h-4 w-4 mr-2" /> ระงับ
                   </Button>
-                )}
+                ) : (
+                  <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={busyUid === sel.uid} onClick={async () => {
+                    await doActivate(sel);
+                    setOpen(false);
+                  }}>
+                    <UserCheck className="h-4 w-4 mr-2" /> คืนสถานะ
+                  </Button>
+                ))}
               </DialogFooter>
             </>
           )}
@@ -585,6 +768,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
               <div className="space-y-2">
                 <Label className="text-base font-semibold">สังกัด</Label>
                 <select
+                  title="เลือกสังกัด"
                   disabled={currentAdmin.department !== 'all'}
                   value={chosenDept}
                   onChange={(e) => setChosenDept(e.target.value as AdminDepartment)}

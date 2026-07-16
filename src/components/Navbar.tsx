@@ -45,18 +45,27 @@ import { useAdminAuth } from '../hooks/useAdminAuth';
 import { useAuth, updateUserProfile } from '../lib/firebaseAuth';
 import { useEffect, useState } from 'react';
 import ProfileEditDialog from './profile/ProfileEditDialog';
+import ThemeToggle from './common/ThemeToggle';
 
 // สไตล์แก้ว (Liquid Glass)
-const GlassWrapper = styled(AppBar)(({ theme }) => ({
-  // พื้นหลังแบบเบลอและไล่เฉด
-  backdropFilter: 'blur(20px) saturate(180%)',
-  WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-  backgroundColor: alpha(theme.palette.background.paper, 0.7),
-  backgroundImage: `linear-gradient(180deg, ${alpha('#ffffff', 0.15)} 0%, ${alpha('#ffffff', 0)} 100%)`,
-  borderTop: theme.palette.mode === 'light' ? `1px solid ${alpha('#ffffff', 0.3)}` : 'none',
-  borderBottom: theme.palette.mode === 'light' ? `1px solid ${alpha('#000000', 0.05)}` : `1px solid ${alpha('#ffffff', 0.1)}`,
-  boxShadow: `0 8px 32px 0 ${alpha('#1f2687', 0.08)}`,
-}));
+const GlassWrapper = styled(AppBar)(({ theme }) => {
+  const isDark = theme.palette.mode === 'dark';
+  return {
+    backdropFilter: 'blur(20px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+    backgroundColor: alpha(theme.palette.background.paper, isDark ? 0.75 : 0.7),
+    backgroundImage: isDark
+      ? `linear-gradient(180deg, ${alpha('#ffffff', 0.04)} 0%, ${alpha('#ffffff', 0)} 100%)`
+      : `linear-gradient(180deg, ${alpha('#ffffff', 0.15)} 0%, ${alpha('#ffffff', 0)} 100%)`,
+    borderTop: isDark ? 'none' : `1px solid ${alpha('#ffffff', 0.3)}`,
+    borderBottom: isDark
+      ? `1px solid ${alpha('#ffffff', 0.1)}`
+      : `1px solid ${alpha('#000000', 0.05)}`,
+    boxShadow: isDark
+      ? `0 8px 32px 0 ${alpha('#000000', 0.35)}`
+      : `0 8px 32px 0 ${alpha('#1f2687', 0.08)}`,
+  };
+});
 
 const Navbar: React.FC = () => {
   const theme = useTheme();
@@ -65,7 +74,7 @@ const Navbar: React.FC = () => {
   const isTabletOrMobile = useMediaQuery(theme.breakpoints.down('lg'));
 
   const { currentAdmin, refetch } = useAdminAuth();
-  const { user, userData, login: userLogin, logout: userLogout } = useAuth();
+  const { user, userData, login: userLogin, logout: userLogout, refreshUserData } = useAuth();
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -89,6 +98,7 @@ const Navbar: React.FC = () => {
   };
 
   const getDisplayName = () => {
+    if (userData?.username?.trim()) return userData.username.trim();
     if (userData?.displayName) return userData.displayName;
     if (userData?.firstName && userData?.lastName) return `${userData.firstName} ${userData.lastName}`;
     if (user?.displayName) return user.displayName.split(' ')[0];
@@ -97,9 +107,7 @@ const Navbar: React.FC = () => {
   };
 
   const getSubtitle = () => {
-    if (userData?.faculty && userData?.department) return `${userData.faculty} - ${userData.department}`;
-    if (userData?.department) return userData.department;
-    if (userData?.faculty) return userData.faculty;
+    if (userData?.department && userData.department !== 'ไม่ระบุ') return userData.department;
     return 'กรุณากรอกข้อมูลส่วนตัว';
   };
 
@@ -189,36 +197,76 @@ const Navbar: React.FC = () => {
                 ))}
               </Stack>
               
-              <Box sx={{ width: '1px', height: 24, bgcolor: 'rgba(0,0,0,0.1)' }} />
+              <Box sx={{ width: '1px', height: 24, bgcolor: 'divider' }} />
+
+              <ThemeToggle />
 
               {user ? (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                  <Box sx={{ textAlign: 'right', display: { xs: 'none', sm: 'block' }, mr: 0.5 }}>
-                    <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 'medium', lineHeight: 1.2 }}>
+                <Box
+                  onClick={handleMenuOpen}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    cursor: 'pointer',
+                    borderRadius: 2,
+                    py: 0.5,
+                    pl: 1,
+                    pr: 0.25,
+                    '&:hover': { bgcolor: alpha(theme.palette.action.hover, 0.6) },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      display: { xs: 'none', sm: 'flex' },
+                      flexDirection: 'column',
+                      alignItems: 'flex-end',
+                      justifyContent: 'center',
+                      minWidth: 0,
+                      maxWidth: 160,
+                      lineHeight: 1.15,
+                    }}
+                  >
+                    <Typography
+                      noWrap
+                      sx={{
+                        color: 'text.primary',
+                        fontWeight: 700,
+                        fontSize: '0.875rem',
+                        width: '100%',
+                        textAlign: 'right',
+                      }}
+                    >
                       {getDisplayName()}
                     </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.1 }}>
+                    <Typography
+                      noWrap
+                      sx={{
+                        color: 'text.secondary',
+                        fontSize: '0.7rem',
+                        fontWeight: 500,
+                        width: '100%',
+                        textAlign: 'right',
+                      }}
+                    >
                       {getSubtitle()}
                     </Typography>
                   </Box>
 
                   <Tooltip title="จัดการบัญชี">
-                    <IconButton onClick={handleMenuOpen} sx={{ p: 0 }}>
-                      <Avatar 
-                        src={getAvatarSrc()} 
-                        sx={{ 
-                          width: { xs: 36, sm: 40 }, 
-                          height: { xs: 36, sm: 40 },
-                          border: '2px solid rgba(255,255,255,0.6)',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                        }} 
-                      >
-                        {!getAvatarSrc() && getAvatarLetter()}
-                      </Avatar>
-                    </IconButton>
+                    <Avatar
+                      src={getAvatarSrc()}
+                      sx={{
+                        width: { xs: 36, sm: 40 },
+                        height: { xs: 36, sm: 40 },
+                        border: '2px solid',
+                        borderColor: alpha(theme.palette.divider, 0.5),
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                      }}
+                    >
+                      {!getAvatarSrc() && getAvatarLetter()}
+                    </Avatar>
                   </Tooltip>
-
-
                 </Box>
               ) : (
                 <Button 
@@ -283,6 +331,13 @@ const Navbar: React.FC = () => {
                   </Box>
                 );
               })}
+
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                <ThemeToggle />
+                <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, opacity: 0.7, color: 'text.secondary' }}>
+                  ธีม
+                </Typography>
+              </Box>
 
               {/* Mobile Auth Button */}
               {user ? (
@@ -388,10 +443,9 @@ const Navbar: React.FC = () => {
                 <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem', wordBreak: 'break-all', lineHeight: 1.1 }}>
                   {user.email}
                 </Typography>
-                {userData?.faculty && (
+                {userData?.department && userData.department !== 'ไม่ระบุ' && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, lineHeight: 1.1 }}>
-                    {userData.faculty}
-                    {userData.department && ` - ${userData.department}`}
+                    {userData.department}
                   </Typography>
                 )}
                 {userData?.studentId && (
@@ -457,7 +511,7 @@ const Navbar: React.FC = () => {
         onSave={async (updates) => {
           if (user?.uid) {
             await updateUserProfile(user.uid, updates);
-            // useAuth listener will automatically update userData
+            await refreshUserData();
           }
         }}
       />

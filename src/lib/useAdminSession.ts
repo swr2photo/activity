@@ -104,6 +104,12 @@ export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSess
 
     // ตั้งเวลาหมดอายุเพื่อเรียก onExpire ตรงเวลา
     expireId.current = window.setTimeout(() => {
+      // เช็คเซสชันล่าสุดก่อน — อาจถูกต่ออายุไปแล้ว (เช่นจากแท็บอื่น)
+      const latest = getSession();
+      if (latest && latest.expiresAt > Date.now()) {
+        schedule(latest);
+        return;
+      }
       clearTimers();
       endSession();
       setRemainingMs(0);
@@ -129,37 +135,43 @@ export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSess
       return;
     }
 
-    const existing = getSession();
-    if (existing && existing.expiresAt > Date.now()) {
-      schedule(existing);
-    } else {
-      const s = writeSession(minutes);
-      schedule(s);
-    }
+    // การเข้าหน้าแอดมิน (รวมถึง auto-login จาก Firebase) ถือเป็นการใช้งาน
+    // → เริ่มนับเวลาใหม่เสมอ ไม่ใช้เศษเวลาจากเซสชันเก่าใน localStorage
+    const s = writeSession(minutes);
+    schedule(s);
 
     return () => clearTimers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, minutes]);
 
-  // ต่ออายุเมื่อผู้ใช้กลับมาหน้าเว็บ (Auto-extend)
+  // ✅ Sliding session: ต่ออายุอัตโนมัติเมื่อมีการใช้งาน (คลิก/พิมพ์/เลื่อน/กลับมาที่แท็บ)
+  // throttle ไว้ไม่เกิน 1 ครั้งต่อนาที เพื่อไม่ให้เขียน localStorage ถี่เกินไป
   useEffect(() => {
-    const onVis = () => {
-      if (!enabled) return;
+    if (!enabled) return;
+
+    let lastRenew = 0;
+    const onActivity = () => {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastRenew < 60_000) return;
       const s = getSession();
-      if (!s) return;
-      const left = s.expiresAt - Date.now();
-      // ถ้าเหลือน้อยกว่า 1 นาที ให้ต่ออายุอัตโนมัติ
-      if (left <= 60_000 && left > 0) {
-        renew();
-      }
+      // ถ้าเซสชันหมดไปแล้ว ปล่อยให้ timer เรียก onExpire ตามปกติ
+      if (!s || s.expiresAt <= now) return;
+      lastRenew = now;
+      renew();
     };
-    document.addEventListener('visibilitychange', onVis);
-    window.addEventListener('focus', onVis);
+
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+    events.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
+    document.addEventListener('visibilitychange', onActivity);
+    window.addEventListener('focus', onActivity);
     return () => {
-      document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('focus', onVis);
+      events.forEach((e) => window.removeEventListener(e, onActivity));
+      document.removeEventListener('visibilitychange', onActivity);
+      window.removeEventListener('focus', onActivity);
     };
-  }, [enabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, minutes]);
 
   return useMemo(() => ({ remainingMs, renew, end }), [remainingMs]);
 }

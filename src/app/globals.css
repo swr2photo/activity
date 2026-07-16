@@ -1,7 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
-/* ─── shadcn/ui Design Tokens ─── */
+/* Tailwind v4: เปิด dark: ตาม class .dark บน <html> (next-themes) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── shadcn/ui Design Tokens (Light) ─── */
 :root {
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
@@ -33,9 +36,20 @@
 
   --radius: 0.75rem;
 
+  /* Page / glass tokens (ใช้กับ MUI + uiTheme) */
+  --page-bg: #f5f5f7;
+  --page-text: #1d1d1f;
+  --page-text-secondary: #86868b;
+  --page-border: rgba(0, 0, 0, 0.08);
+  --page-card: rgba(255, 255, 255, 0.85);
+  --page-card-solid: rgba(255, 255, 255, 0.92);
+  --page-shadow: 0 20px 40px rgba(0, 0, 0, 0.04);
+
   /* Legacy tokens (still used by some components) */
   --font-geist-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  color-scheme: light;
 }
 
 /* ─── shadcn/ui Tailwind v4 Theme ─── */
@@ -80,37 +94,45 @@
   --animate-accordion-up: accordion-up 0.2s ease-out;
 }
 
-/* ─── Dark Mode ─── */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+/* ─── Dark Mode (class จาก next-themes) ─── */
+.dark {
+  --background: 222.2 47% 7%;
+  --foreground: 210 40% 98%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+  --card: 222.2 40% 10%;
+  --card-foreground: 210 40% 98%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+  --popover: 222.2 40% 10%;
+  --popover-foreground: 210 40% 98%;
 
-    --primary: 234 89% 64%;
-    --primary-foreground: 0 0% 100%;
+  --primary: 234 89% 70%;
+  --primary-foreground: 0 0% 100%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
 
-    --destructive: 0 62.8% 50.6%;
-    --destructive-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 50.6%;
+  --destructive-foreground: 210 40% 98%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 234 89% 64%;
-  }
+  --border: 217.2 32.6% 20%;
+  --input: 217.2 32.6% 20%;
+  --ring: 234 89% 70%;
+
+  --page-bg: #0b0f1a;
+  --page-text: #f1f5f9;
+  --page-text-secondary: #94a3b8;
+  --page-border: rgba(255, 255, 255, 0.10);
+  --page-card: rgba(18, 24, 38, 0.88);
+  --page-card-solid: rgba(18, 24, 38, 0.95);
+  --page-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
 }
 
 /* ─── Base Styles ─── */
@@ -181,3 +203,21 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
 }
+
+/* ─── Dark remaps สำหรับ utility ที่ hardcode โหมดสว่าง (admin panels) ─── */
+html.dark .text-slate-900 { color: rgb(248 250 252); }
+html.dark .text-slate-800 { color: rgb(241 245 249); }
+html.dark .text-slate-700 { color: rgb(226 232 240); }
+html.dark .text-slate-600 { color: rgb(203 213 225); }
+html.dark .bg-white { background-color: rgb(15 23 42); }
+html.dark .bg-slate-50 { background-color: rgb(2 6 23); }
+html.dark .bg-slate-50\/50 { background-color: rgb(15 23 42 / 0.5); }
+html.dark .bg-slate-50\/80 { background-color: rgb(15 23 42 / 0.8); }
+html.dark .bg-slate-100 { background-color: rgb(30 41 59); }
+html.dark .border-slate-100 { border-color: rgb(30 41 59); }
+html.dark .border-slate-200 { border-color: rgb(51 65 85); }
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: rgb(30 41 59); }
+html.dark .hover\:bg-slate-50:hover { background-color: rgb(30 41 59); }
+html.dark .hover\:bg-slate-50\/80:hover { background-color: rgb(30 41 59 / 0.8); }
+html.dark .hover\:bg-slate-100:hover { background-color: rgb(30 41 59); }
+html.dark .shadow-slate-200\/50 { --tw-shadow-color: rgb(0 0 0 / 0.4); }
