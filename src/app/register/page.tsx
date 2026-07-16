@@ -1075,7 +1075,15 @@ const RegisterPageContent: React.FC = () => {
 
   // เพิ่มตัวนับผู้เข้าร่วม (อัปเดตแบบอะตอมิกจาก Transaction ในระดับเซิร์ฟเวอร์แล้ว และ sync ผ่าน real-time onSnapshot)
   const handleRegistrationSuccess = async () => {
-    // ปล่อยให้ onSnapshot ในระดับ Parent อัปเดตข้อมูลจำนวนผู้เข้าร่วมจากฐานข้อมูลอัตโนมัติ
+    setHasRegisteredRecord(true);
+    const hasSessions = activityData?.sessions && activityData.sessions.length > 0;
+    if (!hasSessions) {
+      setIsDuplicateRegistration(true);
+    } else {
+      await checkForDuplicateRegistration();
+    }
+    setSuccessMessage('ลงทะเบียนกิจกรรมเรียบร้อยแล้ว');
+    setTimeout(() => setSuccessMessage(''), 4000);
   };
 
   /* ============================= รวม notices ไปแสดงบน NavigationBar ============================= */

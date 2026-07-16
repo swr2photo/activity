@@ -103,24 +103,24 @@ export const IPRestrictionAlert: React.FC<IPRestrictionAlertProps> = ({
 export const DuplicateRegistrationAlert: React.FC = () => {
   return (
     <Alert 
-      severity="warning" 
+      severity="success" 
       sx={{ 
         mb: 3,
-        background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-        border: '1px solid #f59e0b'
+        background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+        border: '1px solid #10b981'
       }}
-      icon={<PersonOffIcon />}
+      icon={<PersonIcon />}
     >
       <Typography variant="body1" gutterBottom sx={{ fontWeight: 'bold' }}>
-        เคยลงทะเบียนแล้ว
+        ลงทะเบียนเรียบร้อยแล้ว
       </Typography>
       <Typography variant="body2">
-        บัญชีนี้เคยลงทะเบียนกิจกรรมนี้ไว้แล้ว ไม่สามารถลงทะเบียนซ้ำได้
+        บัญชีนี้บันทึกการเข้าร่วมกิจกรรมนี้ไว้แล้ว ไม่ต้องลงทะเบียนซ้ำ
       </Typography>
       
-      <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(245, 158, 11, 0.1)', borderRadius: 1 }}>
+      <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(16, 185, 129, 0.1)', borderRadius: 1 }}>
         <Typography variant="caption" color="text.secondary">
-          <strong>หมายเหตุ:</strong> หากคิดว่าเป็นข้อผิดพลาด กรุณาติดต่อผู้ดูแลกิจกรรม
+          ดูประวัติได้ที่เมนู «ประวัติ» — หากข้อมูลไม่ถูกต้อง กรุณาติดต่อผู้ดูแลกิจกรรม
         </Typography>
       </Box>
     </Alert>

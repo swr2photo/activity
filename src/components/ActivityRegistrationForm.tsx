@@ -935,10 +935,23 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         setSuccess(true);
       }
     } catch (e: any) {
+      // บันทึกสำเร็จไปแล้ว (หรือมี record ค้างจากรอบก่อน) → ถือว่าสำเร็จ ไม่แสดง error
+      if (e?.message === 'ALREADY_REGISTERED') {
+        setLoading(false);
+        setError('');
+        if (onSuccess) await onSuccess();
+        const config = surveyConfig;
+        if (config?.enabled && config.questions?.length > 0) {
+          setActiveStep(2);
+        } else {
+          setSuccess(true);
+        }
+        return;
+      }
+
       const map: Record<string, string> = {
         FORM_CLOSED: 'กิจกรรมปิดรับข้อมูลแล้ว',
         FULL: 'กิจกรรมนี้มีผู้สมัครครบจำนวนแล้ว',
-        ALREADY_REGISTERED: 'คุณได้ลงทะเบียนกิจกรรมนี้แล้ว',
         SINGLE_USER_TAKEN: 'กิจกรรมนี้อนุญาตผู้ใช้เดียว และถูกลงทะเบียนไปแล้ว',
         ACT_NOT_FOUND: 'ไม่พบข้อมูลกิจกรรม',
         SESSION_CLOSED: 'รอบกิจกรรมที่คุณเลือกได้ปิดรับข้อมูลแล้ว',
