@@ -669,7 +669,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
   }, [filtered, filteredCustomLinks, qrCache, getQr, activeTab]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full min-w-0 max-w-full overflow-x-hidden">
       {/* Header */}
       <PageHeader
         title="ลิงก์ย่อ & Dynamic QR"
@@ -697,7 +697,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
       )}
 
       {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', maxWidth: '100%', overflow: 'hidden' }}>
         <Tabs 
           value={activeTab} 
           onChange={(e, val) => {
@@ -706,9 +706,13 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
           }}
           textColor="primary"
           indicatorColor="primary"
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+          sx={{ minHeight: 48, maxWidth: '100%' }}
         >
-          <Tab label="ลิงก์ย่อกิจกรรม" sx={{ fontWeight: 700, textTransform: 'none' }} />
-          <Tab label="ลิงก์ย่อทั่วไป (ภายนอก)" sx={{ fontWeight: 700, textTransform: 'none' }} />
+          <Tab label="ลิงก์ย่อกิจกรรม" sx={{ fontWeight: 700, textTransform: 'none', minWidth: 'auto', px: 1.5 }} />
+          <Tab label="ลิงก์ย่อทั่วไป" sx={{ fontWeight: 700, textTransform: 'none', minWidth: 'auto', px: 1.5 }} />
         </Tabs>
       </Box>
 

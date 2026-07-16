@@ -167,20 +167,20 @@ export default function AdminLogsPanel({ currentAdmin }: Props) {
   }
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative w-full min-w-0 max-w-full overflow-x-hidden">
       <PageHeader 
         title="บันทึกการใช้งาน (Audit Logs)"
         subtitle="ติดตามกิจกรรมของผู้ดูแลระบบแบบเรียลไทม์"
         icon={<FileText className="h-6 w-6" />}
         actions={
           <>
-            <div className="relative">
+            <div className="relative w-full sm:w-auto min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="ค้นหา..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                className="pl-9 w-64"
+                className="pl-9 w-full sm:w-64 max-w-full"
               />
             </div>
             <TooltipProvider>
@@ -200,8 +200,8 @@ export default function AdminLogsPanel({ currentAdmin }: Props) {
           </>
         }
       />
-      <Card className="min-h-[500px] border-0 shadow-sm">
-        <CardContent className="p-6 space-y-4">
+      <Card className="min-h-[320px] sm:min-h-[500px] border-0 shadow-sm">
+        <CardContent className="p-3 sm:p-6 space-y-4">
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -212,14 +212,47 @@ export default function AdminLogsPanel({ currentAdmin }: Props) {
           แสดงผล {filtered.length} จากทั้งหมด {logs.length} รายการล่าสุด
         </div>
 
-        <div className="rounded-xl border overflow-hidden max-h-[600px] overflow-y-auto">
+        {/* Mobile cards */}
+        <div className="md:hidden space-y-3">
+          {loading && logs.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-10">
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <span className="text-sm text-muted-foreground">กำลังโหลดข้อมูล...</span>
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="py-10 text-center text-muted-foreground text-sm">ไม่พบข้อมูลที่ตรงกับคำค้นหา</p>
+          ) : (
+            filtered.map((r) => (
+              <div key={r.id} className="rounded-xl border bg-card p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <Badge variant="info" className="font-mono text-xs shrink-0">
+                    {r.action}
+                  </Badge>
+                  <span className="text-[11px] text-muted-foreground text-right whitespace-nowrap">
+                    {fmtDate(r.at)}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{r.actorEmail || 'Unknown'}</p>
+                  <p className="text-[11px] text-muted-foreground font-mono truncate">{r.actorUid}</p>
+                </div>
+                <pre className="text-[11px] bg-muted/50 rounded-md p-2 overflow-x-auto whitespace-pre-wrap break-all m-0 max-h-32">
+                  {safeMetaString(r.meta)}
+                </pre>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block rounded-xl border overflow-x-auto max-h-[600px] overflow-y-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="w-[180px]">เวลา</TableHead>
-                <TableHead className="w-[150px]">Action</TableHead>
-                <TableHead className="w-[250px]">ผู้ดำเนินการ</TableHead>
-                <TableHead>รายละเอียด (Meta)</TableHead>
+                <TableHead className="min-w-[140px]">เวลา</TableHead>
+                <TableHead className="min-w-[120px]">Action</TableHead>
+                <TableHead className="min-w-[180px]">ผู้ดำเนินการ</TableHead>
+                <TableHead className="min-w-[200px]">รายละเอียด (Meta)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -250,13 +283,13 @@ export default function AdminLogsPanel({ currentAdmin }: Props) {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium">{r.actorEmail || 'Unknown'}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{r.actorUid}</p>
+                      <div className="space-y-0.5 min-w-0">
+                        <p className="text-sm font-medium truncate">{r.actorEmail || 'Unknown'}</p>
+                        <p className="text-xs text-muted-foreground font-mono truncate">{r.actorUid}</p>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <pre className="text-xs bg-muted/50 rounded-md p-2 overflow-x-auto max-w-[400px] m-0">
+                      <pre className="text-xs bg-muted/50 rounded-md p-2 overflow-x-auto max-w-md m-0">
                         {safeMetaString(r.meta)}
                       </pre>
                     </TableCell>

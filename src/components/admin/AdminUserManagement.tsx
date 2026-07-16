@@ -395,7 +395,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative w-full min-w-0 max-w-full overflow-x-hidden">
       <PageHeader 
         title="จัดการผู้ใช้มหาวิทยาลัย"
         subtitle={`สังกัด: ${(DEPARTMENT_LABELS as any)[currentAdmin.department] || currentAdmin.department}`}
@@ -439,7 +439,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
 
       <Card>
         <CardContent className="flex flex-col md:flex-row gap-4 items-center p-4">
-          <div className="relative w-full md:w-96">
+          <div className="relative w-full md:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="ค้นหาผู้ใช้..."
@@ -518,31 +518,27 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
           ) : (
             <div className="space-y-3">
               {filtered.map((u) => (
-                <div key={u.uid} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border bg-card hover:shadow-sm transition-shadow">
-                  <Avatar className="h-10 w-10">
+                <div key={u.uid} className="flex flex-col gap-3 p-3 sm:p-4 rounded-xl border bg-card hover:shadow-sm transition-shadow">
+                  <div className="flex items-start gap-3 min-w-0">
+                  <Avatar className="h-10 w-10 shrink-0">
                     <AvatarImage src={u.photoURL} />
                     <AvatarFallback>{(u.firstName || u.displayName || 'U').charAt(0)}</AvatarFallback>
                   </Avatar>
                   
-                  <div className="min-w-[200px]">
-                    <p className="font-semibold">{u.firstName} {u.lastName}</p>
-                    <p className="text-xs text-muted-foreground">{showSensitive ? (u.email || '-') : maskEmail(u.email)}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold truncate">{u.firstName} {u.lastName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{showSensitive ? (u.email || '-') : maskEmail(u.email)}</p>
+                    <p className="text-sm mt-1">รหัส: <b>{showSensitive ? (u.studentId || '-') : maskStudentId(u.studentId)}</b></p>
+                    <p className="text-xs text-muted-foreground truncate">{u.faculty} • {String(u.department || '')}</p>
+                    <div className="flex gap-2 mt-2">
+                      <Badge variant={u.isActive ? 'success' : 'destructive'}>
+                        {u.isActive ? 'ใช้งานได้' : 'ถูกระงับ'}
+                      </Badge>
+                    </div>
+                  </div>
                   </div>
 
-                  <div className="min-w-[180px]">
-                    <p className="text-sm">รหัส: <b>{showSensitive ? (u.studentId || '-') : maskStudentId(u.studentId)}</b></p>
-                    <p className="text-xs text-muted-foreground">{u.faculty} • {String(u.department || '')}</p>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Badge variant={u.isActive ? 'success' : 'destructive'}>
-                      {u.isActive ? 'ใช้งานได้' : 'ถูกระงับ'}
-                    </Badge>
-                  </div>
-
-                  <div className="flex-1" />
-
-                  <div className="flex gap-1 mt-3 sm:mt-0">
+                  <div className="flex flex-wrap gap-1 justify-end border-t border-border/60 pt-2">
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -620,7 +616,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[min(90dvh,90vh)] overflow-y-auto">
           {sel && (
             <>
               <DialogHeader>
@@ -722,7 +718,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       </Dialog>
 
       <Dialog open={promoteOpen} onOpenChange={setPromoteOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[min(90dvh,90vh)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldAlert className="h-5 w-5 text-indigo-500" /> ตั้งผู้ใช้งานให้เป็น "แอดมิน"

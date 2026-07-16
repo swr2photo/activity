@@ -165,7 +165,7 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
               onTouchEnd={handleDragEnd}
               onTouchMove={(e) => handleDragMove(e.touches[0].clientX, e.touches[0].clientY)}
               className={cn(
-                'w-[200px] h-[200px] rounded-2xl bg-muted border overflow-hidden relative flex items-center justify-center select-none',
+                'w-full max-w-[200px] aspect-square rounded-2xl bg-muted border overflow-hidden relative flex items-center justify-center select-none',
                 hasImage ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : ''
               )}
               style={{
@@ -191,7 +191,7 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
 
             {/* Position Controls */}
             {hasImage && (
-              <div className="mt-3 w-[200px] space-y-2">
+              <div className="mt-3 w-full max-w-[200px] space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs w-4">X</span>
                   <input

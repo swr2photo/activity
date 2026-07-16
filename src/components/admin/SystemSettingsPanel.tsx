@@ -107,7 +107,7 @@ export default function SystemSettingsPanel({ currentAdmin }: Props) {
   }
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative w-full min-w-0 max-w-full overflow-x-hidden">
       <PageHeader 
         title="ตั้งค่าระบบส่วนกลาง"
         subtitle="จัดการการแสดงผล โหมดซ่อมบำรุง และค่ามาตรฐานอื่นๆ ของระบบ"
@@ -249,7 +249,7 @@ export default function SystemSettingsPanel({ currentAdmin }: Props) {
             <Button
               onClick={handleSave}
               disabled={saving}
-              className="min-w-[150px] gap-2"
+              className="w-full sm:min-w-[150px] gap-2"
             >
               {saving ? (
                 <>

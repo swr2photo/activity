@@ -202,33 +202,36 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
   }
 
   return (
-    <div className="space-y-8 pb-10">
+    <div className="space-y-6 sm:space-y-8 pb-10 w-full min-w-0 max-w-full overflow-x-hidden">
       {/* Premium Hero Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="relative overflow-hidden rounded-[2rem] bg-slate-900 text-white p-8 md:p-10 shadow-2xl"
+        className="relative overflow-hidden rounded-2xl sm:rounded-[2rem] bg-slate-900 text-white p-5 sm:p-8 md:p-10 shadow-2xl"
       >
         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay" />
-        <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-500 rounded-full blur-[100px] opacity-40 animate-pulse" />
-        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-purple-500 rounded-full blur-[100px] opacity-30" />
+        <div className="absolute -top-24 -right-24 w-64 sm:w-96 h-64 sm:h-96 bg-blue-500 rounded-full blur-[100px] opacity-40 animate-pulse pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-64 sm:w-96 h-64 sm:h-96 bg-purple-500 rounded-full blur-[100px] opacity-30 pointer-events-none" />
         
-        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-sm font-medium mb-4">
-              <Sparkles className="w-4 h-4 text-amber-300" />
-              <span>อัปเดตข้อมูลล่าสุดเมื่อสักครู่</span>
+        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6 min-w-0">
+          <div className="space-y-2 min-w-0">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs sm:text-sm font-medium mb-2 sm:mb-4">
+              <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+              <span className="truncate">อัปเดตข้อมูลล่าสุดเมื่อสักครู่</span>
             </div>
-            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">
-              แดชบอร์ด <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">{DEPARTMENT_LABELS[currentAdmin.department] ?? currentAdmin.department}</span>
+            <h1 className="text-2xl sm:text-3xl md:text-5xl font-extrabold tracking-tight break-words">
+              แดชบอร์ด{' '}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
+                {DEPARTMENT_LABELS[currentAdmin.department] ?? currentAdmin.department}
+              </span>
             </h1>
-            <p className="text-slate-300 max-w-xl text-base md:text-lg">
+            <p className="text-slate-300 max-w-xl text-sm sm:text-base md:text-lg">
               ภาพรวมกิจกรรมและผู้เข้าร่วมในสังกัดของคุณ ตรวจสอบสถิติและแนวโน้มการเข้าร่วมกิจกรรมได้ที่นี่
             </p>
           </div>
-          <div className="flex gap-3">
-            <Button variant="secondary" className="rounded-xl font-semibold bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-md">
+          <div className="flex gap-3 shrink-0">
+            <Button variant="secondary" className="rounded-xl font-semibold bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-md w-full sm:w-auto">
               <ArrowUpRight className="w-4 h-4 mr-2" />
               ดูรายงานทั้งหมด
             </Button>

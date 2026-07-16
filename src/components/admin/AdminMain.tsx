@@ -23,8 +23,10 @@ import SurveyResultsPanel from './SurveyResultsPanel';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-4 sm:space-y-6 overflow-x-hidden">
-    {children}
+  <div className="p-3 sm:p-5 lg:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-4 sm:space-y-6 overflow-x-hidden">
+    <div className="w-full min-w-0">
+      {children}
+    </div>
   </div>
 );
 

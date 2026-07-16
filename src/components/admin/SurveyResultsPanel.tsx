@@ -251,7 +251,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   /* ============================= Render ============================= */
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full min-w-0 max-w-full overflow-x-hidden">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -438,7 +438,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                   <FileText className="h-5 w-5 text-primary" />
                   คำตอบรายคน ({filteredResponses.length})
                 </h2>
-                <div className="relative sm:w-80">
+                <div className="relative w-full sm:w-80 max-w-full">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <input
                     type="text"
@@ -466,8 +466,8 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
               ) : filteredResponses.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">ไม่พบข้อมูล</p>
               ) : (
-                <div className="overflow-x-auto -mx-6 px-6">
-                  <table className="w-full">
+                <div className="overflow-x-auto max-w-full">
+                  <table className="w-full min-w-[640px]">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50">
                         {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ-นามสกุล', 'สาขา', ''].map((h, i) => (

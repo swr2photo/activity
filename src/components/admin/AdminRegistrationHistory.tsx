@@ -204,12 +204,12 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full min-w-0 max-w-full overflow-x-hidden">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          <FileText className="h-6 w-6 text-primary" />
-          ประวัติการลงทะเบียน
+      <div className="min-w-0">
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
+          <FileText className="h-6 w-6 text-primary shrink-0" />
+          <span className="truncate">ประวัติการลงทะเบียน</span>
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           ตรวจสอบรายการลงทะเบียนกิจกรรมทั้งหมดในระบบ
@@ -285,14 +285,14 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
             </div>
 
             {/* Filter & Actions */}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {/* สลับมุมมอง รวม / แยกกิจกรรม */}
               <div className="flex rounded-lg border border-slate-200 overflow-hidden">
                 <button
                   title="ดูรายการรวม"
                   onClick={() => setViewMode('all')}
                   className={cn(
-                    'px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors',
+                    'px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition-colors',
                     viewMode === 'all' ? 'bg-primary text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
                   )}
                 >
@@ -303,7 +303,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                   title="ดูแยกตามกิจกรรม"
                   onClick={() => setViewMode('grouped')}
                   className={cn(
-                    'px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors border-l border-slate-200',
+                    'px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition-colors border-l border-slate-200',
                     viewMode === 'grouped' ? 'bg-primary text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
                   )}
                 >
@@ -318,7 +318,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                 className="gap-1.5"
               >
                 <Filter className="h-4 w-4" />
-                ตัวกรอง
+                <span className="hidden xs:inline sm:inline">ตัวกรอง</span>
                 {(activityFilter || dateFrom || dateTo) && (
                   <span className="ml-1 h-5 w-5 rounded-full bg-primary text-white text-xs flex items-center justify-center">
                     {[activityFilter, dateFrom, dateTo].filter(Boolean).length}
@@ -333,7 +333,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                 className="gap-1.5"
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                รีเฟรช
+                <span className="hidden sm:inline">รีเฟรช</span>
               </Button>
               <Button
                 size="sm"
@@ -342,7 +342,8 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                 className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
               >
                 <Download className="h-4 w-4" />
-                ส่งออก CSV
+                <span className="hidden sm:inline">ส่งออก CSV</span>
+                <span className="sm:hidden">CSV</span>
               </Button>
             </div>
           </div>
@@ -437,7 +438,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                     className="w-full text-left px-5 py-4 flex flex-wrap items-center gap-3 hover:bg-slate-50/80 transition-colors"
                     onClick={() => setExpandedGroup(expanded ? null : g.code)}
                   >
-                    <div className="flex-1 min-w-[220px]">
+                    <div className="flex-1 min-w-0">
                       <p className="font-bold text-slate-900 truncate">
                         {g.name || <span className="text-slate-400 font-medium">(ไม่มีชื่อกิจกรรม)</span>}
                       </p>
@@ -477,8 +478,8 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                           ส่งออกกิจกรรมนี้
                         </Button>
                       </div>
-                      <div className="overflow-x-auto max-h-96 overflow-y-auto mt-2">
-                        <table className="w-full">
+                      <div className="overflow-x-auto max-h-96 overflow-y-auto mt-2 max-w-full">
+                        <table className="w-full min-w-[560px]">
                           <thead className="sticky top-0 bg-slate-50">
                             <tr className="border-b border-slate-100">
                               {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'สาขา'].map((h) => (
@@ -535,8 +536,8 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
               <p className="text-sm mt-1">ลองปรับเงื่อนไขการค้นหาหรือตัวกรอง</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto max-w-full">
+              <table className="w-full min-w-[640px]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
                     {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'สาขา', 'รหัสกิจกรรม'].map(

@@ -460,7 +460,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
   }, [userOptions, userSearch]);
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative w-full min-w-0 max-w-full overflow-x-hidden">
       <PageHeader 
         title="จัดการแอดมิน"
         subtitle={`สังกัด: ${DEPARTMENT_LABELS[currentAdmin.department] || currentAdmin.department}`}
@@ -494,20 +494,25 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                 const canSeeInvite = isSuper || inv.department === currentAdmin.department;
                 if (!canSeeInvite) return null;
                 return (
-                  <div key={inv.id} className="flex items-center gap-4 p-4 rounded-xl border bg-card hover:bg-slate-50 transition-colors">
-                    <div className="p-2 bg-slate-100 rounded-full">
-                      <Mail className="h-5 w-5 text-slate-600" />
+                  <div key={inv.id} className="flex flex-col gap-3 p-4 rounded-xl border bg-card hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
+                    <div className="flex items-start gap-3 min-w-0">
+                    <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full shrink-0">
+                      <Mail className="h-5 w-5 text-slate-600 dark:text-slate-300" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold truncate">{inv.email}</p>
                       <p className="text-xs text-muted-foreground truncate">
                         {ROLE_LABELS[inv.role]} • {DEPARTMENT_LABELS[inv.department] || inv.department}
                       </p>
+                      <Badge
+                        className="mt-2"
+                        variant={inv.status === 'pending' ? 'warning' : inv.status === 'accepted' ? 'success' : 'secondary'}
+                      >
+                        {inv.status === 'pending' ? 'รอรับสิทธิ์' : inv.status === 'accepted' ? 'รับแล้ว' : 'ยกเลิก'}
+                      </Badge>
                     </div>
-                    <Badge variant={inv.status === 'pending' ? 'warning' : inv.status === 'accepted' ? 'success' : 'secondary'}>
-                      {inv.status === 'pending' ? 'รอรับสิทธิ์' : inv.status === 'accepted' ? 'รับแล้ว' : 'ยกเลิก'}
-                    </Badge>
-                    <div className="flex items-center gap-1">
+                    </div>
+                    <div className="flex items-center justify-end gap-1 border-t border-border/60 pt-2">
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>

@@ -307,7 +307,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         'flex items-center gap-3 px-4 h-16 shrink-0',
         sidebarCollapsed && !isMobile ? 'justify-center px-2' : ''
       )}>
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/20">
+        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/20 shrink-0">
           <Shield className="h-5 w-5 text-primary" />
         </div>
         {(!sidebarCollapsed || isMobile) && (
@@ -315,13 +315,23 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             initial={{ opacity: 0, width: 0 }}
             animate={{ opacity: 1, width: 'auto' }}
             exit={{ opacity: 0, width: 0 }}
-            className="overflow-hidden"
+            className="overflow-hidden flex-1 min-w-0"
           >
             <h2 className="text-sm font-bold text-white whitespace-nowrap">Admin Panel</h2>
             <p className="text-[11px] text-slate-400 truncate max-w-[160px]">
               {DEPARTMENT_LABELS[liveAdmin.department]}
             </p>
           </motion.div>
+        )}
+        {isMobile && (
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            aria-label="ปิดเมนู"
+          >
+            <X className="h-5 w-5" />
+          </button>
         )}
       </div>
 
@@ -383,7 +393,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   );
 
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="flex min-h-screen max-w-[100vw] overflow-x-hidden bg-slate-50 dark:bg-slate-950">
       {/* Desktop Sidebar */}
       {!isMobile && (
         <aside
@@ -410,8 +420,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
               animate={{ x: 0 }}
               exit={{ x: -DRAWER_WIDTH }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed top-0 left-0 z-50 h-screen bg-slate-950 border-r border-white/5"
-              style={{ width: DRAWER_WIDTH }}
+              className="fixed top-0 left-0 z-50 h-screen bg-slate-950 border-r border-white/5 w-[min(100vw-2.5rem,17rem)] max-w-[272px]"
             >
               {SidebarContent()}
             </motion.aside>
@@ -421,18 +430,19 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
       {/* Main Content Area */}
       <div
-        className="flex-1 flex flex-col min-h-screen transition-all duration-300"
+        className="flex-1 flex flex-col min-h-screen min-w-0 max-w-full overflow-x-hidden transition-all duration-300"
         style={{ marginLeft: isMobile ? 0 : sidebarWidth }}
       >
         {/* Header */}
-        <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800 flex items-center px-4 gap-3 shrink-0">
+        <header className="sticky top-0 z-30 h-14 sm:h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800 flex items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">
           {/* Mobile menu toggle */}
           {isMobile ? (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setMobileOpen(true)}
-              className="text-slate-600 dark:text-slate-300"
+              className="text-slate-600 dark:text-slate-300 shrink-0"
+              aria-label="เปิดเมนู"
             >
               <Menu className="h-5 w-5" />
             </Button>
@@ -452,7 +462,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             </Button>
           )}
 
-          <h1 className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate flex-1">
+          <h1 className="text-sm sm:text-base font-semibold text-slate-800 dark:text-slate-100 truncate flex-1 min-w-0">
             ระบบจัดการกิจกรรม
           </h1>
 
@@ -503,7 +513,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </header>
 
         {/* Page Content */}
-        <main className="flex-1">
+        <main className="flex-1 min-w-0 max-w-full overflow-x-hidden">
           {children}
         </main>
       </div>

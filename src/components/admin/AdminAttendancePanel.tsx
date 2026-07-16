@@ -336,9 +336,9 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative w-full min-w-0 max-w-full overflow-x-hidden">
       {progress > 0 && (
-        <div className="absolute -top-6 -left-4 sm:-left-6 lg:-left-8 w-[calc(100%+2rem)] sm:w-[calc(100%+3rem)] lg:w-[calc(100%+4rem)] h-1 bg-primary/10 overflow-hidden z-50">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-primary/10 overflow-hidden z-50 rounded-full">
           <div 
             className="h-full bg-primary transition-all duration-300 ease-out" 
             style={{ width: `${progress}%` }}
@@ -358,8 +358,8 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
 
         {/* Filters */}
         <Card className="border-0 shadow-sm">
-          <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <CardContent className="p-3 sm:p-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 sm:gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -452,9 +452,53 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
           </CardContent>
         </Card>
 
-        {/* Data Table */}
+        {/* Data Table / Cards */}
         <Card className="border-0 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile cards */}
+          <div className="md:hidden divide-y">
+            {filteredRecords.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground text-sm">ไม่พบข้อมูล</div>
+            ) : (
+              filteredRecords.map((r) => (
+                <div key={r.id} className={cn('p-3 space-y-2', selected.includes(r.id) && 'bg-primary/5')}>
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 rounded border-gray-300 text-primary focus:ring-primary shrink-0"
+                      checked={selected.includes(r.id)}
+                      onChange={() => toggleSelect(r.id)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold truncate">{r.firstName} {r.lastName}</p>
+                          <p className="text-xs text-muted-foreground">{r.studentId}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0"
+                          onClick={() => { setSelectedRecord(r); setDetailOpen(true); }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {r.timestamp.toLocaleDateString('th-TH')} · {r.timestamp.toLocaleTimeString('th-TH')}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{String(r.faculty || '-')}</p>
+                      <Badge variant="secondary" className="mt-1.5 truncate max-w-full">
+                        {activityNameByCode[r.activityCode] || r.activityCode}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow>
@@ -545,7 +589,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
           </DialogHeader>
           {selectedRecord && (
             <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">รหัสนักศึกษา</Label>
                   <p className="font-medium">{selectedRecord.studentId}</p>
