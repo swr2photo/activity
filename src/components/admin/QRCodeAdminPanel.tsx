@@ -383,7 +383,7 @@ const defaultForm: CreateForm = {
   
   dynamicQREnabled: false,
   sessions: [],
-  surveyConfig: { enabled: false, surveyOpenMinutes: 60, sessionEligibility: 'any', requiredSessionIds: [], questions: [] },
+  surveyConfig: { enabled: false, surveyOpenMinutes: 1440, sessionEligibility: 'any', requiredSessionIds: [], questions: [] },
   files: [],
 };
 
@@ -1946,13 +1946,13 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               type="number"
               size="small"
               fullWidth
-              value={form.surveyConfig.surveyOpenMinutes ?? 60}
+              value={form.surveyConfig.surveyOpenMinutes ?? 1440}
               onChange={(e) => {
-                const val = Math.max(1, Math.min(10080, Number(e.target.value) || 60));
+                const val = Math.max(1, Math.min(10080, Number(e.target.value) || 1440));
                 updateForm('surveyConfig', { ...form.surveyConfig, surveyOpenMinutes: val } as any);
               }}
               slotProps={{ htmlInput: { min: 1, max: 10080 } }}
-              helperText={`แบบประเมินจะเปิดให้ทำได้ ${form.surveyConfig.surveyOpenMinutes ?? 60} นาที หลังจากกิจกรรมสิ้นสุด (สูงสุด 10,080 นาที = 7 วัน)`}
+              helperText={`แบบประเมินจะเปิดให้ทำได้ ${form.surveyConfig.surveyOpenMinutes ?? 1440} นาที หลังจากกิจกรรมสิ้นสุด (ค่าเริ่มต้น 1,440 = 24 ชม., สูงสุด 10,080 = 7 วัน)`}
             />
             {/* เงื่อนไขการเข้าถึงแบบประเมิน */}
             <Box>

@@ -743,7 +743,10 @@ const RegisterPageContent: React.FC = () => {
   };
 
   const shouldShowMicrosoftLogin = () =>
-    (!user || sessionExpired) && !ipBlocked && !isDuplicateRegistration && !singleUserBlocked;
+    (!user || sessionExpired) &&
+    !ipBlocked &&
+    (!isDuplicateRegistration || canEnterSurveyFlow) &&
+    !singleUserBlocked;
 
   const loadInitialData = async () => {
     try {
@@ -1122,52 +1125,68 @@ const RegisterPageContent: React.FC = () => {
   const statusInfo = activityData ? getActivityStatus(activityData) : null;
 
   // คำนวณว่าอยู่ในช่วงเวลาทำแบบประเมินหรือไม่
-  const isSurveyWindowOpen = useMemo(() => {
-    if (!activityData?.surveyConfig?.enabled) return false;
-    if (!activityData.surveyConfig.questions?.length) return false;
+  const surveyWindow = useMemo(() => {
+    if (!activityData?.surveyConfig?.enabled) {
+      return { open: false, expired: false, notStarted: false, endTime: null as Date | null, closeTime: null as Date | null, openMinutes: 0 };
+    }
+    if (!activityData.surveyConfig.questions?.length) {
+      return { open: false, expired: false, notStarted: false, endTime: null as Date | null, closeTime: null as Date | null, openMinutes: 0 };
+    }
     const surveyConfig = activityData.surveyConfig as any;
-    const openMinutes = surveyConfig.surveyOpenMinutes ?? 60;
-    // หา endTime จาก session สุดท้าย หรือจาก activityData.endDateTime
+    const openMinutes = Number(surveyConfig.surveyOpenMinutes ?? 1440) || 1440;
     let endTime: Date | null = null;
     if (activityData.sessions && activityData.sessions.length > 0) {
       const sorted = [...activityData.sessions].sort((a, b) => {
         const aT = a.endDateTime?.toDate?.()?.getTime() || new Date(a.endDateTime).getTime();
         const bT = b.endDateTime?.toDate?.()?.getTime() || new Date(b.endDateTime).getTime();
-        return bT - aT; // descending — ล่าสุดก่อน
+        return bT - aT;
       });
       endTime = sorted[0].endDateTime?.toDate?.() || new Date(sorted[0].endDateTime);
-    } else {
+    } else if (activityData.endDateTime) {
       endTime = activityData.endDateTime?.toDate?.() || new Date(activityData.endDateTime);
     }
-    if (!endTime) return false;
+    if (!endTime || Number.isNaN(endTime.getTime())) {
+      return { open: false, expired: false, notStarted: false, endTime: null, closeTime: null, openMinutes };
+    }
     const now = new Date();
-    const windowClose = new Date(endTime.getTime() + openMinutes * 60 * 1000);
-    return now >= endTime && now <= windowClose;
-  }, [activityData, statusInfo]);
+    const closeTime = new Date(endTime.getTime() + openMinutes * 60 * 1000);
+    return {
+      open: now >= endTime && now <= closeTime,
+      expired: now > closeTime,
+      notStarted: now < endTime,
+      endTime,
+      closeTime,
+      openMinutes,
+    };
+  }, [activityData]);
+
+  const isSurveyWindowOpen = surveyWindow.open;
 
   // ตรวจว่า user มีสิทธิ์ทำแบบประเมินตามเงื่อนไข session eligibility
   const isEligibleForSurvey = useMemo(() => {
     if (!hasRegisteredRecord) return false;
     if (!activityData?.sessions || activityData.sessions.length === 0) {
-      // ไม่มี sessions → ลงทะเบียนแล้วทำได้เลย
       return true;
     }
     const cfg = activityData.surveyConfig as any;
     const mode: 'any' | 'all' | 'specific' = cfg?.sessionEligibility ?? 'any';
 
     if (mode === 'all') {
-      // ต้องเช็กอินครบทุก session
       return activityData.sessions.every((s: any) => checkedInSessions.includes(s.id));
     }
     if (mode === 'specific') {
-      // ต้องเช็กอินครบทุก session ที่ Admin กำหนด
       const required: string[] = cfg?.requiredSessionIds ?? [];
-      if (required.length === 0) return checkedInSessions.length > 0; // fallback = any
+      if (required.length === 0) return hasRegisteredRecord;
       return required.every((id: string) => checkedInSessions.includes(id));
     }
-    // mode = 'any' (default) → เช็กอินอย่างน้อย 1 อัน
-    return checkedInSessions.length > 0;
+    // mode = 'any' → ลงทะเบียนแล้วถือว่ามีสิทธิ์ (แม้ record เก่าไม่มี checkedInSessions)
+    return hasRegisteredRecord;
   }, [hasRegisteredRecord, activityData, checkedInSessions]);
+
+  const canEnterSurveyFlow =
+    Boolean(activityData?.surveyConfig?.enabled) &&
+    isSurveyWindowOpen &&
+    !surveyCompleted;
 
   /* ============================= Render ============================= */
   // ระหว่างโหลด แสดง skeleton โครงหน้าจริงแทนหน้าสปินเนอร์ ให้รู้สึกว่าเข้าหน้าได้ทันที
@@ -1215,7 +1234,7 @@ const RegisterPageContent: React.FC = () => {
     singleUserBlocked &&
     user &&
     !sessionExpired &&
-    !(isSurveyWindowOpen && isEligibleForSurvey && !surveyCompleted)
+    !(canEnterSurveyFlow && (isEligibleForSurvey || !hasRegisteredRecord))
   ) {
     const isAllCheckedIn = singleUserMessage.includes('ครบ');
     return (
@@ -1278,23 +1297,31 @@ const RegisterPageContent: React.FC = () => {
   }
 
   // กิจกรรมสิ้นสุดแล้ว — แสดงจอแจ้งเตือนเต็มหน้าแทนหน้าลงทะเบียนปกติ
-  // (ยกเว้นช่วงที่ยังเปิดให้ทำแบบประเมิน หรือเพิ่งลงทะเบียนสำเร็จ จะยังใช้หน้าปกติ)
+  // ยกเว้นช่วงเปิดทำแบบประเมิน (ให้เข้าหน้าปกติเพื่อล็อกอิน/ทำแบบประเมินได้)
   if (
     activityData &&
     statusInfo?.status === 'ended' &&
     !successMessage &&
-    !(isSurveyWindowOpen && isEligibleForSurvey && !surveyCompleted)
+    !canEnterSurveyFlow
   ) {
     const endedAt = statusInfo.endTime ? formatDateTime(statusInfo.endTime) : null;
+    const surveyExpiredForUser =
+      Boolean(activityData.surveyConfig?.enabled) &&
+      surveyWindow.expired &&
+      hasRegisteredRecord &&
+      !surveyCompleted;
+
     return (
       <FullPageError
         variant="expired"
-        code="ACTIVITY_ENDED"
-        title="กิจกรรมสิ้นสุดแล้ว"
+        code={surveyExpiredForUser ? 'SURVEY_EXPIRED' : 'ACTIVITY_ENDED'}
+        title={surveyExpiredForUser ? 'หมดเวลาทำแบบประเมินแล้ว' : 'กิจกรรมสิ้นสุดแล้ว'}
         message={
-          endedAt
-            ? `"${activityData.activityName}" สิ้นสุดไปแล้วเมื่อวันที่ ${endedAt} น. ขอบคุณที่ให้ความสนใจ`
-            : `"${activityData.activityName}" สิ้นสุดไปแล้ว ขอบคุณที่ให้ความสนใจ`
+          surveyExpiredForUser
+            ? `แบบประเมินของ "${activityData.activityName}" ปิดรับไปแล้ว (เปิดได้ ${surveyWindow.openMinutes} นาทีหลังกิจกรรมสิ้นสุด)`
+            : endedAt
+              ? `"${activityData.activityName}" สิ้นสุดไปแล้วเมื่อวันที่ ${endedAt} น. ขอบคุณที่ให้ความสนใจ`
+              : `"${activityData.activityName}" สิ้นสุดไปแล้ว ขอบคุณที่ให้ความสนใจ`
         }
         actions={[
           { label: 'ดูกิจกรรมอื่น', href: '/' },
@@ -1596,24 +1623,46 @@ const RegisterPageContent: React.FC = () => {
           )}
 
           {/* แบบประเมินหลังกิจกรรมสิ้นสุด — แสดงเฉพาะในช่วงเวลาที่กำหนด */}
-          {isSurveyWindowOpen && isEligibleForSurvey && user && !surveyCompleted && activityData && (
-            <SurveyForm
-              activityCode={activityCode}
-              activityDocId={activityData.id}
-              surveyConfig={(activityData as any).surveyConfig}
-              userId={user.uid}
-              onCompleted={() => {
-                setSurveyCompleted(true);
-                setSuccessMessage('ขอบคุณที่ทำแบบประเมิน!');
-              }}
-            />
-          )}
-
-          {/* ขอบคุณที่ทำแบบประเมินแล้ว */}
-          {isSurveyWindowOpen && isEligibleForSurvey && user && surveyCompleted && (
-            <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
-              ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว
-            </Alert>
+          {canEnterSurveyFlow && activityData && (
+            <Box sx={{ mb: 3 }}>
+              {!user && (
+                <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }}>
+                  กรุณาเข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยเพื่อทำแบบประเมินหลังกิจกรรม
+                </Alert>
+              )}
+              {user && !hasRegisteredRecord && (
+                <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
+                  ไม่พบประวัติการลงทะเบียนกิจกรรมนี้ในบัญชีของคุณ จึงยังไม่สามารถทำแบบประเมินได้
+                </Alert>
+              )}
+              {user && hasRegisteredRecord && !isEligibleForSurvey && (
+                <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
+                  คุณยังไม่ผ่านเงื่อนไขการทำแบบประเมิน (เช่น ต้องเช็กอินครบตามที่ผู้ดูแลกำหนด)
+                </Alert>
+              )}
+              {user && isEligibleForSurvey && !surveyCompleted && (
+                <SurveyForm
+                  activityCode={activityCode}
+                  activityDocId={activityData.id}
+                  surveyConfig={(activityData as any).surveyConfig}
+                  userId={user.uid}
+                  onCompleted={() => {
+                    setSurveyCompleted(true);
+                    setSuccessMessage('ขอบคุณที่ทำแบบประเมิน!');
+                  }}
+                />
+              )}
+              {user && isEligibleForSurvey && surveyCompleted && (
+                <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
+                  ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว
+                </Alert>
+              )}
+              {surveyWindow.closeTime && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  เปิดทำแบบประเมินถึง {formatDateTime(surveyWindow.closeTime)} น.
+                </Typography>
+              )}
+            </Box>
           )}
 
           {/* Profile dialog */}

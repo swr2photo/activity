@@ -927,25 +927,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
 
       setLoading(false);
       if (onSuccess) await onSuccess();
-
-      const config = surveyConfig;
-      if (config?.enabled && config.questions?.length > 0) {
-        setActiveStep(2);
-      } else {
-        setSuccess(true);
-      }
+      // แบบประเมินหลังสิ้นสุดกิจกรรมทำที่หน้า register ตามช่วงเวลาที่แอดมินตั้ง
+      setSuccess(true);
     } catch (e: any) {
       // บันทึกสำเร็จไปแล้ว (หรือมี record ค้างจากรอบก่อน) → ถือว่าสำเร็จ ไม่แสดง error
       if (e?.message === 'ALREADY_REGISTERED') {
         setLoading(false);
         setError('');
         if (onSuccess) await onSuccess();
-        const config = surveyConfig;
-        if (config?.enabled && config.questions?.length > 0) {
-          setActiveStep(2);
-        } else {
-          setSuccess(true);
-        }
+        setSuccess(true);
         return;
       }
 
