@@ -1090,37 +1090,7 @@ const RegisterPageContent: React.FC = () => {
   };
 
   /* ============================= รวม notices ไปแสดงบน NavigationBar ============================= */
-  useEffect(() => {
-    const tmp: NavNotice[] = [];
-
-    if (error && !sessionExpired && !singleUserBlocked && !ipBlocked && !isDuplicateRegistration) {
-      tmp.push({ key: `err-${Date.now()}`, severity: 'error', message: error, autoHideMs: 5000 });
-    }
-    if (sessionWarning) {
-      tmp.push({ key: `sess-${Date.now()}`, severity: 'warning', message: sessionWarning, autoHideMs: 5000 });
-    }
-    if (geoError) {
-      tmp.push({
-        key: `geo-${Date.now()}`,
-        severity: 'warning',
-        message: geoError,
-        actionLabel: 'ตรวจอีกครั้ง',
-        onAction: () => triggerGeoCheck(),
-      });
-    }
-    if (ipBlocked) {
-      tmp.push({
-        key: 'ip-block',
-        severity: 'error',
-        message: `IP นี้ถูกจำกัดชั่วคราว — เหลืออีก ${blockRemainingTime} นาที`,
-      });
-    }
-    if (isDuplicateRegistration) {
-      tmp.push({ key: 'dup', severity: 'info', message: 'คุณได้ลงทะเบียนกิจกรรมนี้แล้ว', autoHideMs: 4000 });
-    }
-    setNavNotices(tmp);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [error, sessionWarning, geoError, ipBlocked, blockRemainingTime, isDuplicateRegistration]);
+  // (ย้ายไปหลัง needsSurvey)
 
   const statusInfo = activityData ? getActivityStatus(activityData) : null;
 
@@ -1183,10 +1153,48 @@ const RegisterPageContent: React.FC = () => {
     return hasRegisteredRecord;
   }, [hasRegisteredRecord, activityData, checkedInSessions]);
 
-  const canEnterSurveyFlow =
+  const isSurveyPeriodOpen =
     Boolean(activityData?.surveyConfig?.enabled) &&
-    isSurveyWindowOpen &&
-    !surveyCompleted;
+    Boolean(activityData?.surveyConfig?.questions?.length) &&
+    isSurveyWindowOpen;
+
+  // ช่วงเปิดแบบประเมิน (รวมหลังทำเสร็จแล้ว) — ใช้กันจอ ACTIVITY_ENDED
+  const canEnterSurveyFlow = isSurveyPeriodOpen;
+  // ยังต้องทำแบบประเมิน
+  const needsSurvey = isSurveyPeriodOpen && !surveyCompleted;
+
+  /* ============================= รวม notices ไปแสดงบน NavigationBar ============================= */
+  useEffect(() => {
+    const tmp: NavNotice[] = [];
+
+    if (error && !sessionExpired && !singleUserBlocked && !ipBlocked && !isDuplicateRegistration) {
+      tmp.push({ key: `err-${Date.now()}`, severity: 'error', message: error, autoHideMs: 5000 });
+    }
+    if (sessionWarning) {
+      tmp.push({ key: `sess-${Date.now()}`, severity: 'warning', message: sessionWarning, autoHideMs: 5000 });
+    }
+    if (geoError) {
+      tmp.push({
+        key: `geo-${Date.now()}`,
+        severity: 'warning',
+        message: geoError,
+        actionLabel: 'ตรวจอีกครั้ง',
+        onAction: () => triggerGeoCheck(),
+      });
+    }
+    if (ipBlocked) {
+      tmp.push({
+        key: 'ip-block',
+        severity: 'error',
+        message: `IP นี้ถูกจำกัดชั่วคราว — เหลืออีก ${blockRemainingTime} นาที`,
+      });
+    }
+    if (isDuplicateRegistration && !needsSurvey) {
+      tmp.push({ key: 'dup', severity: 'info', message: 'คุณได้ลงทะเบียนกิจกรรมนี้แล้ว', autoHideMs: 4000 });
+    }
+    setNavNotices(tmp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error, sessionWarning, geoError, ipBlocked, blockRemainingTime, isDuplicateRegistration, needsSurvey]);
 
   /* ============================= Render ============================= */
   // ระหว่างโหลด แสดง skeleton โครงหน้าจริงแทนหน้าสปินเนอร์ ให้รู้สึกว่าเข้าหน้าได้ทันที
@@ -1354,6 +1362,61 @@ const RegisterPageContent: React.FC = () => {
           {/* Success */}
           {successMessage && <SuccessAlert message={successMessage} onClose={() => setSuccessMessage('')} />}
 
+          {/* แบบประเมินค้าง — อยู่บนสุด ซ่อนข้อความลงทะเบียนแล้ว/สิ้นสุดกิจกรรม */}
+          {needsSurvey && activityData && (
+            <Box sx={{ mb: 3 }}>
+              {!user && (
+                <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }}>
+                  กรุณาเข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยเพื่อทำแบบประเมินหลังกิจกรรม
+                </Alert>
+              )}
+              {user && !hasRegisteredRecord && (
+                <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
+                  ไม่พบประวัติการลงทะเบียนกิจกรรมนี้ในบัญชีของคุณ จึงยังไม่สามารถทำแบบประเมินได้
+                </Alert>
+              )}
+              {user && hasRegisteredRecord && !isEligibleForSurvey && (
+                <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
+                  คุณยังไม่ผ่านเงื่อนไขการทำแบบประเมิน (เช่น ต้องเช็กอินครบตามที่ผู้ดูแลกำหนด)
+                </Alert>
+              )}
+              {(!user || sessionExpired) && !ipBlocked && (
+                <Box sx={{ mb: 2 }}>
+                  <MicrosoftAuthSection
+                    activityData={activityData}
+                    onLoginSuccess={handleLoginSuccess}
+                    onLoginError={handleLoginError}
+                    onPreLoginCheck={handlePreLoginCheck}
+                    checkingIP={checkingPreLogin}
+                  />
+                </Box>
+              )}
+              {user && isEligibleForSurvey && (
+                <SurveyForm
+                  activityCode={activityCode}
+                  activityDocId={activityData.id}
+                  surveyConfig={(activityData as any).surveyConfig}
+                  userId={user.uid}
+                  onCompleted={() => {
+                    setSurveyCompleted(true);
+                    setSuccessMessage('ขอบคุณที่ทำแบบประเมิน!');
+                  }}
+                />
+              )}
+              {surveyWindow.closeTime && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  เปิดทำแบบประเมินถึง {formatDateTime(surveyWindow.closeTime)} น.
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {isSurveyPeriodOpen && surveyCompleted && (
+            <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
+              ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว
+            </Alert>
+          )}
+
           {/* Single-user block */}
           {singleUserBlocked && user && !sessionExpired && (
             <Alert severity="error" sx={{ mb: 2 }} icon={<WarningIcon />}>
@@ -1374,7 +1437,12 @@ const RegisterPageContent: React.FC = () => {
             </Alert>
           )}
 
-          {isDuplicateRegistration && user && !sessionExpired && !singleUserBlocked && <DuplicateRegistrationAlert />}
+          {/* ซ่อนเมื่อยังค้างแบบประเมิน — ไม่ให้แย่งโฟกัสกับฟอร์ม */}
+          {isDuplicateRegistration &&
+            user &&
+            !sessionExpired &&
+            !singleUserBlocked &&
+            !needsSurvey && <DuplicateRegistrationAlert />}
 
           {/* Banner สำหรับรอบถัดไป หากเช็กอินรอบปัจจุบันแล้ว แต่ยังไม่ครบทุกรอบ */}
           {activityData && !isDuplicateRegistration && hasRegisteredRecord && !singleUserBlocked && !sessionExpired && (() => {
@@ -1429,7 +1497,12 @@ const RegisterPageContent: React.FC = () => {
             return null;
           })()}
 
-          {activityData && statusInfo && statusInfo.status !== 'active' && !ipBlocked && !singleUserBlocked && (
+          {activityData &&
+            statusInfo &&
+            statusInfo.status !== 'active' &&
+            !ipBlocked &&
+            !singleUserBlocked &&
+            !needsSurvey && (
             <ActivityStatusAlert
               status={statusInfo.status}
               message={statusInfo.message}
@@ -1512,8 +1585,8 @@ const RegisterPageContent: React.FC = () => {
               </>
             )}
 
-          {/* รายละเอียดกิจกรรม (แสดงเสมอ ไม่ขึ้นกับสถานะ login หรือ active) */}
-          {activityData && !ipBlocked && !singleUserBlocked && (
+          {/* รายละเอียดกิจกรรม — ซ่อนชั่วคราวเมื่อค้างแบบประเมิน เพื่อโฟกัสฟอร์ม */}
+          {activityData && !ipBlocked && !singleUserBlocked && !needsSurvey && (
             <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
@@ -1573,8 +1646,8 @@ const RegisterPageContent: React.FC = () => {
             </Card>
           )}
 
-          {/* Microsoft login — แสดงเสมอเพื่อให้เข้าสู่ระบบรอได้ */}
-          {shouldShowMicrosoftLogin() && activityData && (
+          {/* Microsoft login — แสดงเสมอเพื่อให้เข้าสู่ระบบรอได้ (ยกเว้นช่วงค้างแบบประเมินที่แสดงด้านบนแล้ว) */}
+          {shouldShowMicrosoftLogin() && activityData && !needsSurvey && (
             <MicrosoftAuthSection
               activityData={activityData}
               onLoginSuccess={handleLoginSuccess}
@@ -1620,49 +1693,6 @@ const RegisterPageContent: React.FC = () => {
               surveyConfig={(activityData as any).surveyConfig}
               sessions={activityData.sessions}
             />
-          )}
-
-          {/* แบบประเมินหลังกิจกรรมสิ้นสุด — แสดงเฉพาะในช่วงเวลาที่กำหนด */}
-          {canEnterSurveyFlow && activityData && (
-            <Box sx={{ mb: 3 }}>
-              {!user && (
-                <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }}>
-                  กรุณาเข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยเพื่อทำแบบประเมินหลังกิจกรรม
-                </Alert>
-              )}
-              {user && !hasRegisteredRecord && (
-                <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
-                  ไม่พบประวัติการลงทะเบียนกิจกรรมนี้ในบัญชีของคุณ จึงยังไม่สามารถทำแบบประเมินได้
-                </Alert>
-              )}
-              {user && hasRegisteredRecord && !isEligibleForSurvey && (
-                <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
-                  คุณยังไม่ผ่านเงื่อนไขการทำแบบประเมิน (เช่น ต้องเช็กอินครบตามที่ผู้ดูแลกำหนด)
-                </Alert>
-              )}
-              {user && isEligibleForSurvey && !surveyCompleted && (
-                <SurveyForm
-                  activityCode={activityCode}
-                  activityDocId={activityData.id}
-                  surveyConfig={(activityData as any).surveyConfig}
-                  userId={user.uid}
-                  onCompleted={() => {
-                    setSurveyCompleted(true);
-                    setSuccessMessage('ขอบคุณที่ทำแบบประเมิน!');
-                  }}
-                />
-              )}
-              {user && isEligibleForSurvey && surveyCompleted && (
-                <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
-                  ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว
-                </Alert>
-              )}
-              {surveyWindow.closeTime && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  เปิดทำแบบประเมินถึง {formatDateTime(surveyWindow.closeTime)} น.
-                </Typography>
-              )}
-            </Box>
           )}
 
           {/* Profile dialog */}
