@@ -23,14 +23,10 @@ service cloud.firestore {
 
     function isActivityOpen(activityDocId) {
       let activity = get(/databases/$(database)/documents/activityQRCodes/$(activityDocId)).data;
-      let active = activity.get('isActive', true) != false &&
-        (activity.get('maxParticipants', 0) == 0 || activity.get('currentParticipants', 0) < activity.get('maxParticipants', 0));
-      let sessions = activity.get('sessions', []);
-      // หลายรอบ: ไม่บังคับหน้าต่างเวลาที่ระดับ activity (ตรวจรอบที่เปิดอยู่ฝั่ง client แล้ว)
-      let inSessionMode = sessions is list && sessions.size() > 0;
-      let inWindow = (!('startDateTime' in activity) || request.time >= activity.startDateTime) &&
-        (!('endDateTime' in activity) || request.time <= activity.endDateTime);
-      return active && (inSessionMode || inWindow);
+      // หน้าต่างเวลาตรวจฝั่ง client แล้ว — rules ตรวจแค่เปิดรับและโควต้า
+      return activity.get('isActive', true) != false &&
+        (activity.get('maxParticipants', 0) == 0 ||
+         activity.get('currentParticipants', 0) < activity.get('maxParticipants', 0));
     }
 
     // 1. adminUsers
@@ -74,7 +70,7 @@ service cloud.firestore {
         (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
          getStudentData().get('isActive', true) != false &&
          request.resource.data.userId == request.auth.uid &&
-         request.resource.data.studentId == getStudentData().studentId &&
+         string(request.resource.data.studentId) == string(getStudentData().studentId) &&
          isActivityOpen(request.resource.data.activityDocId))
       );
       // เจ้าของอัปเดตได้เฉพาะเช็กอินรอบถัดไป (คง userId/studentId/activityCode)

@@ -89,6 +89,7 @@ interface UserProfile {
   surname?: string;
   department?: string;
   faculty?: string;
+  studentId?: string;
 }
 
 interface ActivityRegistrationFormProps {
@@ -211,10 +212,12 @@ function extractAndGenerateUserData(profile?: UserProfile) {
   const email = profile.email || '';
   const extracted = extractMicrosoftUserInfo(displayName);
 
-  let studentId = '';
-  const emailMatch = email.match(/^(\d{8,12})/);
-  if (emailMatch) studentId = emailMatch[1];
-  else studentId = generateStudentId('คณะวิทยาศาสตร์');
+  let studentId = profile.studentId?.trim() || '';
+  if (!studentId) {
+    const emailMatch = email.match(/^(\d{8,12})/);
+    if (emailMatch) studentId = emailMatch[1];
+    else studentId = generateStudentId('คณะวิทยาศาสตร์');
+  }
 
   const detected = detectInfoFromStudentId(studentId);
 
@@ -803,6 +806,14 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         const actSnap = await tx.get(activityRef);
         if (!actSnap.exists()) throw new Error('ACT_NOT_FOUND');
 
+        const userRef = doc(db, 'universityUsers', uid);
+        const userSnap = await tx.get(userRef);
+        if (!userSnap.exists()) throw new Error('NO_PROFILE');
+        const profileData = userSnap.data() as any;
+        if (profileData.isActive === false) throw new Error('ACCOUNT_DISABLED');
+        const profileStudentId = String(profileData.studentId || '').trim();
+        if (!profileStudentId) throw new Error('NO_STUDENT_ID');
+
         const act = actSnap.data() as any;
 
         // ปิดฟอร์มหรือหมดเวลา → ปฏิเสธ
@@ -866,11 +877,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           tx.set(claimRef, { email: requester, claimedAt: serverTimestamp(), uid }, { merge: false });
         }
 
-        // ใช้ studentId จากโปรไฟล์ก่อน เพื่อให้ผ่าน Firestore rules
-        const profileStudentId = (existingUserProfile as any)?.studentId || (formData as any).studentId;
+        // ใช้ studentId จาก universityUsers โดยตรง เพื่อให้ผ่าน Firestore rules
         const rawPayload: Record<string, any> = {
           userId: uid,
-          email: existingUserProfile?.email || (formData as any).email || '',
+          email: existingUserProfile?.email || (formData as any).email || profileData.email || '',
           microsoftId: existingUserProfile?.id || (formData as any).MicrosoftId || '',
           studentId: profileStudentId,
           firstName: (formData as any).firstName,
@@ -933,6 +943,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         ACT_NOT_FOUND: 'ไม่พบข้อมูลกิจกรรม',
         SESSION_CLOSED: 'รอบกิจกรรมที่คุณเลือกได้ปิดรับข้อมูลแล้ว',
         INVALID_SESSION: 'ไม่พบรอบกิจกรรมที่คุณเลือก',
+        NO_PROFILE: 'ไม่พบโปรไฟล์ผู้ใช้ กรุณาเข้าสู่ระบบใหม่',
+        NO_STUDENT_ID: 'โปรไฟล์ยังไม่มีรหัสนักศึกษา กรุณาแก้ไขโปรไฟล์ก่อนลงทะเบียน',
+        ACCOUNT_DISABLED: 'บัญชีของคุณถูกระงับการใช้งาน',
       };
       const code = e?.code || '';
       let msg = map[e?.message];

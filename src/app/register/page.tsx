@@ -1576,6 +1576,7 @@ const RegisterPageContent: React.FC = () => {
                       surname: userData?.lastName || '',
                       department: userData?.department || '',
                       faculty: userData?.faculty || '',
+                      studentId: userData?.studentId || '',
                     }
                   : undefined
               }
