@@ -18,11 +18,16 @@ export const useAdminAuth = () => {
 
   const checkAdminAuth = async () => {
     try {
-      // Check if user is authenticated and has admin privileges
       const adminData = await getCurrentAdmin();
       setCurrentAdmin(adminData);
-    } catch (error) {
-      setError('ไม่สามารถตรวจสอบสิทธิ์ได้');
+      setError('');
+    } catch (error: any) {
+      setCurrentAdmin(null);
+      if (error?.message === 'ADMIN_DISABLED') {
+        setError('บัญชีแอดมินถูกระงับ');
+      } else {
+        setError('');
+      }
     } finally {
       setLoading(false);
     }

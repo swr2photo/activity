@@ -23,10 +23,14 @@ service cloud.firestore {
 
     function isActivityOpen(activityDocId) {
       let activity = get(/databases/$(database)/documents/activityQRCodes/$(activityDocId)).data;
-      return activity.get('isActive', true) != false &&
-        (!('startDateTime' in activity) || request.time >= activity.startDateTime) &&
-        (!('endDateTime' in activity) || request.time <= activity.endDateTime) &&
+      let active = activity.get('isActive', true) != false &&
         (activity.get('maxParticipants', 0) == 0 || activity.get('currentParticipants', 0) < activity.get('maxParticipants', 0));
+      let sessions = activity.get('sessions', []);
+      // หลายรอบ: ไม่บังคับหน้าต่างเวลาที่ระดับ activity (ตรวจรอบที่เปิดอยู่ฝั่ง client แล้ว)
+      let inSessionMode = sessions is list && sessions.size() > 0;
+      let inWindow = (!('startDateTime' in activity) || request.time >= activity.startDateTime) &&
+        (!('endDateTime' in activity) || request.time <= activity.endDateTime);
+      return active && (inSessionMode || inWindow);
     }
 
     // 1. adminUsers
@@ -60,18 +64,29 @@ service cloud.firestore {
     // 4. activityRecords (Registration records)
     match /activityRecords/{recordId} {
       allow read: if isAuthenticated() && (
-        isAdmin() || 
-        (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) && 
+        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
          resource.data.studentId == getStudentData().studentId)
       );
       allow create: if isAuthenticated() && (
-        isAdmin() || 
-        (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) && 
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
          getStudentData().get('isActive', true) != false &&
+         request.resource.data.userId == request.auth.uid &&
          request.resource.data.studentId == getStudentData().studentId &&
          isActivityOpen(request.resource.data.activityDocId))
       );
-      allow update, delete: if isAdmin();
+      // เจ้าของอัปเดตได้เฉพาะเช็กอินรอบถัดไป (คง userId/studentId/activityCode)
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.activityCode == resource.data.activityCode &&
+        request.resource.data.activityDocId == resource.data.activityDocId
+      );
+      allow delete: if isAdmin();
     }
 
     // 5. universityUsers (Student profiles)

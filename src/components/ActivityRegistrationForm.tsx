@@ -866,11 +866,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           tx.set(claimRef, { email: requester, claimedAt: serverTimestamp(), uid }, { merge: false });
         }
 
-        const basePayload: any = {
+        // ใช้ studentId จากโปรไฟล์ก่อน เพื่อให้ผ่าน Firestore rules
+        const profileStudentId = (existingUserProfile as any)?.studentId || (formData as any).studentId;
+        const rawPayload: Record<string, any> = {
           userId: uid,
           email: existingUserProfile?.email || (formData as any).email || '',
           microsoftId: existingUserProfile?.id || (formData as any).MicrosoftId || '',
-          studentId: (formData as any).studentId,
+          studentId: profileStudentId,
           firstName: (formData as any).firstName,
           lastName: (formData as any).lastName,
           faculty: (formData as any).faculty,
@@ -881,10 +883,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           location,
           userCode: activityStatus.userCode || '',
           transcriptSaved: true,
-          timestamp: serverTimestamp(), // latest check-in time
-          sessionId,
-          sessionName,
+          timestamp: serverTimestamp(),
         };
+        if (sessionId) rawPayload.sessionId = sessionId;
+        if (sessionName) rawPayload.sessionName = sessionName;
+
+        // Firestore ปฏิเสธ field ที่เป็น undefined
+        const basePayload = Object.fromEntries(
+          Object.entries(rawPayload).filter(([, v]) => v !== undefined)
+        );
 
         if (isNewRecord) {
           if (sessionId) {
@@ -894,23 +901,23 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           tx.set(recordRef, basePayload, { merge: false });
           tx.update(activityRef, { currentParticipants: increment(1) });
         } else {
-          // Add to existing array using arrayUnion for safety, but we can't easily append to array of objects with arrayUnion for sessionsDetails.
-          // Wait, we can just do arrayUnion for checkedInSessions and replace sessionsDetails if we want, or just maintain it in the app code. 
-          // Since we are in a transaction, we have the current data.
           const currentSessions = recordSnap.data()?.checkedInSessions || [];
           const currentDetails = recordSnap.data()?.sessionsDetails || [];
-          
+
           tx.update(recordRef, {
             ...basePayload,
             checkedInSessions: [...currentSessions, sessionId],
-            sessionsDetails: [...currentDetails, { sessionId, sessionName, timestamp: new Date() }]
+            sessionsDetails: [
+              ...currentDetails,
+              { sessionId, sessionName, timestamp: new Date() },
+            ],
           });
         }
       });
 
       setLoading(false);
-      if (onSuccess) await onSuccess(); // ให้หน้า parent อัปเดตสถานะ (เช่น counter)
-      
+      if (onSuccess) await onSuccess();
+
       const config = surveyConfig;
       if (config?.enabled && config.questions?.length > 0) {
         setActiveStep(2);
@@ -927,7 +934,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         SESSION_CLOSED: 'รอบกิจกรรมที่คุณเลือกได้ปิดรับข้อมูลแล้ว',
         INVALID_SESSION: 'ไม่พบรอบกิจกรรมที่คุณเลือก',
       };
-      setError(map[e?.message] || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+      const code = e?.code || '';
+      let msg = map[e?.message];
+      if (!msg && (code === 'permission-denied' || String(e?.message || '').includes('permission'))) {
+        msg = 'ไม่มีสิทธิ์บันทึกข้อมูล กรุณาตรวจสอบว่าโปรไฟล์ครบและกิจกรรมยังเปิดรับอยู่';
+      } else if (!msg && String(e?.message || '').includes('undefined')) {
+        msg = 'ข้อมูลไม่ครบถ้วน กรุณาลองใหม่อีกครั้ง';
+      }
+      console.error('Registration save failed:', e);
+      setError(msg || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       setLoading(false);
       setActiveStep(0);
     }

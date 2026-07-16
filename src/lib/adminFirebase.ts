@@ -1007,7 +1007,8 @@ export const acceptAdminInviteByToken = async (
 /* =========================
  * Auth helpers
  * ========================= */
-const ADMIN_COLLECTIONS = ['adminUsers', 'admins'] as const;
+// Only adminUsers — legacy `admins` has no Firestore rules and causes 403 for students.
+const ADMIN_COLLECTIONS = ['adminUsers'] as const;
 
 type RawAdminDoc = Partial<AdminProfile> & {
   permissions?: string[];
@@ -1041,8 +1042,16 @@ const toAdminProfileFrom = (user: User, raw: RawAdminDoc): AdminProfile => ({
 async function readAdminDoc(uid: string) {
   for (const col of ADMIN_COLLECTIONS) {
     const ref = doc(db, col, uid);
-    const snap = await getDoc(ref);
-    if (snap.exists()) return { ref, data: snap.data() as RawAdminDoc };
+    try {
+      const snap = await getDoc(ref);
+      if (snap.exists()) return { ref, data: snap.data() as RawAdminDoc };
+    } catch (e: any) {
+      const code = e?.code || '';
+      if (code === 'permission-denied' || String(e?.message || '').includes('PERMISSION')) {
+        continue;
+      }
+      throw e;
+    }
   }
   return { ref: null as any, data: null as RawAdminDoc | null };
 }
@@ -1058,12 +1067,22 @@ async function waitForAuthUser(): Promise<User | null> {
 }
 
 export async function getCurrentAdmin(): Promise<AdminProfile | null> {
-  const user = await waitForAuthUser();
-  if (!user) return null;
-  const { data } = await readAdminDoc(user.uid);
-  if (!data) throw new Error('NOT_ADMIN');
-  if (data.isActive === false) throw new Error('ADMIN_DISABLED');
-  return toAdminProfileFrom(user, data);
+  try {
+    const user = await waitForAuthUser();
+    if (!user) return null;
+    const { data } = await readAdminDoc(user.uid);
+    if (!data) return null;
+    if (data.isActive === false) throw new Error('ADMIN_DISABLED');
+    return toAdminProfileFrom(user, data);
+  } catch (e: any) {
+    if (e?.message === 'ADMIN_DISABLED') throw e;
+    const code = e?.code || '';
+    if (code === 'permission-denied' || String(e?.message || '').includes('PERMISSION')) {
+      return null;
+    }
+    console.warn('getCurrentAdmin:', e);
+    return null;
+  }
 }
 
 export async function signInAdmin(): Promise<AdminProfile> {
