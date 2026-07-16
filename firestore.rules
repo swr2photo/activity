@@ -50,18 +50,26 @@ service cloud.firestore {
     match /activityQRCodes/{qrId} {
       allow read: if true; // Publicly readable for registration page
       allow create, delete: if isAdmin();
+      // นักศึกษาเพิ่มตัวนับตอนลงทะเบียน (FieldValue.increment)
       allow update: if isAdmin() || (
-        isAuthenticated() && 
+        isAuthenticated() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentParticipants']) &&
-        request.resource.data.currentParticipants == (resource.data.currentParticipants == null ? 0 : resource.data.currentParticipants) + 1
+        request.resource.data.currentParticipants == resource.data.get('currentParticipants', 0) + 1
       );
     }
 
     // 4. activityRecords (Registration records)
     match /activityRecords/{recordId} {
-      allow read: if isAuthenticated() && (
+      // transaction ต้อง get เอกสารที่ยังไม่มี → อนุญาตเมื่อ resource == null
+      allow get: if isAuthenticated() && (
+        resource == null ||
         isAdmin() ||
         resource.data.userId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
+         string(resource.data.studentId) == string(getStudentData().studentId))
+      );
+      allow list: if isAuthenticated() && (
+        isAdmin() ||
         (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
          resource.data.studentId == getStudentData().studentId)
       );
