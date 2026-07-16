@@ -1,4 +1,5 @@
 'use client';
+
 import React, { useMemo, useState, useCallback } from 'react';
 import {
   GoogleMap,
@@ -6,180 +7,49 @@ import {
   CircleF,
   DirectionsRenderer,
   DirectionsService,
-  OverlayView,
   useLoadScript,
 } from '@react-google-maps/api';
 import {
   Box,
-  Chip,
   Typography,
-  SpeedDial,
-  SpeedDialAction,
-  SpeedDialIcon,
-  useMediaQuery,
-  Fade,
-  Backdrop,
+  Button,
+  IconButton,
   CircularProgress,
+  Stack,
+  Tooltip,
+  useMediaQuery,
 } from '@mui/material';
-import { alpha, keyframes, useTheme, styled } from '@mui/material/styles';
-import type { Theme } from '@mui/material/styles';
-import type { PaletteColor } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import {
   Map as MapIcon,
   SatelliteAlt as SatelliteIcon,
-  Language as LanguageIcon,
-  NearMe as RouteIcon,
+  OpenInNew as OpenInNewIcon,
   GpsFixed as GpsIcon,
   CenterFocusStrong as FocusIcon,
-  LocationOn as LocationIcon,
   DirectionsWalk as WalkIcon,
   DirectionsCar as CarIcon,
   MyLocation as MyLocationIcon,
+  CheckCircle as CheckIcon,
+  WarningAmber as WarningIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 
 export interface GeofenceMapProps {
   center: { lat: number; lng: number };
-  radius: number; // meters
+  radius: number;
   userPos?: { lat: number; lng: number } | null;
   inRadius?: boolean;
   title?: string;
   height?: number | string;
-
-  // โหมดแก้ไข (ใช้ในแอดมิน)
   editable?: boolean;
   minRadius?: number;
   maxRadius?: number;
   onCenterChange?: (pos: { lat: number; lng: number }) => void;
-
-  // ปุ่มขอใช้ตำแหน่งปัจจุบัน (ทั้งฝั่งแอดมิน/ผู้ใช้)
   onUseCurrentLocation?: () => void;
 }
 
-const defaultContainerStyle = { width: '100%', height: 480 } as const;
+const libraries: ('places' | 'geometry' | 'drawing' | 'visualization')[] = ['places', 'geometry'];
 
-/* ============== Utils ============== */
-type ActionColor = 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info';
-type Action = {
-  icon: React.ReactNode;
-  name: string;
-  onClick: () => void;
-  color: ActionColor;
-};
-const tone = (t: Theme, key: ActionColor) =>
-  ((t.palette as any)[key] as PaletteColor).main as string;
-
-/* ============== Animations ============== */
-const pulse = keyframes`
-  0% { transform: scale(1); opacity: .8; box-shadow: 0 0 0 0 rgba(34,197,94,.7); }
-  50% { transform: scale(1.2); opacity: .6; box-shadow: 0 0 0 8px rgba(34,197,94,.3); }
-  100% { transform: scale(1.6); opacity: 0; box-shadow: 0 0 0 16px rgba(34,197,94,0); }
-`;
-const shimmer = keyframes`
-  0% { background-position: -200px 0; }
-  100% { background-position: calc(200px + 100%) 0; }
-`;
-const bounceIn = keyframes`
-  0% { transform: translate(-50%, -110%) scale(.3); opacity: 0; }
-  50% { transform: translate(-50%, -110%) scale(1.1); opacity: .8; }
-  100% { transform: translate(-50%, -110%) scale(1); opacity: 1; }
-`;
-const floatUpDown = keyframes`
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-`;
-
-/* ============== Styled ============== */
-const StyledMapContainer = styled(Box, {
-  shouldForwardProp: (prop) => prop !== 'editable',
-})<{ editable?: boolean }>(({ theme, editable }) => ({
-  position: 'relative',
-  borderRadius: '20px',
-  overflow: 'hidden',
-  // ให้ vertical scroll ของหน้าเว็บทำงานได้เมื่อเลื่อนผ่านแผนที่ (โหมดลงทะเบียน)
-  touchAction: editable ? 'none' : 'pan-y pinch-zoom',
-  boxShadow: `
-    0 8px 32px rgba(0,0,0,.12),
-    0 2px 16px rgba(0,0,0,.08),
-    inset 0 0 0 1px ${alpha(theme.palette.divider, .1)}
-  `,
-}));
-
-const GlassmorphicChip = styled(Chip)(({ theme }) => ({
-  backgroundColor: alpha(theme.palette.background.paper, 0.95),
-  backdropFilter: 'blur(20px) saturate(180%)',
-  border: `1px solid ${alpha(theme.palette.divider, 0.25)}`,
-  boxShadow: `0 8px 32px rgba(0,0,0,.12)`,
-  fontWeight: 700,
-  letterSpacing: '0.25px',
-}));
-
-const EnhancedTitleCard = styled(Box)(({ theme }) => ({
-  position: 'absolute',
-  zIndex: 5,
-  top: 16,
-  left: 16,
-  right: 16,
-  padding: theme.spacing(1.25, 1.75),
-  background: `linear-gradient(135deg,
-    ${alpha(theme.palette.background.paper, .98)} 0%,
-    ${alpha(theme.palette.background.paper, .92)} 100%)`,
-  backdropFilter: 'blur(24px) saturate(200%)',
-  border: `1px solid ${alpha(theme.palette.divider, .2)}`,
-  borderRadius: theme.spacing(2),
-  boxShadow: `
-    0 12px 40px rgba(0,0,0,.15),
-    0 4px 16px rgba(0,0,0,.1),
-    inset 0 1px 0 ${alpha('#fff', .15)}
-  `,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: theme.spacing(1.25),
-  pointerEvents: 'none',
-  animation: `${bounceIn} .8s cubic-bezier(.68,-.55,.265,1.55)`,
-  textAlign: 'center',
-}));
-
-const LoadingOverlay = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: theme.spacing(4),
-  background: `linear-gradient(135deg,
-    ${alpha(theme.palette.background.paper, .95)} 0%,
-    ${alpha(theme.palette.background.default, .98)} 100%)`,
-  backdropFilter: 'blur(10px)',
-  borderRadius: theme.spacing(2),
-  '&::before': {
-    content: '""',
-    position: 'absolute',
-    top: 0,
-    left: '-100%',
-    width: '100%',
-    height: '100%',
-    background: `linear-gradient(90deg, transparent, ${alpha(theme.palette.primary.main, .1)}, transparent)`,
-    animation: `${shimmer} 2s infinite`,
-  },
-}));
-
-interface StatusBarProps { inRadius?: boolean }
-const StatusBar = styled(
-  Box,
-  { shouldForwardProp: (prop) => prop !== 'inRadius' }
-)<StatusBarProps>(({ theme, inRadius }) => ({
-  padding: theme.spacing(1.25, 2),
-  background: inRadius
-    ? alpha(theme.palette.success.main, .06)
-    : alpha(theme.palette.warning.main, .06),
-  borderTop: `1px solid ${alpha(theme.palette.divider, .1)}`,
-  backdropFilter: 'blur(8px)',
-  transition: 'all .3s ease-in-out',
-}));
-
-const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
-
-/* ============== Component ============== */
 const GeofenceMap: React.FC<GeofenceMapProps> = ({
   center,
   radius,
@@ -187,10 +57,8 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   inRadius,
   title = 'จุดกิจกรรม',
   height,
-
   editable = false,
   onCenterChange,
-
   onUseCurrentLocation,
 }) => {
   const theme = useTheme();
@@ -201,26 +69,24 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     libraries,
   });
 
-
-  const [map, setMap] = useState<any | null>(null);
+  const [map, setMap] = useState<google.maps.Map | null>(null);
   const [mode, setMode] = useState<'roadmap' | 'satellite'>('satellite');
   const [wantRoute, setWantRoute] = useState(false);
-  const [directions, setDirections] = useState<any | null>(null);
+  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showingRoute, setShowingRoute] = useState(false);
   const [travelMode, setTravelMode] = useState<'DRIVING' | 'WALKING'>('DRIVING');
 
-  /* Container */
+  const mapHeight = height ?? (isMobile ? 340 : 420);
+
   const containerStyle = useMemo(
     () => ({
-      ...defaultContainerStyle,
-      height: height ?? (isMobile ? 300 : 480),
-      borderRadius: theme.spacing(2),
+      width: '100%',
+      height: typeof mapHeight === 'number' ? mapHeight : mapHeight,
     }),
-    [height, isMobile, theme]
+    [mapHeight]
   );
 
-  /* Map options */
   const mapOptions = useMemo(
     () =>
       ({
@@ -230,8 +96,6 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
         streetViewControl: false,
         mapTypeControl: false,
         fullscreenControl: false,
-        // cooperative = เลื่อนหน้าได้ด้วยนิ้วเดียวบนมือถือ, ใช้สองนิ้วเมื่อต้องการเลื่อนแผนที่
-        // greedy ใช้เฉพาะโหมดแก้ไข (แอดมิน) ที่ต้องลากแผนที่ได้สะดวก
         gestureHandling: editable ? 'greedy' : 'cooperative',
         clickableIcons: false,
         styles:
@@ -241,16 +105,12 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
                 { featureType: 'transit', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
               ]
             : undefined,
-      } as google.maps.MapOptions),
-    [mode, isMobile]
+      }) as google.maps.MapOptions,
+    [mode, isMobile, editable]
   );
 
-  /* Helpers */
   const openInMaps = useCallback(() => {
-    window.open(
-      `https://www.google.com/maps/search/?api=1&query=${center.lat},${center.lng}`,
-      '_blank'
-    );
+    window.open(`https://www.google.com/maps/search/?api=1&query=${center.lat},${center.lng}`, '_blank');
   }, [center]);
 
   const panTo = useCallback(
@@ -262,36 +122,65 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     [map]
   );
 
+  const clearRoute = useCallback(() => {
+    setShowingRoute(false);
+    setDirections(null);
+    setWantRoute(false);
+    setIsLoadingRoute(false);
+  }, []);
+
   const panToCenter = useCallback(() => {
     panTo(center, 17);
-    if (showingRoute) {
-      setShowingRoute(false);
-      setDirections(null);
-      setWantRoute(false);
-    }
-  }, [panTo, center, showingRoute]);
+    clearRoute();
+  }, [panTo, center, clearRoute]);
 
   const panToUser = useCallback(() => {
     if (userPos) {
       panTo(userPos, 17);
-      if (showingRoute) {
-        setShowingRoute(false);
-        setDirections(null);
-        setWantRoute(false);
-      }
+      clearRoute();
     }
-  }, [panTo, userPos, showingRoute]);
+  }, [panTo, userPos, clearRoute]);
 
-  /* Icons */
+  const fitBoth = useCallback(() => {
+    if (!map || !userPos || !(window as any).google) return;
+    const bounds = new google.maps.LatLngBounds();
+    bounds.extend(center);
+    bounds.extend(userPos);
+    map.fitBounds(bounds, 72);
+  }, [map, center, userPos]);
+
+  const startRoute = useCallback(
+    (modeNext: 'DRIVING' | 'WALKING') => {
+      if (!isLoaded || !userPos) return;
+      setTravelMode(modeNext);
+      setIsLoadingRoute(true);
+      setWantRoute(true);
+      setDirections(null);
+      fitBoth();
+    },
+    [isLoaded, userPos, fitBoth]
+  );
+
+  const toggleRoute = useCallback(
+    (modeNext: 'DRIVING' | 'WALKING') => {
+      if (showingRoute && travelMode === modeNext) {
+        clearRoute();
+        return;
+      }
+      startRoute(modeNext);
+    },
+    [showingRoute, travelMode, clearRoute, startRoute]
+  );
+
   const eventIcon = useMemo<google.maps.Symbol | undefined>(() => {
     if (!isLoaded || !(window as any).google) return undefined;
     return {
       path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
-      fillColor: '#111111',
+      fillColor: '#0a6bcf',
       fillOpacity: 1,
       strokeColor: '#FFFFFF',
-      strokeWeight: 3,
-      scale: 1.2,
+      strokeWeight: 2.5,
+      scale: 1.15,
       anchor: new google.maps.Point(12, 24),
     };
   }, [isLoaded]);
@@ -300,89 +189,27 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     if (!isLoaded || !(window as any).google) return undefined;
     return {
       path: google.maps.SymbolPath.CIRCLE,
-      fillColor: '#1976D2',
+      fillColor: '#2563eb',
       fillOpacity: 1,
       strokeColor: '#FFFFFF',
       strokeWeight: 3,
-      scale: 8,
+      scale: 7,
     };
   }, [isLoaded]);
 
-  /* Geofence circle */
   const circleOptions = useMemo<google.maps.CircleOptions>(
     () => ({
-      fillColor: '#22C55E',
-      fillOpacity: inRadius ? 0.25 : 0.15,
-      strokeColor: inRadius ? '#16A34A' : '#22C55E',
-      strokeOpacity: inRadius ? 1 : 0.8,
-      strokeWeight: inRadius ? 3 : 2,
+      fillColor: inRadius ? '#16a34a' : '#0a6bcf',
+      fillOpacity: inRadius ? 0.22 : 0.14,
+      strokeColor: inRadius ? '#15803d' : '#0a6bcf',
+      strokeOpacity: 0.9,
+      strokeWeight: 2,
       clickable: false,
     }),
     [inRadius]
   );
 
-  /* Actions */
-  const rawActions: Array<Action | false | undefined | null> = [
-    { icon: <FocusIcon />, name: 'โฟกัสจุดกิจกรรม', onClick: panToCenter, color: 'primary' },
-    userPos
-      ? { icon: <GpsIcon />, name: 'ไปตำแหน่งของฉัน', onClick: panToUser, color: 'info' }
-      : onUseCurrentLocation && {
-          icon: <GpsIcon />, name: 'ค้นหาตำแหน่งฉัน', onClick: onUseCurrentLocation, color: 'secondary',
-        },
-    { icon: <MapIcon />, name: 'แผนที่', onClick: () => setMode('roadmap'), color: 'success' },
-    { icon: <SatelliteIcon />, name: 'ดาวเทียม', onClick: () => setMode('satellite'), color: 'success' },
-    { icon: <LanguageIcon />, name: 'เปิดใน Google Maps', onClick: openInMaps, color: 'warning' },
-    editable && onUseCurrentLocation && {
-      icon: <MyLocationIcon />, name: 'ตั้งจุดกิจกรรมเป็นตำแหน่งฉัน', onClick: onUseCurrentLocation, color: 'info',
-    },
-    userPos && {
-      icon: showingRoute ? <RouteIcon sx={{ transform: 'rotate(180deg)' }} /> : <RouteIcon />,
-      name: showingRoute ? 'ยกเลิกเส้นทาง' : 'แสดงเส้นทาง (ขับรถ)',
-      onClick: () => {
-        if (!isLoaded) return;
-        if (showingRoute) {
-          setShowingRoute(false);
-          setDirections(null);
-          setWantRoute(false);
-          setIsLoadingRoute(false);
-        } else {
-          setTravelMode('DRIVING');
-          setIsLoadingRoute(true);
-          setWantRoute(true);
-          setDirections(null);
-          if (map && (window as any).google) {
-            const bounds = new google.maps.LatLngBounds();
-            bounds.extend(center);
-            bounds.extend(userPos!);
-            map.fitBounds(bounds, 80);
-          }
-        }
-      },
-      color: 'error',
-    },
-    userPos && !showingRoute && {
-      icon: <WalkIcon />,
-      name: 'เส้นทาง (เดินเท้า)',
-      onClick: () => {
-        if (!isLoaded) return;
-        setTravelMode('WALKING');
-        setIsLoadingRoute(true);
-        setWantRoute(true);
-        setDirections(null);
-        if (map && (window as any).google) {
-          const bounds = new google.maps.LatLngBounds();
-          bounds.extend(center);
-          bounds.extend(userPos!);
-          map.fitBounds(bounds, 80);
-        }
-      },
-      color: 'error',
-    },
-  ];
-  const actions: Action[] = rawActions.filter((a): a is Action => Boolean(a));
-
-  /* Directions callback */
-  const handleDirections = useCallback((res: any, status: any) => {
+  const handleDirections = useCallback((res: google.maps.DirectionsResult | null, status: string) => {
     setIsLoadingRoute(false);
     if (status === 'OK' && res) {
       setDirections(res);
@@ -394,244 +221,333 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     }
   }, []);
 
-  /* Guards */
+  const statusTone = inRadius ? 'success' : showingRoute ? 'info' : 'warning';
+  const statusBg =
+    statusTone === 'success'
+      ? alpha('#16a34a', 0.12)
+      : statusTone === 'info'
+        ? alpha('#0a6bcf', 0.12)
+        : alpha('#d97706', 0.14);
+  const statusFg =
+    statusTone === 'success' ? '#15803d' : statusTone === 'info' ? '#0a6bcf' : '#b45309';
+
+  const shellSx = {
+    position: 'relative' as const,
+    borderRadius: { xs: '16px', sm: '20px' },
+    overflow: 'hidden',
+    touchAction: editable ? 'none' : 'pan-y pinch-zoom',
+    border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+    bgcolor: 'background.paper',
+    boxShadow: '0 8px 28px rgba(0,0,0,0.08)',
+    width: '100%',
+    maxWidth: '100%',
+  };
+
   if (loadError) {
     return (
-      <StyledMapContainer editable={editable}>
-        <LoadingOverlay>
-          <Typography variant="h6" color="error" gutterBottom>ไม่สามารถโหลดแผนที่ได้</Typography>
-          <Typography variant="body2" color="text.secondary">กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</Typography>
-        </LoadingOverlay>
-      </StyledMapContainer>
-    );
-  }
-  if (!isLoaded) {
-    return (
-      <StyledMapContainer editable={editable}>
-        <LoadingOverlay>
-          <CircularProgress size={48} thickness={3.6} sx={{ mb: 2 }} />
-          <Typography variant="h6" gutterBottom>กำลังโหลดแผนที่...</Typography>
-          <Typography variant="body2" color="text.secondary">โปรดรอสักครู่</Typography>
-        </LoadingOverlay>
-      </StyledMapContainer>
+      <Box sx={{ ...shellSx, p: 4, textAlign: 'center' }}>
+        <Typography fontWeight={700} color="error" gutterBottom>
+          ไม่สามารถโหลดแผนที่ได้
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่
+        </Typography>
+      </Box>
     );
   }
 
-  /* Render */
+  if (!isLoaded) {
+    return (
+      <Box sx={{ ...shellSx, minHeight: mapHeight, display: 'grid', placeItems: 'center' }}>
+        <Stack alignItems="center" spacing={1.5}>
+          <CircularProgress size={36} />
+          <Typography variant="body2" color="text.secondary">
+            กำลังโหลดแผนที่…
+          </Typography>
+        </Stack>
+      </Box>
+    );
+  }
+
+  const ToolBtn = ({
+    title: tip,
+    onClick,
+    active,
+    children,
+  }: {
+    title: string;
+    onClick: () => void;
+    active?: boolean;
+    children: React.ReactNode;
+  }) => (
+    <Tooltip title={tip} arrow>
+      <IconButton
+        size="small"
+        onClick={onClick}
+        aria-label={tip}
+        sx={{
+          bgcolor: active ? alpha('#0a6bcf', 0.14) : alpha(theme.palette.background.paper, 0.92),
+          color: active ? '#0a6bcf' : 'text.primary',
+          border: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          '&:hover': { bgcolor: alpha('#0a6bcf', 0.1) },
+        }}
+      >
+        {children}
+      </IconButton>
+    </Tooltip>
+  );
+
   return (
-    <StyledMapContainer editable={editable}>
-      {/* Title */}
-      <EnhancedTitleCard>
-        <LocationIcon
-          fontSize={isMobile ? 'medium' : 'small'}
-          sx={{ color: 'primary.main', animation: `${floatUpDown} 2s ease-in-out infinite` }}
-        />
-        <Box>
+    <Box sx={shellSx}>
+      {/* Compact status strip */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          px: 1.5,
+          py: 1,
+          bgcolor: statusBg,
+          borderBottom: `1px solid ${alpha(theme.palette.divider, 0.25)}`,
+          minWidth: 0,
+        }}
+      >
+        {inRadius ? (
+          <CheckIcon sx={{ color: statusFg, fontSize: 20, flexShrink: 0 }} />
+        ) : (
+          <WarningIcon sx={{ color: statusFg, fontSize: 20, flexShrink: 0 }} />
+        )}
+        <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography
-            variant={isMobile ? 'h6' : 'subtitle2'}
-            sx={{ fontWeight: 800, letterSpacing: '0.5px', color: 'text.primary', lineHeight: 1.2 }}
+            noWrap
+            sx={{ fontWeight: 800, fontSize: '0.85rem', color: 'text.primary', lineHeight: 1.25 }}
           >
             {title}
           </Typography>
           <Typography
-            variant="caption"
-            sx={{
-              display: 'block',
-              fontWeight: 600,
-              color: inRadius ? 'success.main' : showingRoute ? 'info.main' : 'warning.main',
-              mt: 0.25,
-              fontSize: isMobile ? '0.75rem' : '0.7rem',
-            }}
+            noWrap
+            sx={{ fontWeight: 600, fontSize: '0.72rem', color: statusFg, lineHeight: 1.2 }}
           >
-            {inRadius ? '✓ อยู่ในพื้นที่'
-              : showingRoute ? '→ กำลังแสดงเส้นทาง'
-              : '⚠ นอกพื้นที่'}
+            {inRadius
+              ? 'อยู่ในพื้นที่แล้ว — พร้อมลงทะเบียน'
+              : showingRoute
+                ? `กำลังนำทาง (${travelMode === 'DRIVING' ? 'ขับรถ' : 'เดิน'})`
+                : 'อยู่นอกพื้นที่กิจกรรม'}
           </Typography>
         </Box>
-      </EnhancedTitleCard>
+        {showingRoute && (
+          <IconButton size="small" onClick={clearRoute} aria-label="ปิดเส้นทาง" sx={{ color: statusFg }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        )}
+      </Box>
 
-      {/* SpeedDial */}
-      <SpeedDial
-        ariaLabel="เครื่องมือแผนที่"
-        icon={<SpeedDialIcon />}
-        direction={isMobile ? 'up' : 'right'}
-        sx={{
-          position: 'absolute',
-          zIndex: 6,
-          bottom: 64,
-          left: 16,
-          '& .MuiFab-root': {
-            background: alpha(theme.palette.background.paper, 0.95),
-            backdropFilter: 'blur(20px)',
-            border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
-            boxShadow: `0 8px 32px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.08)`,
-          },
-        }}
-      >
-        {actions.map((action) => (
-          <SpeedDialAction
-            key={action.name}
-            icon={action.icon}
-            tooltipTitle={action.name}
-            tooltipOpen={false}
-            tooltipPlacement={isMobile ? 'right' : 'top'}
-            onClick={action.onClick}
-            FabProps={{
-              size: isMobile ? 'small' : 'medium',
-              color: action.color as any,
-              sx: (t) => ({
-                bgcolor: 'background.paper',
-                border: `1px solid ${alpha(t.palette.divider, 0.1)}`,
-                boxShadow: `0 4px 20px ${alpha(tone(t, action.color), 0.2)}`,
-                ...(isMobile && { width: 40, height: 40, minHeight: 40 }),
-                '&:hover': {
-                  bgcolor: alpha(tone(t, action.color), 0.1),
-                  transform: 'scale(1.08)',
-                  boxShadow: `0 8px 32px ${alpha(tone(t, action.color), 0.3)}`,
+      {/* Map */}
+      <Box sx={{ position: 'relative' }}>
+        <GoogleMap
+          center={center}
+          zoom={16}
+          mapContainerStyle={containerStyle}
+          options={mapOptions}
+          onLoad={(m) => setMap(m)}
+          onUnmount={() => setMap(null)}
+          onClick={(e) => {
+            if (!editable || !e.latLng) return;
+            onCenterChange?.({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+          }}
+        >
+          <MarkerF position={center} icon={eventIcon} />
+          <CircleF center={center} radius={Math.max(0, radius || 0)} options={circleOptions} />
+          {userPos && <MarkerF position={userPos} icon={userIcon} />}
+
+          {wantRoute && userPos && (
+            <DirectionsService
+              options={{
+                origin: userPos,
+                destination: center,
+                travelMode: (google.maps.TravelMode as any)[travelMode],
+              }}
+              callback={handleDirections as any}
+            />
+          )}
+          {directions && showingRoute && (
+            <DirectionsRenderer
+              options={{
+                directions,
+                suppressMarkers: true,
+                polylineOptions: {
+                  strokeColor: '#0a6bcf',
+                  strokeOpacity: 0.95,
+                  strokeWeight: 5,
                 },
-              }),
-            }}
-          />
-        ))}
-      </SpeedDial>
+              }}
+            />
+          )}
+        </GoogleMap>
 
-      {/* Backdrop loading route */}
-      <Backdrop
-        sx={{
-          position: 'absolute',
-          zIndex: 4,
-          borderRadius: 2,
-          bgcolor: alpha(theme.palette.background.paper, 0.8),
-          backdropFilter: 'blur(8px)',
-        }}
-        open={isLoadingRoute}
-      >
-        <Box textAlign="center">
-          <CircularProgress size={40} thickness={4} sx={{ mb: 2 }} />
-          <Typography variant="body2">กำลังค้นหาเส้นทาง...</Typography>
-        </Box>
-      </Backdrop>
+        {/* Floating tools — top right */}
+        <Stack
+          spacing={0.75}
+          sx={{ position: 'absolute', top: 10, right: 10, zIndex: 3 }}
+        >
+          <ToolBtn title="โฟกัสจุดกิจกรรม" onClick={panToCenter}>
+            <FocusIcon fontSize="small" />
+          </ToolBtn>
+          {userPos ? (
+            <ToolBtn title="ไปตำแหน่งของฉัน" onClick={panToUser}>
+              <GpsIcon fontSize="small" />
+            </ToolBtn>
+          ) : (
+            onUseCurrentLocation && (
+              <ToolBtn title="ค้นหาตำแหน่งฉัน" onClick={onUseCurrentLocation}>
+                <GpsIcon fontSize="small" />
+              </ToolBtn>
+            )
+          )}
+          <ToolBtn
+            title={mode === 'satellite' ? 'แผนที่' : 'ดาวเทียม'}
+            onClick={() => setMode((m) => (m === 'satellite' ? 'roadmap' : 'satellite'))}
+            active={mode === 'satellite'}
+          >
+            {mode === 'satellite' ? <MapIcon fontSize="small" /> : <SatelliteIcon fontSize="small" />}
+          </ToolBtn>
+          <ToolBtn title="เปิดใน Google Maps" onClick={openInMaps}>
+            <OpenInNewIcon fontSize="small" />
+          </ToolBtn>
+          {editable && onUseCurrentLocation && (
+            <ToolBtn title="ตั้งจุดเป็นตำแหน่งฉัน" onClick={onUseCurrentLocation}>
+              <MyLocationIcon fontSize="small" />
+            </ToolBtn>
+          )}
+        </Stack>
 
-      {/* Google Map */}
-      <GoogleMap
-        center={center}
-        zoom={16}
-        mapContainerStyle={containerStyle}
-        options={mapOptions}
-        onLoad={(m) => setMap(m)}
-        onUnmount={() => setMap(null)}
-        onClick={(e) => {
-          if (!editable || !e.latLng) return;
-          const pos = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-          onCenterChange?.(pos);
-        }}
-      >
-        <MarkerF position={center} icon={eventIcon} />
-        <CircleF center={center} radius={Math.max(0, radius || 0)} options={circleOptions} />
-
-        {/* Label */}
-        <OverlayView position={center} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
+        {isLoadingRoute && (
           <Box
             sx={{
-              transform: 'translate(-50%, -56%)',
-              display: 'flex',
-              alignItems: 'center',
-              pointerEvents: 'none',
+              position: 'absolute',
+              inset: 0,
+              zIndex: 4,
+              display: 'grid',
+              placeItems: 'center',
+              bgcolor: alpha('#fff', 0.55),
+              backdropFilter: 'blur(4px)',
             }}
           >
-            <Box
-              sx={{
-                position: 'relative',
-                width: 18,
-                height: 18,
-                borderRadius: '50%',
-                bgcolor: inRadius ? '#16A34A' : '#EAB308',
-                boxShadow: (t) => `0 0 0 4px ${t.palette.background.paper}`,
-                animation: `${pulse} 2s ease-out infinite`,
-                zIndex: 1,
-              }}
-            />
-            <GlassmorphicChip
-              label={title}
-              size={isMobile ? 'medium' : 'small'}
-              sx={{
-                ml: 1.5,
-                px: 1.25,
-                fontWeight: 700,
-                fontSize: isMobile ? '0.9rem' : '0.75rem',
-                color: 'text.primary',
-                bgcolor: '#fff',
-                border: (t) => `1px solid ${alpha(t.palette.divider, 0.25)}`,
-                boxShadow: '0 6px 18px rgba(0,0,0,.12)',
-                animation: `${bounceIn} .7s cubic-bezier(.68,-.55,.265,1.55) .2s both`,
-                maxWidth: isMobile ? '86vw' : 520,
-                '& .MuiChip-label': { wordBreak: 'break-word', lineHeight: 1.25 },
-              }}
-            />
+            <Stack alignItems="center" spacing={1}>
+              <CircularProgress size={32} />
+              <Typography variant="caption" fontWeight={700}>
+                กำลังค้นหาเส้นทาง…
+              </Typography>
+            </Stack>
           </Box>
-        </OverlayView>
-
-        {userPos && <MarkerF position={userPos} icon={userIcon} />}
-
-        {wantRoute && userPos && (
-          <DirectionsService
-            options={{
-              origin: userPos,
-              destination: center,
-              travelMode: (google.maps.TravelMode as any)[travelMode],
-            }}
-            callback={handleDirections}
-          />
         )}
-        {directions && showingRoute && (
-          <DirectionsRenderer
-            options={{
-              directions,
-              suppressMarkers: true,
-              polylineOptions: {
-                strokeColor: theme.palette.primary.main,
-                strokeOpacity: 0.95,
-                strokeWeight: 5,
-              },
-            }}
-          />
-        )}
-      </GoogleMap>
+      </Box>
 
-      {/* (ถอดตัวเลื่อนรัศมีในแผนที่ออกตามที่ขอ) */}
-
-      {/* Status */}
-      <StatusBar inRadius={inRadius}>
-        <Fade in timeout={800}>
+      {/* Primary actions — always visible when outside */}
+      {!inRadius && userPos && (
+        <Box
+          sx={{
+            p: 1.25,
+            borderTop: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
+            bgcolor: alpha(theme.palette.background.default, 0.65),
+          }}
+        >
           <Typography
             variant="caption"
+            sx={{ display: 'block', mb: 1, color: 'text.secondary', fontWeight: 600 }}
+          >
+            {showingRoute
+              ? 'กำลังแสดงเส้นทางไปยังจุดกิจกรรม'
+              : 'กดปุ่มด้านล่างเพื่อนำทางไปยังจุดกิจกรรม'}
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Button
+              fullWidth
+              variant={showingRoute && travelMode === 'DRIVING' ? 'contained' : 'outlined'}
+              startIcon={<CarIcon />}
+              onClick={() => toggleRoute('DRIVING')}
+              sx={{
+                fontWeight: 800,
+                textTransform: 'none',
+                borderRadius: '12px',
+                py: 1,
+                ...(showingRoute && travelMode === 'DRIVING'
+                  ? { bgcolor: '#0a6bcf', '&:hover': { bgcolor: '#0858ad' } }
+                  : {}),
+              }}
+            >
+              {showingRoute && travelMode === 'DRIVING' ? 'ปิดเส้นทาง' : 'ขับรถ'}
+            </Button>
+            <Button
+              fullWidth
+              variant={showingRoute && travelMode === 'WALKING' ? 'contained' : 'outlined'}
+              startIcon={<WalkIcon />}
+              onClick={() => toggleRoute('WALKING')}
+              sx={{
+                fontWeight: 800,
+                textTransform: 'none',
+                borderRadius: '12px',
+                py: 1,
+                ...(showingRoute && travelMode === 'WALKING'
+                  ? { bgcolor: '#0a6bcf', '&:hover': { bgcolor: '#0858ad' } }
+                  : {}),
+              }}
+            >
+              {showingRoute && travelMode === 'WALKING' ? 'ปิดเส้นทาง' : 'เดิน'}
+            </Button>
+          </Stack>
+        </Box>
+      )}
+
+      {/* In-radius confirmation */}
+      {inRadius && (
+        <Box
+          sx={{
+            px: 1.5,
+            py: 1,
+            borderTop: `1px solid ${alpha('#16a34a', 0.25)}`,
+            bgcolor: alpha('#16a34a', 0.08),
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+          }}
+        >
+          <CheckIcon sx={{ color: '#15803d', fontSize: 18 }} />
+          <Typography variant="caption" sx={{ fontWeight: 700, color: '#15803d' }}>
+            คุณอยู่ในรัศมีกิจกรรมแล้ว
+          </Typography>
+        </Box>
+      )}
+
+      {/* No GPS yet */}
+      {!userPos && !editable && (
+        <Box
+          sx={{
+            p: 1.25,
+            borderTop: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
+          }}
+        >
+          <Button
+            fullWidth
+            variant="contained"
+            startIcon={<GpsIcon />}
+            onClick={onUseCurrentLocation}
+            disabled={!onUseCurrentLocation}
             sx={{
-              fontWeight: 600,
-              color: inRadius ? 'success.main' : showingRoute ? 'info.main' : 'warning.main',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
+              fontWeight: 800,
+              textTransform: 'none',
+              borderRadius: '12px',
+              py: 1.1,
+              bgcolor: '#0a6bcf',
+              '&:hover': { bgcolor: '#0858ad' },
             }}
           >
-            <Box
-              component="span"
-              sx={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                bgcolor: inRadius ? 'success.main' : showingRoute ? 'info.main' : 'warning.main',
-                animation: `${pulse} 2s ease-in-out infinite`,
-              }}
-            />
-            {inRadius
-              ? 'คุณอยู่ในพื้นที่กิจกรรม — พร้อมเข้าร่วมแล้ว!'
-              : showingRoute
-              ? `กำลังแสดงเส้นทาง (${travelMode === 'DRIVING' ? 'ขับรถ' : 'เดินเท้า'}) — กดปุ่มเส้นทางอีกครั้งเพื่อยกเลิก`
-              : 'คุณอยู่นอกพื้นที่ — กดปุ่ม "แสดงเส้นทาง" เพื่อนำทางไปยังจุดกิจกรรม'}
-          </Typography>
-        </Fade>
-      </StatusBar>
-    </StyledMapContainer>
+            เปิดตำแหน่งของฉัน
+          </Button>
+        </Box>
+      )}
+    </Box>
   );
 };
 
