@@ -5,8 +5,9 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ClipboardCheck, RefreshCw, Download, Search, X, ChevronDown,
   Users, MessageSquareText, Star, BarChart3, FileText,
+  Trash2, RotateCcw,
 } from 'lucide-react';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { adminDb as db } from '@/lib/firebase';
 import type { AdminProfile } from '@/types/admin';
 import {
@@ -19,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
 
 /* ============================= Types ============================= */
 
@@ -59,6 +61,7 @@ const displayName = (p?: RespondentProfile) => {
 /* ============================= Component ============================= */
 
 const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
+  const confirm = useConfirm();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(true);
   const [selectedId, setSelectedId] = useState('');
@@ -67,7 +70,10 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   const [profiles, setProfiles] = useState<Record<string, RespondentProfile>>({});
   const [checkinCount, setCheckinCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState('');
+  const [actionMsg, setActionMsg] = useState('');
 
   const [searchText, setSearchText] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -168,6 +174,11 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     fetchResponses();
   }, [fetchResponses]);
 
+  useEffect(() => {
+    setActionMsg('');
+    setError('');
+  }, [selectedId]);
+
   /* ---------- สรุปรายคำถาม ---------- */
   const questionStats = useMemo(() => {
     return questions.map((q) => {
@@ -243,6 +254,71 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     a.click();
   };
 
+  /* ---------- ลบคำตอบรายคน / ให้ทำใหม่ ---------- */
+  const resetOneResponse = async (r: SurveyResponse) => {
+    const p = profiles[r.userId];
+    const who = displayName(p) || p?.studentId || p?.email || r.userId;
+    const ok = await confirm({
+      title: 'ให้ผู้ใช้ทำแบบประเมินใหม่?',
+      description: `จะลบคำตอบของ «${who}» ออกจากระบบ ผู้ใช้จะสามารถส่งแบบประเมินกิจกรรมนี้อีกครั้งได้`,
+      confirmText: 'ลบแล้วให้ทำใหม่',
+      cancelText: 'ยกเลิก',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+
+    setDeletingId(r.id);
+    setActionMsg('');
+    setError('');
+    try {
+      await deleteDoc(doc(db, 'surveyResponses', r.id));
+      setResponses((prev) => prev.filter((x) => x.id !== r.id));
+      if (expandedId === r.id) setExpandedId(null);
+      setActionMsg(`ลบคำตอบของ ${who} แล้ว — ผู้ใช้สามารถทำแบบประเมินใหม่ได้`);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || 'ลบคำตอบไม่สำเร็จ');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  /* ---------- ลบคำตอบทั้งหมดของกิจกรรม ---------- */
+  const resetAllResponses = async () => {
+    if (!selectedActivity || responses.length === 0) return;
+    const ok = await confirm({
+      title: 'ลบคำตอบแบบประเมินทั้งหมด?',
+      description: `จะลบคำตอบ ${responses.length} รายการของกิจกรรม «${selectedActivity.activityName}» ผู้ที่เคยตอบแล้วจะถูกให้ทำแบบประเมินใหม่ทั้งหมด การกระทำนี้ย้อนกลับไม่ได้`,
+      confirmText: 'ลบทั้งหมด',
+      cancelText: 'ยกเลิก',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+
+    setBulkBusy(true);
+    setActionMsg('');
+    setError('');
+    try {
+      // Firestore batch จำกัด 500 ops
+      const ids = responses.map((r) => r.id);
+      for (let i = 0; i < ids.length; i += 450) {
+        const chunk = ids.slice(i, i + 450);
+        const batch = writeBatch(db);
+        chunk.forEach((id) => batch.delete(doc(db, 'surveyResponses', id)));
+        await batch.commit();
+      }
+      setResponses([]);
+      setExpandedId(null);
+      setActionMsg(`ลบคำตอบทั้งหมด ${ids.length} รายการแล้ว — ผู้ใช้สามารถทำแบบประเมินใหม่ได้`);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || 'ลบคำตอบทั้งหมดไม่สำเร็จ');
+      await fetchResponses();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const responseRate =
     checkinCount != null && checkinCount > 0
       ? Math.round((responses.length / checkinCount) * 100)
@@ -259,7 +335,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
           ผลแบบประเมินกิจกรรม
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          ดูจำนวนผู้ทำแบบประเมิน สรุปคำตอบรายข้อ และรายละเอียดคำตอบของแต่ละคน
+          ดูจำนวนผู้ทำแบบประเมิน สรุปคำตอบรายข้อ รายละเอียดรายคน และลบคำตอบเพื่อให้ผู้ใช้ทำใหม่ได้
         </p>
       </div>
 
@@ -284,23 +360,34 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                 ))}
               </select>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={fetchResponses} disabled={loading || !selectedActivity} className="gap-1.5">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={fetchResponses} disabled={loading || bulkBusy || !selectedActivity} className="gap-1.5">
                 <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
                 รีเฟรช
               </Button>
               <Button
                 size="sm"
                 onClick={exportCSV}
-                disabled={filteredResponses.length === 0}
+                disabled={filteredResponses.length === 0 || bulkBusy}
                 className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
               >
                 <Download className="h-4 w-4" />
                 ส่งออก CSV
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetAllResponses}
+                disabled={responses.length === 0 || loading || bulkBusy || !selectedActivity}
+                className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+              >
+                <RotateCcw className={cn('h-4 w-4', bulkBusy && 'animate-spin')} />
+                ลบทั้งหมด / ให้ทำใหม่
+              </Button>
             </div>
           </div>
           {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+          {actionMsg && <p className="text-sm text-emerald-700 mt-3">{actionMsg}</p>}
         </CardContent>
       </Card>
 
@@ -438,26 +525,32 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                   <FileText className="h-5 w-5 text-primary" />
                   คำตอบรายคน ({filteredResponses.length})
                 </h2>
-                <div className="relative w-full sm:w-80 max-w-full">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="ค้นหา ชื่อ, รหัสนักศึกษา, คำตอบ..."
-                    value={searchText}
-                    onChange={(e) => setSearchText(e.target.value)}
-                    className="w-full pl-10 pr-9 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                  />
-                  {searchText && (
-                    <button
-                      title="ล้างคำค้นหา"
-                      onClick={() => setSearchText('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-slate-600"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-center w-full sm:w-auto">
+                  <div className="relative w-full sm:w-80 max-w-full">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="ค้นหา ชื่อ, รหัสนักศึกษา, คำตอบ..."
+                      value={searchText}
+                      onChange={(e) => setSearchText(e.target.value)}
+                      className="w-full pl-10 pr-9 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                    {searchText && (
+                      <button
+                        title="ล้างคำค้นหา"
+                        onClick={() => setSearchText('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-slate-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                กด «ให้ทำใหม่» เพื่อลบคำตอบรายคน — ผู้ใช้จะกลับไปสถานะยังไม่ทำแบบประเมินและส่งได้อีกครั้ง
+              </p>
 
               {loading ? (
                 <div className="flex items-center justify-center py-10">
@@ -470,7 +563,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                   <table className="w-full min-w-[640px]">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50">
-                        {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ-นามสกุล', 'สาขา', ''].map((h, i) => (
+                        {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ-นามสกุล', 'สาขา', 'จัดการ'].map((h, i) => (
                           <th key={i} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
                             {h}
                           </th>
@@ -481,6 +574,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                       {filteredResponses.map((r, idx) => {
                         const p = profiles[r.userId];
                         const expanded = expandedId === r.id;
+                        const busy = deletingId === r.id;
                         return (
                           <React.Fragment key={r.id}>
                             <tr
@@ -508,14 +602,41 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                                   {p?.department || '-'}
                                 </Badge>
                               </td>
-                              <td className="px-3 py-3 text-right">
-                                <ChevronDown className={cn('h-4 w-4 text-slate-400 transition-transform inline-block', expanded && 'rotate-180')} />
+                              <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                <div className="inline-flex items-center gap-1.5">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={busy || bulkBusy}
+                                    onClick={() => resetOneResponse(r)}
+                                    className="h-8 gap-1 border-amber-200 text-amber-800 hover:bg-amber-50"
+                                    title="ลบคำตอบนี้แล้วให้ผู้ใช้ทำใหม่"
+                                  >
+                                    <RotateCcw className={cn('h-3.5 w-3.5', busy && 'animate-spin')} />
+                                    ให้ทำใหม่
+                                  </Button>
+                                  <ChevronDown className={cn('h-4 w-4 text-slate-400 transition-transform', expanded && 'rotate-180')} />
+                                </div>
                               </td>
                             </tr>
                             {expanded && (
                               <tr className="bg-slate-50/60">
                                 <td colSpan={6} className="px-4 py-4">
                                   <div className="space-y-3 max-w-3xl">
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={busy || bulkBusy}
+                                        onClick={() => resetOneResponse(r)}
+                                        className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                        ลบคำตอบนี้ / ให้ทำใหม่
+                                      </Button>
+                                    </div>
                                     {questions.map((q, qi) => {
                                       const ans = (r.answers[q.id] ?? '').toString().trim();
                                       return (
