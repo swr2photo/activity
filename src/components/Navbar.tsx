@@ -1,7 +1,7 @@
 // components/Navbar.tsx
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -43,7 +43,6 @@ import {
 } from '@mui/icons-material';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { useAuth, updateUserProfile } from '../lib/firebaseAuth';
-import { useEffect, useState } from 'react';
 import ProfileEditDialog from './profile/ProfileEditDialog';
 import ThemeToggle from './common/ThemeToggle';
 
@@ -87,6 +86,13 @@ const Navbar: React.FC = () => {
     if (pathname?.startsWith('/admin')) refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  const handleSaveProfile = useCallback(async (updates: any) => {
+    if (user?.uid) {
+      await updateUserProfile(user.uid, updates);
+      await refreshUserData();
+    }
+  }, [user?.uid, refreshUserData]);
 
   const navLinks = [
     { label: 'หน้าแรก', path: '/', icon: <HomeOutlined />, activeIcon: <Home color="primary" /> },
@@ -510,12 +516,7 @@ const Navbar: React.FC = () => {
         onClose={() => setProfileDialogOpen(false)}
         user={user}
         userData={userData}
-        onSave={async (updates) => {
-          if (user?.uid) {
-            await updateUserProfile(user.uid, updates);
-            await refreshUserData();
-          }
-        }}
+        onSave={handleSaveProfile}
       />
     </GlassWrapper>
   );

@@ -1,7 +1,7 @@
 // components/profile/ProfileEditDialog.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -46,6 +46,8 @@ import Autocomplete from '@mui/material/Autocomplete';
 import Cropper from 'react-easy-crop';
 import getCroppedImg from '../../utils/cropImage';
 
+const FACULTY_OPTIONS = Array.from(new Set(Object.values(facultyMap)));
+
 interface ProfileEditDialogProps {
   open: boolean;
   onClose: () => void;
@@ -65,6 +67,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   isFirstTimeSetup = false,
 }) => {
   const theme = useTheme();
+  const initializedForOpenRef = useRef(false);
 
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
@@ -88,8 +91,14 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [cropModalOpen, setCropModalOpen] = useState(false);
 
+  // init ฟอร์มเฉพาะตอนเปิดไดอะล็อก — ไม่รีเซ็ตทุกครั้งที่ userData อ้างอิงใหม่ (กันค้าง)
   useEffect(() => {
-    if (!open || !user) return;
+    if (!open) {
+      initializedForOpenRef.current = false;
+      return;
+    }
+    if (!user || initializedForOpenRef.current) return;
+    initializedForOpenRef.current = true;
 
     const emailLocal = (user.email || '').split('@')[0] || '';
     const parsedInfo = parseStudentInfo(user.email || '');
@@ -98,7 +107,6 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     let derivedFirstName = userData?.firstName || '';
     let derivedLastName = userData?.lastName || '';
 
-    // หากยังไม่มีชื่อ หรือนามสกุลมีวงเล็บติดมา ให้ดึงจากชื่อไทยในวงเล็บ
     if (
       !derivedFirstName ||
       derivedFirstName === 'ไม่ระบุ' ||
@@ -141,7 +149,13 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     setValidationErrors({});
     setSaving(false);
     setUploadingImage(false);
-  }, [open, userData, user]);
+  }, [open, user, userData]);
+
+  const availableDepartments = useMemo(() => {
+    const facultyCode = Object.keys(facultyMap).find((key) => facultyMap[key] === formData.faculty);
+    if (!facultyCode || !departmentMap[facultyCode]) return [] as string[];
+    return Object.values(departmentMap[facultyCode]);
+  }, [formData.faculty]);
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
@@ -168,12 +182,6 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     return Object.keys(errors).length === 0;
   };
 
-  const currentFacultyCode = Object.keys(facultyMap).find((key) => facultyMap[key] === formData.faculty);
-  const availableDepartments =
-    currentFacultyCode && departmentMap[currentFacultyCode]
-      ? Object.values(departmentMap[currentFacultyCode])
-      : [];
-
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -187,9 +195,9 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     event.target.value = '';
   };
 
-  const onCropComplete = (_croppedArea: any, pixels: any) => {
+  const onCropComplete = useCallback((_croppedArea: any, pixels: any) => {
     setCroppedAreaPixels(pixels);
-  };
+  }, []);
 
   const handleCropConfirm = async () => {
     if (!imageToCrop || !user?.uid) return;
@@ -214,16 +222,26 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     }
   };
 
-  const handleInputChange = (field: string, value: string) => {
+  const handleInputChange = useCallback((field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    if (validationErrors[field]) {
-      setValidationErrors((prev) => {
-        const e = { ...prev };
-        delete e[field];
-        return e;
-      });
-    }
-  };
+    setValidationErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }, []);
+
+  const handleFacultyChange = useCallback((newValue: string) => {
+    setFormData((prev) => ({ ...prev, faculty: newValue, department: '' }));
+    setValidationErrors((prev) => {
+      if (!prev.faculty && !prev.department) return prev;
+      const next = { ...prev };
+      delete next.faculty;
+      delete next.department;
+      return next;
+    });
+  }, []);
 
   const handleSave = async () => {
     try {
@@ -266,7 +284,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     formData.firstName?.charAt(0).toUpperCase() ||
     'U';
 
-  const isFormValid = () =>
+  const isFormValid =
     formData.firstName.trim().length >= 2 &&
     formData.lastName.trim().length >= 2 &&
     Object.keys(validationErrors).length === 0;
@@ -410,16 +428,15 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
               <Grid size={{ xs: 12, sm: 6 }}>
                 <Autocomplete
                   freeSolo
-                  options={Array.from(new Set(Object.values(facultyMap)))}
-                  value={formData.faculty}
+                  options={FACULTY_OPTIONS}
+                  value={formData.faculty || null}
                   onChange={(_, newValue) => {
-                    handleInputChange('faculty', (newValue as string) || '');
-                    handleInputChange('department', '');
+                    handleFacultyChange((newValue as string) || '');
                   }}
                   onInputChange={(_, newInputValue, reason) => {
+                    // อย่าอัปเดตตอน reset — กันวนเรนเดอร์กับ options/value แบบ controlled
                     if (reason === 'input' || reason === 'clear') {
-                      handleInputChange('faculty', newInputValue);
-                      if (reason === 'clear') handleInputChange('department', '');
+                      handleFacultyChange(newInputValue);
                     }
                   }}
                   renderInput={(params) => (
@@ -449,7 +466,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                 <Autocomplete
                   freeSolo
                   options={availableDepartments}
-                  value={formData.department}
+                  value={formData.department || null}
                   onChange={(_, newValue) => handleInputChange('department', (newValue as string) || '')}
                   onInputChange={(_, newInputValue, reason) => {
                     if (reason === 'input' || reason === 'clear') {
@@ -580,7 +597,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
             variant="contained"
             startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
             onClick={handleSave}
-            disabled={saving || !isFormValid()}
+            disabled={saving || !isFormValid}
             size="large"
             sx={{
               background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.9)} 0%, ${alpha(
