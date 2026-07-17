@@ -31,9 +31,15 @@ service cloud.firestore {
 
     // 1. adminUsers
     match /adminUsers/{uid} {
-      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      // เจ้าของอ่านเอกสารตัวเองได้แม้ยังไม่ใช่แอดมิน (exists=false ก็ผ่าน get ของตัวเอง)
+      allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin());
       allow create: if isAuthenticated() && request.auth.uid == uid;
       allow update, delete: if isAdmin();
+    }
+
+    // legacy collection — ปิดการเข้าถึงจาก client
+    match /admins/{uid} {
+      allow read, write: if false;
     }
 
     // 2. adminInvites

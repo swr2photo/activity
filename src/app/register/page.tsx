@@ -69,6 +69,7 @@ import { db, auth } from '../../lib/firebase';
 import { useAuth, UniversityUserProfile } from '../../lib/firebaseAuth';
 import { SessionManager } from '../../lib/sessionManager';
 import { AdminSettings } from '../../types';
+import { getSurveyWindowStatus } from '../../lib/surveyWindow';
 
 /* ============================= Types ============================= */
 interface ActivityData {
@@ -1096,38 +1097,15 @@ const RegisterPageContent: React.FC = () => {
 
   // คำนวณว่าอยู่ในช่วงเวลาทำแบบประเมินหรือไม่
   const surveyWindow = useMemo(() => {
-    if (!activityData?.surveyConfig?.enabled) {
-      return { open: false, expired: false, notStarted: false, endTime: null as Date | null, closeTime: null as Date | null, openMinutes: 0 };
-    }
-    if (!activityData.surveyConfig.questions?.length) {
-      return { open: false, expired: false, notStarted: false, endTime: null as Date | null, closeTime: null as Date | null, openMinutes: 0 };
-    }
-    const surveyConfig = activityData.surveyConfig as any;
-    const openMinutes = Number(surveyConfig.surveyOpenMinutes ?? 1440) || 1440;
-    let endTime: Date | null = null;
-    if (activityData.sessions && activityData.sessions.length > 0) {
-      const sorted = [...activityData.sessions].sort((a, b) => {
-        const aT = a.endDateTime?.toDate?.()?.getTime() || new Date(a.endDateTime).getTime();
-        const bT = b.endDateTime?.toDate?.()?.getTime() || new Date(b.endDateTime).getTime();
-        return bT - aT;
-      });
-      endTime = sorted[0].endDateTime?.toDate?.() || new Date(sorted[0].endDateTime);
-    } else if (activityData.endDateTime) {
-      endTime = activityData.endDateTime?.toDate?.() || new Date(activityData.endDateTime);
-    }
-    if (!endTime || Number.isNaN(endTime.getTime())) {
-      return { open: false, expired: false, notStarted: false, endTime: null, closeTime: null, openMinutes };
-    }
-    const now = new Date();
-    const closeTime = new Date(endTime.getTime() + openMinutes * 60 * 1000);
-    return {
-      open: now >= endTime && now <= closeTime,
-      expired: now > closeTime,
-      notStarted: now < endTime,
-      endTime,
-      closeTime,
-      openMinutes,
-    };
+    const cfg = activityData?.surveyConfig as any;
+    return getSurveyWindowStatus({
+      enabled: cfg?.enabled,
+      questionsLength: cfg?.questions?.length ?? 0,
+      surveyOpenMinutes: cfg?.surveyOpenMinutes,
+      forceOpenUntil: cfg?.forceOpenUntil,
+      endDateTime: activityData?.endDateTime,
+      sessions: activityData?.sessions,
+    });
   }, [activityData]);
 
   const isSurveyWindowOpen = surveyWindow.open;

@@ -1,29 +1,35 @@
 "use client"
 // hooks/useAdminAuth.ts
 import { useState, useEffect } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
 import { AdminProfile } from '../types/admin';
-// hooks/useAdminAuth.ts
 import { getCurrentAdmin, signInAdmin, signOutAdmin } from '../lib/adminFirebase';
+import { adminAuth } from '../lib/firebase';
 
-
-// Rest of your hook implementation
+/**
+ * เช็กสถานะแอดมินจาก admin-app เท่านั้น
+ * ถ้าไม่มี session แอดมิน จะไม่เรียก Firestore → ไม่เกิด 403 บนหน้านักศึกษา
+ */
 export const useAdminAuth = () => {
   const [currentAdmin, setCurrentAdmin] = useState<AdminProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    checkAdminAuth();
-  }, []);
-
   const checkAdminAuth = async () => {
+    if (!adminAuth.currentUser) {
+      setCurrentAdmin(null);
+      setLoading(false);
+      setError('');
+      return;
+    }
     try {
+      setLoading(true);
       const adminData = await getCurrentAdmin();
       setCurrentAdmin(adminData);
       setError('');
-    } catch (error: any) {
+    } catch (err: any) {
       setCurrentAdmin(null);
-      if (error?.message === 'ADMIN_DISABLED') {
+      if (err?.message === 'ADMIN_DISABLED') {
         setError('บัญชีแอดมินถูกระงับ');
       } else {
         setError('');
@@ -33,14 +39,22 @@ export const useAdminAuth = () => {
     }
   };
 
+  useEffect(() => {
+    const unsub = onAuthStateChanged(adminAuth, () => {
+      checkAdminAuth();
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const login = async () => {
     try {
       setLoading(true);
       const adminData = await signInAdmin();
       setCurrentAdmin(adminData);
       return adminData;
-    } catch (error) {
-      throw error;
+    } catch (err) {
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -50,8 +64,8 @@ export const useAdminAuth = () => {
     try {
       await signOutAdmin();
       setCurrentAdmin(null);
-    } catch (error) {
-      console.error('Logout error:', error);
+    } catch (err) {
+      console.error('Logout error:', err);
     }
   };
 

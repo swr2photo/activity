@@ -38,6 +38,7 @@ import {
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import { useAuth } from '../../lib/firebaseAuth';
+import { getSurveyWindowStatus, surveyStatusLabelTh } from '../../lib/surveyWindow';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -58,6 +59,8 @@ type RegistrationRecord = {
   bannerUrl?: string;
   surveyEnabled?: boolean;
   surveyCompleted?: boolean;
+  surveyStatus?: 'disabled' | 'not_started' | 'open' | 'expired' | 'forced_open';
+  surveyStatusLabel?: string;
   files?: any[];
   sessions?: any[];
 };
@@ -179,6 +182,8 @@ const MyHistoryPage: React.FC = () => {
             location?: string;
             bannerUrl?: string;
             surveyEnabled?: boolean;
+            surveyStatus?: RegistrationRecord['surveyStatus'];
+            surveyStatusLabel?: string;
             files?: any[];
             sessions?: any[];
           }
@@ -200,11 +205,22 @@ const MyHistoryPage: React.FC = () => {
                 const actData = d.data() as any;
                 const code = actData.activityCode;
                 if (code) {
+                  const cfg = actData.surveyConfig || {};
+                  const win = getSurveyWindowStatus({
+                    enabled: cfg.enabled,
+                    questionsLength: cfg.questions?.length ?? 0,
+                    surveyOpenMinutes: cfg.surveyOpenMinutes,
+                    forceOpenUntil: cfg.forceOpenUntil,
+                    endDateTime: actData.endDateTime,
+                    sessions: actData.sessions || [],
+                  });
                   activityMap[code] = {
                     activityName: actData.activityName || code,
                     location: actData.location,
                     bannerUrl: actData.bannerUrl,
-                    surveyEnabled: actData.surveyConfig?.enabled || false,
+                    surveyEnabled: Boolean(cfg.enabled),
+                    surveyStatus: win.label,
+                    surveyStatusLabel: surveyStatusLabelTh(win),
                     files: actData.files || [],
                     sessions: actData.sessions || [],
                   };
@@ -225,6 +241,8 @@ const MyHistoryPage: React.FC = () => {
           bannerUrl: activityMap[r.activityCode]?.bannerUrl,
           surveyEnabled: activityMap[r.activityCode]?.surveyEnabled || false,
           surveyCompleted: completedSurveyCodes.has((r.activityCode || '').toUpperCase()),
+          surveyStatus: activityMap[r.activityCode]?.surveyStatus,
+          surveyStatusLabel: activityMap[r.activityCode]?.surveyStatusLabel,
           files: activityMap[r.activityCode]?.files || [],
           sessions: activityMap[r.activityCode]?.sessions || [],
         }));
@@ -247,7 +265,13 @@ const MyHistoryPage: React.FC = () => {
   }, [userData?.studentId, user?.uid]);
 
   const surveyPendingCount = useMemo(
-    () => records.filter((r) => r.surveyEnabled && !r.surveyCompleted).length,
+    () =>
+      records.filter(
+        (r) =>
+          r.surveyEnabled &&
+          !r.surveyCompleted &&
+          (r.surveyStatus === 'open' || r.surveyStatus === 'forced_open')
+      ).length,
     [records]
   );
   const withFilesCount = useMemo(() => records.filter((r) => countFiles(r) > 0).length, [records]);
@@ -255,7 +279,12 @@ const MyHistoryPage: React.FC = () => {
   const filteredRecords = useMemo(() => {
     let list = records;
     if (filter === 'survey') {
-      list = list.filter((r) => r.surveyEnabled && !r.surveyCompleted);
+      list = list.filter(
+        (r) =>
+          r.surveyEnabled &&
+          !r.surveyCompleted &&
+          (r.surveyStatus === 'open' || r.surveyStatus === 'forced_open' || r.surveyStatus === 'not_started')
+      );
     } else if (filter === 'files') {
       list = list.filter((r) => countFiles(r) > 0);
     }
@@ -590,7 +619,16 @@ const MyHistoryPage: React.FC = () => {
                   <AnimatePresence initial={false}>
                     {group.items.map((record, idx) => {
                       const fileCount = countFiles(record);
-                      const needsSurvey = Boolean(record.surveyEnabled && !record.surveyCompleted);
+                      const surveyOpen =
+                        record.surveyStatus === 'open' || record.surveyStatus === 'forced_open';
+                      const needsSurvey = Boolean(
+                        record.surveyEnabled && !record.surveyCompleted && surveyOpen
+                      );
+                      const surveyPendingLater = Boolean(
+                        record.surveyEnabled &&
+                          !record.surveyCompleted &&
+                          (record.surveyStatus === 'not_started' || record.surveyStatus === 'expired')
+                      );
                       const expanded = Boolean(expandedCards[record.id]);
                       const hasDetails = fileCount > 0 || (record.sessions && record.sessions.length > 0);
 
@@ -783,7 +821,30 @@ const MyHistoryPage: React.FC = () => {
                                       '&:hover': { bgcolor: '#d4920f', boxShadow: 'none' },
                                     }}
                                   >
-                                    ทำแบบประเมิน
+                                    {record.surveyStatus === 'forced_open'
+                                      ? 'ทำแบบประเมิน (ขยายเวลา)'
+                                      : 'ทำแบบประเมิน (เปิดอยู่)'}
+                                  </Button>
+                                )}
+                                {surveyPendingLater && (
+                                  <Button
+                                    component={Link}
+                                    href={`/register?activity=${record.activityCode}`}
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<SurveyIcon />}
+                                    sx={{
+                                      flex: { sm: 1 },
+                                      fontWeight: 700,
+                                      fontSize: '0.8rem',
+                                      borderRadius: '10px',
+                                      textTransform: 'none',
+                                      py: 0.85,
+                                    }}
+                                  >
+                                    {record.surveyStatus === 'not_started'
+                                      ? 'แบบประเมินยังไม่เปิด'
+                                      : 'หมดเวลาทำแบบประเมิน'}
                                   </Button>
                                 )}
                                 {hasDetails && (

@@ -82,9 +82,11 @@ const Navbar: React.FC = () => {
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget);
   const handleMenuClose = () => setAnchorEl(null);
 
+  // student auth เปลี่ยนไม่ต้องรีเช็กแอดมินซ้ำ (adminAuth listener ดูแลแล้ว)
   useEffect(() => {
-    refetch();
-  }, [user]);
+    if (pathname?.startsWith('/admin')) refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   const navLinks = [
     { label: 'หน้าแรก', path: '/', icon: <HomeOutlined />, activeIcon: <Home color="primary" /> },

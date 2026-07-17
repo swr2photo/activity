@@ -5,15 +5,17 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ClipboardCheck, RefreshCw, Download, Search, X, ChevronDown,
   Users, MessageSquareText, Star, BarChart3, FileText,
-  Trash2, RotateCcw,
+  Trash2, RotateCcw, Clock,
 } from 'lucide-react';
-import { collection, deleteDoc, doc, getDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, where, writeBatch, Timestamp } from 'firebase/firestore';
 import { adminDb as db } from '@/lib/firebase';
 import type { AdminProfile } from '@/types/admin';
 import {
   Activity,
   SurveyQuestion,
   getActivitiesByDepartment,
+  logAdminEvent,
+  updateActivity,
 } from '@/lib/adminFirebase';
 
 import { Button } from '@/components/ui/button';
@@ -21,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
+import { forceOpenUntilFromHours, getSurveyWindowStatus, surveyStatusLabelTh } from '@/lib/surveyWindow';
 
 /* ============================= Types ============================= */
 
@@ -77,6 +80,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
 
   const [searchText, setSearchText] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [extendHours, setExtendHours] = useState(24);
 
   /* ---------- โหลดกิจกรรมที่มีแบบประเมิน ---------- */
   useEffect(() => {
@@ -105,6 +109,18 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   );
   const questions: SurveyQuestion[] = selectedActivity?.surveyConfig?.questions ?? [];
 
+  const surveyWindowStatus = useMemo(() => {
+    const cfg = selectedActivity?.surveyConfig as any;
+    return getSurveyWindowStatus({
+      enabled: cfg?.enabled,
+      questionsLength: cfg?.questions?.length ?? 0,
+      surveyOpenMinutes: cfg?.surveyOpenMinutes,
+      forceOpenUntil: cfg?.forceOpenUntil,
+      endDateTime: selectedActivity?.endDateTime,
+      sessions: selectedActivity?.sessions,
+    });
+  }, [selectedActivity]);
+
   /* ---------- โหลดคำตอบ + โปรไฟล์ผู้ตอบ + ยอดเช็คอิน ---------- */
   const fetchResponses = useCallback(async () => {
     if (!selectedActivity) return;
@@ -128,27 +144,34 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
       }).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setResponses(rows);
 
-      // โปรไฟล์ผู้ตอบ (universityUsers → fallback users)
+      // โปรไฟล์ผู้ตอบ — batch getDocs ด้วย where('uid'/'__name__') ไม่ได้ตรงๆ
+      // ใช้ chunked Promise.all + จำกัด concurrency แทน getDoc ทีละตัวแบบไม่ควบคุม
       const uids = Array.from(new Set(rows.map((r) => r.userId).filter(Boolean)));
-      const entries = await Promise.all(
-        uids.map(async (uid): Promise<[string, RespondentProfile]> => {
-          try {
-            let s = await getDoc(doc(db, 'universityUsers', uid));
-            if (!s.exists()) s = await getDoc(doc(db, 'users', uid));
-            const d: any = s.exists() ? s.data() : {};
-            return [uid, {
-              studentId: d.studentId,
-              firstName: d.firstName,
-              lastName: d.lastName,
-              department: d.department,
-              email: d.email,
-            }];
-          } catch {
-            return [uid, {}];
-          }
-        })
-      );
-      setProfiles(Object.fromEntries(entries));
+      const profileMap: Record<string, RespondentProfile> = {};
+      const chunkSize = 10;
+      for (let i = 0; i < uids.length; i += chunkSize) {
+        const chunk = uids.slice(i, i + chunkSize);
+        const entries = await Promise.all(
+          chunk.map(async (uid): Promise<[string, RespondentProfile]> => {
+            try {
+              let s = await getDoc(doc(db, 'universityUsers', uid));
+              if (!s.exists()) s = await getDoc(doc(db, 'users', uid));
+              const d: any = s.exists() ? s.data() : {};
+              return [uid, {
+                studentId: d.studentId,
+                firstName: d.firstName,
+                lastName: d.lastName,
+                department: d.department,
+                email: d.email,
+              }];
+            } catch {
+              return [uid, {}];
+            }
+          })
+        );
+        entries.forEach(([uid, p]) => { profileMap[uid] = p; });
+      }
+      setProfiles(profileMap);
 
       // ยอดผู้เช็คอิน (ไม่ซ้ำคน) เพื่อคำนวณอัตราการตอบ
       try {
@@ -255,13 +278,68 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   /* ---------- ลบคำตอบรายคน / ให้ทำใหม่ ---------- */
+  const applyForceOpen = async (hours: number) => {
+    if (!selectedActivity) return null;
+    const until = forceOpenUntilFromHours(hours);
+    const prev = (selectedActivity.surveyConfig || { enabled: true, questions: [] }) as any;
+    const nextConfig = {
+      ...prev,
+      forceOpenUntil: Timestamp.fromDate(until),
+    };
+    await updateActivity(selectedActivity.id, { surveyConfig: nextConfig } as any);
+    setActivities((list) =>
+      list.map((a) => (a.id === selectedActivity.id ? { ...a, surveyConfig: nextConfig } : a))
+    );
+    return until;
+  };
+
+  const extendSurveyWindow = async () => {
+    if (!selectedActivity) return;
+    const hours = extendHours;
+    const ok = await confirm({
+      title: 'ขยายเวลาทำแบบประเมิน?',
+      description: `จะเปิดแบบประเมินของ «${selectedActivity.activityName}» เพิ่มอีก ${hours} ชั่วโมง จากตอนนี้ ผู้ที่ยังไม่ได้ทำหรือถูกให้ทำใหม่จะเข้าทำได้`,
+      confirmText: `ขยาย ${hours} ชม.`,
+      cancelText: 'ยกเลิก',
+      variant: 'warning',
+    });
+    if (!ok) return;
+    setBulkBusy(true);
+    setActionMsg('');
+    setError('');
+    try {
+      const until = await applyForceOpen(hours);
+      await logAdminEvent(
+        'SURVEY_EXTEND_WINDOW',
+        {
+          activityId: selectedActivity.id,
+          activityCode: selectedActivity.activityCode,
+          hours,
+          forceOpenUntil: until?.toISOString(),
+        },
+        { uid: currentAdmin.uid, email: currentAdmin.email }
+      );
+      setActionMsg(
+        `ขยายเวลาแล้ว — เปิดถึง ${until?.toLocaleString('th-TH') || '-'}`
+      );
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || 'ขยายเวลาไม่สำเร็จ');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const resetOneResponse = async (r: SurveyResponse) => {
     const p = profiles[r.userId];
     const who = displayName(p) || p?.studentId || p?.email || r.userId;
+    const needExtend = !surveyWindowStatus.open;
     const ok = await confirm({
       title: 'ให้ผู้ใช้ทำแบบประเมินใหม่?',
-      description: `จะลบคำตอบของ «${who}» ออกจากระบบ ผู้ใช้จะสามารถส่งแบบประเมินกิจกรรมนี้อีกครั้งได้`,
-      confirmText: 'ลบแล้วให้ทำใหม่',
+      description: needExtend
+        ? `จะลบคำตอบของ «${who}» และขยายเวลาทำแบบประเมินอีก ${extendHours} ชั่วโมง เพื่อให้ส่งใหม่ได้`
+        : `จะลบคำตอบของ «${who}» ออกจากระบบ ผู้ใช้จะสามารถส่งแบบประเมินกิจกรรมนี้อีกครั้งได้`,
+      confirmText: needExtend ? 'ลบและขยายเวลา' : 'ลบแล้วให้ทำใหม่',
       cancelText: 'ยกเลิก',
       variant: 'destructive',
     });
@@ -274,7 +352,30 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
       await deleteDoc(doc(db, 'surveyResponses', r.id));
       setResponses((prev) => prev.filter((x) => x.id !== r.id));
       if (expandedId === r.id) setExpandedId(null);
-      setActionMsg(`ลบคำตอบของ ${who} แล้ว — ผู้ใช้สามารถทำแบบประเมินใหม่ได้`);
+
+      let until: Date | null = null;
+      if (needExtend) {
+        until = await applyForceOpen(extendHours);
+      }
+
+      await logAdminEvent(
+        'SURVEY_RESPONSE_RESET',
+        {
+          activityId: selectedActivity?.id,
+          activityCode: r.activityCode,
+          responseId: r.id,
+          targetUserId: r.userId,
+          extendedHours: needExtend ? extendHours : 0,
+          forceOpenUntil: until?.toISOString() || null,
+        },
+        { uid: currentAdmin.uid, email: currentAdmin.email }
+      );
+
+      setActionMsg(
+        needExtend
+          ? `ลบคำตอบของ ${who} แล้ว และขยายเวลาถึง ${until?.toLocaleString('th-TH')}`
+          : `ลบคำตอบของ ${who} แล้ว — ผู้ใช้สามารถทำแบบประเมินใหม่ได้`
+      );
     } catch (e: any) {
       console.error(e);
       setError(e?.message || 'ลบคำตอบไม่สำเร็จ');
@@ -286,10 +387,13 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   /* ---------- ลบคำตอบทั้งหมดของกิจกรรม ---------- */
   const resetAllResponses = async () => {
     if (!selectedActivity || responses.length === 0) return;
+    const needExtend = !surveyWindowStatus.open;
     const ok = await confirm({
       title: 'ลบคำตอบแบบประเมินทั้งหมด?',
-      description: `จะลบคำตอบ ${responses.length} รายการของกิจกรรม «${selectedActivity.activityName}» ผู้ที่เคยตอบแล้วจะถูกให้ทำแบบประเมินใหม่ทั้งหมด การกระทำนี้ย้อนกลับไม่ได้`,
-      confirmText: 'ลบทั้งหมด',
+      description: needExtend
+        ? `จะลบคำตอบ ${responses.length} รายการ และขยายเวลาทำแบบประเมินอีก ${extendHours} ชั่วโมง การลบย้อนกลับไม่ได้`
+        : `จะลบคำตอบ ${responses.length} รายการของกิจกรรม «${selectedActivity.activityName}» ผู้ที่เคยตอบแล้วจะถูกให้ทำใหม่ทั้งหมด การกระทำนี้ย้อนกลับไม่ได้`,
+      confirmText: needExtend ? 'ลบทั้งหมดและขยายเวลา' : 'ลบทั้งหมด',
       cancelText: 'ยกเลิก',
       variant: 'destructive',
     });
@@ -299,7 +403,6 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     setActionMsg('');
     setError('');
     try {
-      // Firestore batch จำกัด 500 ops
       const ids = responses.map((r) => r.id);
       for (let i = 0; i < ids.length; i += 450) {
         const chunk = ids.slice(i, i + 450);
@@ -309,7 +412,29 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
       }
       setResponses([]);
       setExpandedId(null);
-      setActionMsg(`ลบคำตอบทั้งหมด ${ids.length} รายการแล้ว — ผู้ใช้สามารถทำแบบประเมินใหม่ได้`);
+
+      let until: Date | null = null;
+      if (needExtend) {
+        until = await applyForceOpen(extendHours);
+      }
+
+      await logAdminEvent(
+        'SURVEY_RESPONSES_RESET_ALL',
+        {
+          activityId: selectedActivity.id,
+          activityCode: selectedActivity.activityCode,
+          deletedCount: ids.length,
+          extendedHours: needExtend ? extendHours : 0,
+          forceOpenUntil: until?.toISOString() || null,
+        },
+        { uid: currentAdmin.uid, email: currentAdmin.email }
+      );
+
+      setActionMsg(
+        needExtend
+          ? `ลบคำตอบทั้งหมด ${ids.length} รายการแล้ว และขยายเวลาถึง ${until?.toLocaleString('th-TH')}`
+          : `ลบคำตอบทั้งหมด ${ids.length} รายการแล้ว — ผู้ใช้สามารถทำแบบประเมินใหม่ได้`
+      );
     } catch (e: any) {
       console.error(e);
       setError(e?.message || 'ลบคำตอบทั้งหมดไม่สำเร็จ');
@@ -386,6 +511,58 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
               </Button>
             </div>
           </div>
+
+          {selectedActivity && (
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-3">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <Clock className="h-4 w-4 text-slate-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800">
+                    สถานะแบบประเมิน:{' '}
+                    <span className={cn(
+                      surveyWindowStatus.open ? 'text-emerald-700' : 'text-amber-700'
+                    )}>
+                      {surveyStatusLabelTh(surveyWindowStatus)}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {surveyWindowStatus.forceOpenUntil
+                      ? `เปิดพิเศษถึง ${surveyWindowStatus.forceOpenUntil.toLocaleString('th-TH')}`
+                      : surveyWindowStatus.closeTime
+                        ? `ปิดตามกำหนด ${surveyWindowStatus.closeTime.toLocaleString('th-TH')}`
+                        : 'ยังไม่มีช่วงเวลาสิ้นสุดที่คำนวณได้'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-xs text-slate-600 flex items-center gap-1.5">
+                  ขยาย
+                  <input
+                    type="number"
+                    min={1}
+                    max={336}
+                    value={extendHours}
+                    onChange={(e) => setExtendHours(Math.max(1, Math.min(336, Number(e.target.value) || 24)))}
+                    className="w-16 px-2 py-1 rounded-md border border-slate-200 bg-white text-sm"
+                    title="จำนวนชั่วโมงที่จะขยาย"
+                  />
+                  ชม.
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!selectedActivity || bulkBusy}
+                  onClick={extendSurveyWindow}
+                  className="gap-1.5"
+                >
+                  <Clock className="h-4 w-4" />
+                  ขยายเวลาทำแบบประเมิน
+                </Button>
+              </div>
+            </div>
+          )}
+
           {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
           {actionMsg && <p className="text-sm text-emerald-700 mt-3">{actionMsg}</p>}
         </CardContent>
