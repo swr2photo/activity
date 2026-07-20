@@ -30,6 +30,7 @@ import {
 import type { DocumentData } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { SessionManager } from './sessionManager';
+import { validateThaiName, validateNameTitle } from '../utils/validation';
 
 /** ถูกโยนเมื่อกำลังพาไป OAuth แบบ redirect (ไม่ใช่ error จริง) */
 export class AuthRedirectPendingError extends Error {
@@ -87,6 +88,8 @@ export interface UniversityUserProfile {
   displayName: string;
   firstName: string;
   lastName: string;
+  /** คำนำหน้าชื่อ เช่น นาย / นางสาว */
+  nameTitle?: string;
   studentId: string;
   degreeLevel: string;
   department: string;
@@ -269,11 +272,19 @@ export const isExternalUser = (profile?: UniversityUserProfile | null): boolean 
 export const isProfileComplete = (profile?: UniversityUserProfile | null): boolean => {
   if (!profile) return false;
   const hasName =
+    !!profile.nameTitle?.trim() &&
     !!profile.firstName?.trim() &&
     profile.firstName !== 'ไม่ระบุ' &&
     !!profile.lastName?.trim() &&
     profile.lastName !== 'ไม่ระบุ';
   if (!hasName) return false;
+  if (
+    !validateNameTitle(profile.nameTitle!) ||
+    !validateThaiName(profile.firstName) ||
+    !validateThaiName(profile.lastName)
+  ) {
+    return false;
+  }
   if (profile.userType === 'external') {
     return !!(profile.institutionName?.trim() && (profile.educationLevel || profile.degreeLevel)?.trim());
   }

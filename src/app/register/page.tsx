@@ -1980,6 +1980,7 @@ const RegisterPageContent: React.FC = () => {
                       displayName: user.displayName || '',
                       givenName: userData?.firstName || '',
                       surname: userData?.lastName || '',
+                      nameTitle: userData?.nameTitle || '',
                       department: userData?.department || '',
                       faculty: userData?.faculty || '',
                       studentId: userData?.studentId || '',

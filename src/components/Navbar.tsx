@@ -109,6 +109,9 @@ const Navbar: React.FC = () => {
 
   const getDisplayName = () => {
     if (userData?.username?.trim()) return userData.username.trim();
+    if (userData?.nameTitle && userData?.firstName && userData?.lastName) {
+      return `${userData.nameTitle}${userData.firstName} ${userData.lastName}`;
+    }
     if (userData?.displayName) return userData.displayName;
     if (userData?.firstName && userData?.lastName) return `${userData.firstName} ${userData.lastName}`;
     if (user?.displayName) return user.displayName.split(' ')[0];

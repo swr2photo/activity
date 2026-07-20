@@ -17,19 +17,55 @@ export const validateStudentId = (studentId: string): boolean => {
   return prefixNum >= 64 && prefixNum <= 69;
 };
 
+/** คำนำหน้าชื่อ (ภาษาไทย) */
+export const NAME_TITLE_OPTIONS = [
+  'นาย',
+  'นาง',
+  'นางสาว',
+  'เด็กชาย',
+  'เด็กหญิง',
+] as const;
+
+export type NameTitle = (typeof NAME_TITLE_OPTIONS)[number];
+
+/** กรองให้เหลือเฉพาะอักษรไทยและช่องว่าง */
+export const filterThaiNameInput = (value: string): string =>
+  String(value || '')
+    .replace(/[^\u0E00-\u0E7F\s]/g, '')
+    .replace(/\s+/g, ' ');
+
 /**
- * ตรวจสอบชื่อและนามสกุลภาษาไทย
- * อนุญาตให้ใช้ตัวอักษรไทยและอังกฤษ ต้องมีอย่างน้อย 2 ตัวอักษร
+ * ตรวจสอบชื่อและนามสกุลภาษาไทยเท่านั้น
+ * อนุญาตเฉพาะอักษรไทยและช่องว่าง อย่างน้อย 2 ตัวอักษร
  */
 export const validateThaiName = (name: string): boolean => {
   if (!name || typeof name !== 'string') {
     return false;
   }
-  
-  // อนุญาตให้ใช้ตัวอักษรไทยและอังกฤษ
-  const nameRegex = /^[a-zA-Zก-ฮะ-ฺเ-๎\s]+$/;
-  return nameRegex.test(name) && name.trim().length >= 2;
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return false;
+  // ต้องมีอักษรไทย และห้ามมี Latin / ตัวเลข
+  if (!/[\u0E00-\u0E7F]/.test(trimmed)) return false;
+  if (/[A-Za-z0-9]/.test(trimmed)) return false;
+  return /^[\u0E00-\u0E7F]+(?:\s+[\u0E00-\u0E7F]+)*$/.test(trimmed);
 };
+
+export const validateNameTitle = (title: string): boolean =>
+  NAME_TITLE_OPTIONS.includes(title as NameTitle);
+
+/** รวมคำนำหน้า + ชื่อ + นามสกุล (ไม่มีช่องว่างหลังคำนำหน้า) */
+export const formatThaiFullName = (
+  nameTitle: string,
+  firstName: string,
+  lastName: string
+): string => {
+  const t = (nameTitle || '').trim();
+  const f = (firstName || '').trim();
+  const l = (lastName || '').trim();
+  if (!f && !l) return t;
+  return `${t}${f}${l ? ` ${l}` : ''}`.trim();
+};
+
 
 /**
  * สร้างรหัสสุ่ม
@@ -125,10 +161,15 @@ export const getValidationErrorMessage = (field: string, value: any): string => 
     case 'lastName':
       if (!value) return field === 'firstName' ? 'กรุณากรอกชื่อ' : 'กรุณากรอกนามสกุล';
       if (!validateThaiName(value)) {
-        return field === 'firstName' 
-          ? 'ชื่อต้องมีอย่างน้อย 2 ตัวอักษร'
-          : 'นามสกุลต้องมีอย่างน้อย 2 ตัวอักษร';
+        return field === 'firstName'
+          ? 'ชื่อต้องเป็นภาษาไทยเท่านั้น (อย่างน้อย 2 ตัวอักษร)'
+          : 'นามสกุลต้องเป็นภาษาไทยเท่านั้น (อย่างน้อย 2 ตัวอักษร)';
       }
+      return '';
+
+    case 'nameTitle':
+      if (!value) return 'กรุณาเลือกคำนำหน้าชื่อ';
+      if (!validateNameTitle(value)) return 'คำนำหน้าชื่อไม่ถูกต้อง';
       return '';
       
     case 'adminCode':

@@ -61,7 +61,7 @@ import type { UserType } from '../lib/firebaseAuth';
 import LocationChecker from './LocationChecker';
 import { AdminSettings } from '../types';
 import SurveyForm from './activity/SurveyForm';
-import { validateStudentId, validateThaiName } from '../utils/validation';
+import { validateStudentId, validateThaiName, validateNameTitle, filterThaiNameInput, NAME_TITLE_OPTIONS } from '../utils/validation';
 import { accentCardSx, glassCardSx, pageColors } from '../lib/uiTheme';
 
 /** =========================
@@ -88,6 +88,7 @@ interface UserProfile {
   displayName: string;
   givenName?: string;
   surname?: string;
+  nameTitle?: string;
   department?: string;
   faculty?: string;
   studentId?: string;
@@ -205,6 +206,7 @@ function extractAndGenerateUserData(profile?: UserProfile) {
   if (!profile) {
     return {
       studentId: '',
+      nameTitle: '',
       firstName: '',
       lastName: '',
       department: '',
@@ -226,11 +228,18 @@ function extractAndGenerateUserData(profile?: UserProfile) {
     else studentId = generateStudentId('คณะวิทยาศาสตร์');
   }
 
+  const rawFirst = profile.givenName || extracted.firstName || '';
+  const rawLast = profile.surname || extracted.lastName || '';
+  const firstName = validateThaiName(rawFirst) ? rawFirst.trim() : '';
+  const lastName = validateThaiName(rawLast) ? rawLast.trim() : '';
+  const nameTitle = validateNameTitle(profile.nameTitle || '') ? (profile.nameTitle as string) : '';
+
   if (isExternal) {
     return {
       studentId,
-      firstName: profile.givenName || extracted.firstName || 'ไม่ระบุ',
-      lastName: profile.surname || extracted.lastName || 'ไม่ระบุ',
+      nameTitle,
+      firstName,
+      lastName,
       department: profile.institutionName || profile.department || 'ไม่ระบุ',
       faculty: 'บุคคลภายนอก',
       degree: profile.educationLevel || 'ไม่ระบุ',
@@ -243,8 +252,9 @@ function extractAndGenerateUserData(profile?: UserProfile) {
 
   return {
     studentId,
-    firstName: profile.givenName || extracted.firstName || 'ไม่ระบุ',
-    lastName: profile.surname || extracted.lastName || 'ไม่ระบุ',
+    nameTitle,
+    firstName,
+    lastName,
     department: profile.department || 'วิทยาการคอมพิวเตอร์',
     faculty: profile.faculty || detected.faculty,
     degree: detected.degree,
@@ -420,6 +430,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         ...prev,
         department: updatedData.department,
         faculty: updatedData.faculty,
+        nameTitle: updatedData.nameTitle,
         firstName: updatedData.firstName,
         lastName: updatedData.lastName,
         studentId: updatedData.studentId,
@@ -702,7 +713,9 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
    * =======================*/
   const handleInputChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
     if (forceRefreshEnabled) return;
-    setFormData({ ...formData, [field]: event.target.value });
+    const raw = event.target.value;
+    const value = field === 'firstName' || field === 'lastName' ? filterThaiNameInput(raw) : raw;
+    setFormData({ ...formData, [field]: value });
     setError('');
     setFieldErrors((prev) => ({ ...prev, [field]: '' }));
   };
@@ -744,12 +757,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       setFieldErrors({ studentId: 'ไม่พบรหัสอ้างอิงผู้ใช้ กรุณาเข้าสู่ระบบใหม่' });
       return false;
     }
+    if (!validateNameTitle((formData as any).nameTitle)) {
+      setFieldErrors({ nameTitle: 'กรุณาเลือกคำนำหน้าชื่อ' });
+      return false;
+    }
     if (!validateThaiName((formData as any).firstName)) {
-      setFieldErrors({ firstName: 'ชื่อไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)' });
+      setFieldErrors({ firstName: 'ชื่อต้องเป็นภาษาไทยเท่านั้น (อย่างน้อย 2 ตัวอักษร)' });
       return false;
     }
     if (!validateThaiName((formData as any).lastName)) {
-      setFieldErrors({ lastName: 'นามสกุลไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)' });
+      setFieldErrors({ lastName: 'นามสกุลต้องเป็นภาษาไทยเท่านั้น (อย่างน้อย 2 ตัวอักษร)' });
       return false;
     }
     if (!isExternal && !(formData as any).faculty) {
@@ -915,6 +932,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           studentId: profileStudentId,
           firstName: (formData as any).firstName,
           lastName: (formData as any).lastName,
+          nameTitle: (formData as any).nameTitle || '',
           faculty: (formData as any).faculty,
           department: (formData as any).department,
           degree: (formData as any).degree,
@@ -1373,7 +1391,35 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     />
                   </Grid>
 
-                  <Grid size={{ xs: 12, sm: 6 }}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <FormControl
+                      fullWidth
+                      required
+                      error={!!fieldErrors.nameTitle}
+                      disabled={isFieldReadOnly('firstName') || loading || forceRefreshEnabled}
+                    >
+                      <InputLabel>คำนำหน้าชื่อ</InputLabel>
+                      <Select
+                        value={(formData as any).nameTitle || ''}
+                        onChange={handleSelectChange('nameTitle')}
+                        label="คำนำหน้าชื่อ"
+                        sx={isFieldReadOnly('firstName') ? { bgcolor: 'grey.50' } : {}}
+                      >
+                        {NAME_TITLE_OPTIONS.map((t) => (
+                          <MenuItem key={t} value={t}>
+                            {t}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      {fieldErrors.nameTitle ? (
+                        <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>
+                          {fieldErrors.nameTitle}
+                        </Typography>
+                      ) : null}
+                    </FormControl>
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 4 }}>
                     <TextField
                       label="ชื่อ"
                       value={(formData as any).firstName}
@@ -1381,6 +1427,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       fullWidth
                       required
                       disabled={isFieldReadOnly('firstName') || loading || forceRefreshEnabled}
+                      inputProps={{ lang: 'th' }}
                       InputProps={{
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
@@ -1392,12 +1439,12 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         )
                       }}
                       error={!!fieldErrors.firstName}
-                      helperText={fieldErrors.firstName || (!isFieldReadOnly('firstName') && 'ชื่อจริงเป็นภาษาไทย')}
+                      helperText={fieldErrors.firstName || (!isFieldReadOnly('firstName') && 'ชื่อจริงภาษาไทยเท่านั้น')}
                       sx={isFieldReadOnly('firstName') ? { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } } : {}}
                     />
                   </Grid>
 
-                  <Grid size={{ xs: 12, sm: 6 }}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
                     <TextField
                       label="นามสกุล"
                       value={(formData as any).lastName}
@@ -1405,6 +1452,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       fullWidth
                       required
                       disabled={isFieldReadOnly('lastName') || loading || forceRefreshEnabled}
+                      inputProps={{ lang: 'th' }}
                       InputProps={{
                         startAdornment: (
                           <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
@@ -1416,7 +1464,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         )
                       }}
                       error={!!fieldErrors.lastName}
-                      helperText={fieldErrors.lastName || (!isFieldReadOnly('lastName') && 'นามสกุลเป็นภาษาไทย')}
+                      helperText={fieldErrors.lastName || (!isFieldReadOnly('lastName') && 'นามสกุลภาษาไทยเท่านั้น')}
                       sx={isFieldReadOnly('lastName') ? { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } } : {}}
                     />
                   </Grid>

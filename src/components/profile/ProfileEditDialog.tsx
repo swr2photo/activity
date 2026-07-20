@@ -20,6 +20,11 @@ import {
   CircularProgress,
   InputAdornment,
   IconButton,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  FormHelperText,
 } from '@mui/material';
 
 // ✅ Grid import แบบชัดเจน
@@ -53,9 +58,17 @@ import { alpha, useTheme } from '@mui/material/styles';
 import Autocomplete from '@mui/material/Autocomplete';
 import Cropper from 'react-easy-crop';
 import getCroppedImg, { compressImageFile } from '../../utils/cropImage';
+import {
+  NAME_TITLE_OPTIONS,
+  validateThaiName,
+  validateNameTitle,
+  filterThaiNameInput,
+  formatThaiFullName,
+} from '../../utils/validation';
 
 const FACULTY_OPTIONS = Array.from(new Set(Object.values(facultyMap)));
 const EDUCATION_OPTIONS = [...EDUCATION_LEVEL_OPTIONS];
+const TITLE_OPTIONS = [...NAME_TITLE_OPTIONS];
 
 interface ProfileEditDialogProps {
   open: boolean;
@@ -81,6 +94,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     displayName: '',
+    nameTitle: '',
     firstName: '',
     lastName: '',
     username: '',
@@ -161,6 +175,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
 
     let derivedFirstName = userData?.firstName || '';
     let derivedLastName = userData?.lastName || '';
+    let derivedTitle = userData?.nameTitle || '';
 
     if (
       !derivedFirstName ||
@@ -180,14 +195,20 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
       }
     }
 
+    // ถ้าชื่อจาก OAuth ไม่ใช่ภาษาไทย → ว่างให้ผู้ใช้กรอกใหม่
+    if (!validateThaiName(derivedFirstName)) derivedFirstName = '';
+    if (!validateThaiName(derivedLastName)) derivedLastName = '';
+    if (derivedTitle && !validateNameTitle(derivedTitle)) derivedTitle = '';
+
     const external =
       userData?.userType === 'external' ||
       (!!user.email && !isUniversityEmail(user.email) && userData?.userType !== 'university');
 
     setFormData({
       displayName: userData?.displayName || rawDisplayName || emailLocal,
-      firstName: derivedFirstName === 'ไม่ระบุ' ? '' : derivedFirstName,
-      lastName: derivedLastName === 'ไม่ระบุ' ? '' : derivedLastName,
+      nameTitle: derivedTitle,
+      firstName: derivedFirstName,
+      lastName: derivedLastName,
       username: userData?.username || '',
       photoURL: userData?.photoURL || user?.photoURL || '',
       department:
@@ -221,11 +242,18 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   const validateForm = () => {
     const errors: Record<string, string> = {};
 
+    if (!formData.nameTitle.trim()) errors.nameTitle = 'กรุณาเลือกคำนำหน้าชื่อ';
+    else if (!validateNameTitle(formData.nameTitle)) errors.nameTitle = 'คำนำหน้าชื่อไม่ถูกต้อง';
+
     if (!formData.firstName.trim()) errors.firstName = 'กรุณากรอกชื่อ';
-    else if (formData.firstName.trim().length < 2) errors.firstName = 'ชื่อต้องมีอย่างน้อย 2 ตัวอักษร';
+    else if (!validateThaiName(formData.firstName)) {
+      errors.firstName = 'ชื่อต้องเป็นภาษาไทยเท่านั้น (อย่างน้อย 2 ตัวอักษร)';
+    }
 
     if (!formData.lastName.trim()) errors.lastName = 'กรุณากรอกนามสกุล';
-    else if (formData.lastName.trim().length < 2) errors.lastName = 'นามสกุลต้องมีอย่างน้อย 2 ตัวอักษร';
+    else if (!validateThaiName(formData.lastName)) {
+      errors.lastName = 'นามสกุลต้องเป็นภาษาไทยเท่านั้น (อย่างน้อย 2 ตัวอักษร)';
+    }
 
     if (formData.photoURL && formData.photoURL.trim()) {
       try {
@@ -313,7 +341,9 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   };
 
   const handleInputChange = useCallback((field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    const nextValue =
+      field === 'firstName' || field === 'lastName' ? filterThaiNameInput(value) : value;
+    setFormData((prev) => ({ ...prev, [field]: nextValue }));
     setValidationErrors((prev) => {
       if (!prev[field]) return prev;
       const next = { ...prev };
@@ -343,9 +373,14 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         return;
       }
 
-      const fullDisplayName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
+      const fullDisplayName = formatThaiFullName(
+        formData.nameTitle,
+        formData.firstName,
+        formData.lastName
+      );
       const updatedData: Partial<UniversityUserProfile> = {
         displayName: fullDisplayName,
+        nameTitle: formData.nameTitle.trim(),
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         username:
@@ -389,8 +424,9 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     'U';
 
   const isFormValid =
-    formData.firstName.trim().length >= 2 &&
-    formData.lastName.trim().length >= 2 &&
+    validateNameTitle(formData.nameTitle) &&
+    validateThaiName(formData.firstName) &&
+    validateThaiName(formData.lastName) &&
     (!isExternal ||
       (!!formData.institutionName.trim() && !!formData.educationLevel.trim())) &&
     Object.keys(validationErrors).length === 0;
@@ -499,7 +535,28 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
             </Box>
 
             <Grid container spacing={2}>
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <FormControl fullWidth required error={!!validationErrors.nameTitle}>
+                  <InputLabel id="name-title-label">คำนำหน้าชื่อ *</InputLabel>
+                  <Select
+                    labelId="name-title-label"
+                    label="คำนำหน้าชื่อ *"
+                    value={formData.nameTitle}
+                    onChange={(e) => handleInputChange('nameTitle', String(e.target.value))}
+                  >
+                    {TITLE_OPTIONS.map((t) => (
+                      <MenuItem key={t} value={t}>
+                        {t}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>
+                    {validationErrors.nameTitle || 'เลือกคำนำหน้าชื่อภาษาไทย'}
+                  </FormHelperText>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <TextField
                   label="ชื่อ *"
                   value={formData.firstName}
@@ -507,7 +564,8 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                   fullWidth
                   required
                   variant="outlined"
-                  helperText={validationErrors.firstName || 'ชื่อจริงของคุณ'}
+                  inputProps={{ lang: 'th', inputMode: 'text' }}
+                  helperText={validationErrors.firstName || 'ชื่อจริงภาษาไทยเท่านั้น'}
                   error={!!validationErrors.firstName}
                   InputProps={{
                     startAdornment: (
@@ -519,7 +577,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                 />
               </Grid>
 
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <TextField
                   label="นามสกุล *"
                   value={formData.lastName}
@@ -527,7 +585,8 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                   fullWidth
                   required
                   variant="outlined"
-                  helperText={validationErrors.lastName || 'นามสกุลของคุณ'}
+                  inputProps={{ lang: 'th', inputMode: 'text' }}
+                  helperText={validationErrors.lastName || 'นามสกุลภาษาไทยเท่านั้น'}
                   error={!!validationErrors.lastName}
                   InputProps={{
                     startAdornment: (
