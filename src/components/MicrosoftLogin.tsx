@@ -33,7 +33,6 @@ import {
 import {
   signInWithPopup,
   signInWithRedirect,
-  getRedirectResult,
   setPersistence,
   browserLocalPersistence,
   signOut,
@@ -442,57 +441,23 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   }, []);
 
   /**
-   * สำคัญ: รองรับกรณี popup ถูกบล็อก/ไม่รองรับ แล้ว Firebase ไปใช้ redirect แทน
-   * - ตั้ง persistence เป็น local
-   * - ถ้ามี redirect result กลับมา → ทำต่อให้จบ
+   * Redirect result ถูกจัดการที่ firebaseAuth.consumeAuthRedirectResult
+   * (MicrosoftAuthSection / useAuth) — ไม่เรียก getRedirectResult ที่นี่
+   * เพื่อไม่ให้แย่งผลกับ Google และไม่ reject อีเมลนอก @psu.ac.th โดยผิดพลาด
    */
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       try {
         await setPersistence(auth, browserLocalPersistence);
-
-        const res = await getRedirectResult(auth);
-        if (cancelled) return;
-
-        if (res?.user) {
-          setLoginLoading(true);
-          setError('');
-          loginInProgressRef.current = true;
-
-          const firebaseUser = res.user;
-
-          if (!firebaseUser.email?.endsWith('@psu.ac.th')) {
-            await signOut(auth);
-            const msg = 'กรุณาใช้บัญชี Microsoft ของมหาวิทยาลัยเท่านั้น (@psu.ac.th)';
-            setError(msg);
-            onLoginError?.(msg);
-            return;
-          }
-
-          if (onPreLoginCheck && firebaseUser.email) {
-            const canProceed = await onPreLoginCheck(firebaseUser.email);
-            if (!canProceed) {
-              await signOut(auth);
-              return;
-            }
-          }
-
-          await handleSuccessfulLogin(firebaseUser);
-        }
       } catch {
         // ignore
-      } finally {
-        loginInProgressRef.current = false;
-        setLoginLoading(false);
       }
+      if (cancelled) return;
     })();
-
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* =========================
@@ -534,6 +499,7 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         const shouldFallbackToRedirect =
           code === 'auth/popup-blocked' ||
           code === 'auth/popup-closed-by-user' ||
+          code === 'auth/cancelled-popup-request' ||
           code === 'auth/operation-not-supported-in-this-environment' ||
           code === 'auth/web-storage-unsupported';
 
@@ -564,8 +530,10 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       await handleSuccessfulLogin(firebaseUser);
     } catch (err: any) {
       const msg = mapAuthError(err);
-      setError(msg);
-      onLoginError?.(msg);
+      if (msg) {
+        setError(msg);
+        onLoginError?.(msg);
+      }
     } finally {
       setLoginLoading(false);
       loginInProgressRef.current = false;

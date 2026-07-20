@@ -329,6 +329,12 @@ const Navbar: React.FC = () => {
                         setLoginBusy(true);
                         try {
                           await loginWithGoogle();
+                        } catch (err: any) {
+                          // redirect-pending = กำลังพาไป Google ไม่ใช่ error
+                          const msg = String(err?.message || '');
+                          if (err?.code !== 'auth/redirect-pending' && msg) {
+                            console.error('Google login failed:', err);
+                          }
                         } finally {
                           setLoginBusy(false);
                         }

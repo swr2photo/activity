@@ -5,7 +5,13 @@ import {
   User,
   OAuthProvider,
   GoogleAuthProvider,
+  AuthProvider,
+  UserCredential,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   getAdditionalUserInfo,
@@ -24,6 +30,53 @@ import {
 import type { DocumentData } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { SessionManager } from './sessionManager';
+
+/** ถูกโยนเมื่อกำลังพาไป OAuth แบบ redirect (ไม่ใช่ error จริง) */
+export class AuthRedirectPendingError extends Error {
+  code = 'auth/redirect-pending';
+  constructor() {
+    super('กำลังเปลี่ยนไปหน้าเข้าสู่ระบบ...');
+    this.name = 'AuthRedirectPendingError';
+  }
+}
+
+export const isInAppBrowser = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Line\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter/i.test(ua);
+};
+
+function shouldFallbackToRedirect(err: unknown): boolean {
+  const code = String((err as { code?: string })?.code || '');
+  return (
+    code === 'auth/popup-blocked' ||
+    code === 'auth/popup-closed-by-user' ||
+    code === 'auth/cancelled-popup-request' ||
+    code === 'auth/operation-not-supported-in-this-environment' ||
+    code === 'auth/web-storage-unsupported'
+  );
+}
+
+async function signInWithPopupOrRedirect(provider: AuthProvider): Promise<UserCredential> {
+  await setPersistence(auth, browserLocalPersistence);
+  try {
+    return await signInWithPopup(auth, provider);
+  } catch (err) {
+    if (!shouldFallbackToRedirect(err)) throw err;
+    await signInWithRedirect(auth, provider);
+    throw new AuthRedirectPendingError();
+  }
+}
+
+function detectAuthProviderId(cred: UserCredential): AuthProviderId | null {
+  const pid = String(cred.providerId || '');
+  if (pid === 'google.com') return 'google';
+  if (pid === 'microsoft.com') return 'microsoft';
+  const fromUser = cred.user.providerData.map((p) => p.providerId);
+  if (fromUser.includes('google.com')) return 'google';
+  if (fromUser.includes('microsoft.com')) return 'microsoft';
+  return null;
+}
 
 export type UserType = 'university' | 'external';
 export type AuthProviderId = 'microsoft' | 'google';
@@ -160,6 +213,9 @@ export const isUniversityEmail = (email: string): boolean => {
 
 /** แปลง Firebase Auth error → ข้อความภาษาไทยแบบกลาง (ไม่มี “บัญชีมีอยู่แล้ว…”) */
 export const mapAuthError = (err: any): string => {
+  if (err instanceof AuthRedirectPendingError || err?.code === 'auth/redirect-pending') {
+    return '';
+  }
   const code = String(err?.code || '');
   const rawMsg = String(err?.message || '');
 
@@ -169,14 +225,18 @@ export const mapAuthError = (err: any): string => {
     case 'auth/popup-closed-by-user':
       return 'การเข้าสู่ระบบถูกยกเลิก กรุณาลองใหม่อีกครั้ง';
     case 'auth/popup-blocked':
-      return 'เบราว์เซอร์บล็อกหน้าต่างล็อกอิน กรุณาอนุญาต Popup แล้วลองใหม่';
+      return 'เบราว์เซอร์บล็อกหน้าต่างล็อกอิน — ระบบจะลองเปิดแบบเต็มหน้าต่าง หากยังไม่ได้ ให้เปิดใน Chrome/Safari';
+    case 'auth/unauthorized-domain':
+      return 'โดเมนเว็บนี้ยังไม่ได้รับอนุญาตใน Firebase Auth (ต้องเพิ่ม event.psuscc.club ใน Authorized domains) — กรุณาติดต่อผู้ดูแลระบบ';
+    case 'auth/operation-not-allowed':
+      return 'ยังไม่ได้เปิดใช้การเข้าสู่ระบบด้วย Google ใน Firebase Console — กรุณาติดต่อผู้ดูแลระบบ';
     case 'auth/network-request-failed':
       return 'มีปัญหาการเชื่อมต่ออินเทอร์เน็ต กรุณาลองใหม่';
     case 'auth/too-many-requests':
       return 'พยายามเข้าสู่ระบบบ่อยเกินไป กรุณารอสักครู่';
     default:
       if (rawMsg.toLowerCase().includes('popup')) {
-        return 'ไม่สามารถเปิดหน้าต่างล็อกอินได้ กรุณาอนุญาต Popup แล้วลองใหม่';
+        return 'ไม่สามารถเปิดหน้าต่างล็อกอินได้ กรุณาอนุญาต Popup หรือลองใหม่ใน Chrome/Safari';
       }
       return `เกิดข้อผิดพลาด: ${rawMsg || code}`;
   }
@@ -317,13 +377,19 @@ export const signInWithMicrosoft = async (): Promise<{
   user: User;
   userData: UniversityUserProfile;
 }> => {
+  if (isInAppBrowser()) {
+    throw new Error(
+      'เบราว์เซอร์ในแอป (LINE/FB/IG) อาจทำให้เข้าสู่ระบบล้มเหลว กรุณาเปิดลิงก์นี้ใน Chrome/Safari แล้วลองใหม่'
+    );
+  }
+
   const provider = new OAuthProvider('microsoft.com');
   provider.addScope('openid');
   provider.addScope('email');
   provider.addScope('profile');
   provider.setCustomParameters({ prompt: 'select_account' });
 
-  const result = await signInWithPopup(auth, provider);
+  const result = await signInWithPopupOrRedirect(provider);
   try {
     getAdditionalUserInfo(result);
   } catch {
@@ -340,17 +406,24 @@ export const signInWithMicrosoft = async (): Promise<{
  * ล็อกอินด้วย Google
  * - @psu.ac.th → ถือเป็นผู้ใช้มหาวิทยาลัย
  * - อื่นๆ → บุคคลภายนอก ต้องกรอกสถานศึกษา/ระดับการศึกษา
+ * - ถ้า popup ใช้ไม่ได้ → เปลี่ยนเป็น redirect อัตโนมัติ
  */
 export const signInWithGoogle = async (): Promise<{
   user: User;
   userData: UniversityUserProfile;
 }> => {
+  if (isInAppBrowser()) {
+    throw new Error(
+      'เบราว์เซอร์ในแอป (LINE/FB/IG) อาจทำให้เข้าสู่ระบบล้มเหลว กรุณาเปิดลิงก์นี้ใน Chrome/Safari แล้วลองใหม่'
+    );
+  }
+
   const provider = new GoogleAuthProvider();
   provider.addScope('email');
   provider.addScope('profile');
   provider.setCustomParameters({ prompt: 'select_account' });
 
-  const result = await signInWithPopup(auth, provider);
+  const result = await signInWithPopupOrRedirect(provider);
   try {
     getAdditionalUserInfo(result);
   } catch {
@@ -361,6 +434,48 @@ export const signInWithGoogle = async (): Promise<{
     requireUniversityEmail: false,
   });
   return { user: result.user, userData };
+};
+
+/**
+ * รับผลลัพธ์หลัง redirect กลับมา (singleton — เรียกกี่ครั้งก็ได้ ผลเดียวกัน)
+ * รองรับทั้ง Google และ Microsoft
+ */
+let redirectResultPromise: Promise<{
+  user: User;
+  userData: UniversityUserProfile;
+  provider: AuthProviderId;
+} | null> | null = null;
+
+export const consumeAuthRedirectResult = async (): Promise<{
+  user: User;
+  userData: UniversityUserProfile;
+  provider: AuthProviderId;
+} | null> => {
+  if (!redirectResultPromise) {
+    redirectResultPromise = (async () => {
+      await setPersistence(auth, browserLocalPersistence);
+      const result = await getRedirectResult(auth);
+      if (!result?.user) return null;
+
+      try {
+        getAdditionalUserInfo(result);
+      } catch {
+        /* noop */
+      }
+
+      const provider = detectAuthProviderId(result);
+      if (!provider) {
+        await firebaseSignOut(auth);
+        throw new Error('ไม่รองรับผู้ให้บริการเข้าสู่ระบบนี้');
+      }
+
+      const userData = await upsertUserAfterSignIn(result.user, provider, {
+        requireUniversityEmail: provider === 'microsoft',
+      });
+      return { user: result.user, userData, provider };
+    })();
+  }
+  return redirectResultPromise;
 };
 
 /** ออกจากระบบ */
@@ -443,16 +558,54 @@ export const useAuth = () => {
     return () => unsubscribe();
   }, []);
 
+  // รับผลหลัง OAuth redirect (Google / Microsoft)
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await consumeAuthRedirectResult();
+        if (cancelled || !result) return;
+        setAuthState({
+          user: result.user,
+          userData: result.userData,
+          loading: false,
+          error: null,
+        });
+      } catch (e: any) {
+        if (cancelled) return;
+        const msg = mapAuthError(e) || e?.message;
+        if (msg) setAuthState((prev) => ({ ...prev, loading: false, error: msg }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const login = async () => {
-    const { user, userData } = await signInWithMicrosoft();
-    setAuthState({ user, userData, loading: false, error: null });
-    return { user, userData };
+    try {
+      const { user, userData } = await signInWithMicrosoft();
+      setAuthState({ user, userData, loading: false, error: null });
+      return { user, userData };
+    } catch (e: any) {
+      if (e instanceof AuthRedirectPendingError || e?.code === 'auth/redirect-pending') {
+        return { user: null, userData: null, redirecting: true as const };
+      }
+      throw e;
+    }
   };
 
   const loginWithGoogle = async () => {
-    const { user, userData } = await signInWithGoogle();
-    setAuthState({ user, userData, loading: false, error: null });
-    return { user, userData };
+    try {
+      const { user, userData } = await signInWithGoogle();
+      setAuthState({ user, userData, loading: false, error: null });
+      return { user, userData };
+    } catch (e: any) {
+      if (e instanceof AuthRedirectPendingError || e?.code === 'auth/redirect-pending') {
+        return { user: null, userData: null, redirecting: true as const };
+      }
+      throw e;
+    }
   };
 
   const logout = async () => {

@@ -18,7 +18,14 @@ import { Security as SecurityIcon } from '@mui/icons-material';
 import { glassCardLargeSx, pageColors } from '../../lib/uiTheme';
 import MicrosoftLogin from '../MicrosoftLogin';
 import GoogleLoginButton from './GoogleLoginButton';
-import { isUniversityEmail, signOutUser } from '../../lib/firebaseAuth';
+import {
+  isUniversityEmail,
+  signOutUser,
+  consumeAuthRedirectResult,
+  mapAuthError,
+  AuthRedirectPendingError,
+} from '../../lib/firebaseAuth';
+import { SessionManager } from '../../lib/sessionManager';
 
 interface MicrosoftAuthSectionProps {
   activityData: any;
@@ -63,6 +70,44 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
       return () => clearTimeout(timer);
     }
   }, [authState.error]);
+
+  // รับผลหลัง redirect จาก Google / Microsoft (ครั้งเดียวต่อหน้า)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await consumeAuthRedirectResult();
+        if (cancelled || !result) return;
+
+        setAuthState((prev) => ({ ...prev, isLoading: true }));
+
+        try {
+          const ipRes = await fetch('https://api.ipify.org?format=json');
+          const ipData = await ipRes.json();
+          await SessionManager.createSession(
+            result.user.uid,
+            result.user.email || '',
+            ipData.ip || 'unknown'
+          );
+        } catch {
+          /* session optional */
+        }
+
+        await handleLoginSuccess(result.userData);
+      } catch (err: any) {
+        if (cancelled) return;
+        if (err instanceof AuthRedirectPendingError) return;
+        const msg = mapAuthError(err) || err?.message || 'เข้าสู่ระบบไม่สำเร็จ';
+        if (msg) handleLoginError(msg);
+      } finally {
+        if (!cancelled) setAuthState((prev) => ({ ...prev, isLoading: false }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLoginSuccess = async (userProfile: any) => {
     try {

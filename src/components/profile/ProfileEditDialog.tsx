@@ -114,14 +114,14 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     setInstitutionLoading(true);
     institutionSearchRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/institutions/search?q=${encodeURIComponent(query)}&scope=all`);
+        const res = await fetch(`/api/institutions/search?q=${encodeURIComponent(query)}&scope=th`);
         if (!res.ok) throw new Error('search failed');
         const data = await res.json();
         const names: string[] = Array.from(
           new Set(
             (data.items || [])
-              .map((it: { name?: string; label?: string }) => it.label || it.name)
-              .filter(Boolean)
+              .map((it: { name?: string }) => it.name)
+              .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0)
           )
         );
         setInstitutionOptions(names);
@@ -566,10 +566,10 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                           label="สถานศึกษา / หน่วยงาน *"
                           required
                           variant="outlined"
-                          placeholder="พิมพ์ค้นหา เช่น หาดใหญ่ / สงขลา / Chulalongkorn"
+                          placeholder="พิมพ์ค้นหา เช่น หาดใหญ่ / สงขลา / จุฬา"
                           helperText={
                             validationErrors.institutionName ||
-                            'ค้นมหาวิทยาลัยไทย (อว.) + โรงเรียนไทย (ศธ.) + มหาวิทยาลัยทั่วโลก — หรือพิมพ์ชื่อเองได้'
+                            'ค้นชื่อสถานศึกษาภาษาไทย (มหาวิทยาลัย อว. / โรงเรียน ศธ.) — หรือพิมพ์ชื่อเองได้'
                           }
                           error={!!validationErrors.institutionName}
                           InputProps={{

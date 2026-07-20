@@ -2,7 +2,12 @@
 
 import React, { useState } from 'react';
 import { Box, Button, CircularProgress } from '@mui/material';
-import { signInWithGoogle, mapAuthError, UniversityUserProfile } from '../../lib/firebaseAuth';
+import {
+  signInWithGoogle,
+  mapAuthError,
+  AuthRedirectPendingError,
+  UniversityUserProfile,
+} from '../../lib/firebaseAuth';
 import { SessionManager } from '../../lib/sessionManager';
 
 const GoogleLogo: React.FC<{ size?: number }> = ({ size = 20 }) => (
@@ -75,7 +80,12 @@ const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({
 
       onLoginSuccess?.(userData);
     } catch (err: any) {
-      onLoginError?.(mapAuthError(err) || err?.message || 'เข้าสู่ระบบด้วย Google ไม่สำเร็จ');
+      if (err instanceof AuthRedirectPendingError || err?.code === 'auth/redirect-pending') {
+        // กำลังพาไปหน้า Google — ไม่ต้องโชว์ error
+        return;
+      }
+      const msg = mapAuthError(err) || err?.message || 'เข้าสู่ระบบด้วย Google ไม่สำเร็จ';
+      if (msg) onLoginError?.(msg);
     } finally {
       setLoading(false);
     }
