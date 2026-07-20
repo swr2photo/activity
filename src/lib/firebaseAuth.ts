@@ -410,6 +410,7 @@ export const signInWithMicrosoft = async (): Promise<{
   const userData = await upsertUserAfterSignIn(result.user, 'microsoft', {
     requireUniversityEmail: true,
   });
+  await SessionManager.ensureSession(result.user.uid, result.user.email || '');
   return { user: result.user, userData };
 };
 
@@ -444,6 +445,7 @@ export const signInWithGoogle = async (): Promise<{
   const userData = await upsertUserAfterSignIn(result.user, 'google', {
     requireUniversityEmail: false,
   });
+  await SessionManager.ensureSession(result.user.uid, result.user.email || '');
   return { user: result.user, userData };
 };
 
@@ -483,6 +485,7 @@ export const consumeAuthRedirectResult = async (): Promise<{
       const userData = await upsertUserAfterSignIn(result.user, provider, {
         requireUniversityEmail: provider === 'microsoft',
       });
+      await SessionManager.ensureSession(result.user.uid, result.user.email || '');
       return { user: result.user, userData, provider };
     })();
   }
@@ -557,7 +560,13 @@ export const useAuth = () => {
       setAuthState((prev) => ({ ...prev, loading: true, error: null }));
       try {
         if (firebaseUser) {
-          const userData = await getUserProfile(firebaseUser.uid);
+          let userData = await getUserProfile(firebaseUser.uid);
+          // race: Google/Microsoft กำลัง upsert โปรไฟล์ — รอสั้นๆ แล้วลองใหม่
+          if (!userData) {
+            await new Promise((r) => setTimeout(r, 500));
+            userData = await getUserProfile(firebaseUser.uid);
+          }
+          await SessionManager.ensureSession(firebaseUser.uid, firebaseUser.email || '');
           setAuthState({ user: firebaseUser, userData, loading: false, error: null });
         } else {
           setAuthState({ user: null, userData: null, loading: false, error: null });

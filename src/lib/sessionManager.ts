@@ -83,6 +83,25 @@ export class SessionManager {
     }
   }
 
+  /**
+   * มี Firebase Auth แล้วแต่ยังไม่มี loginSessions (เช่น race หลัง Google popup)
+   * → สร้างเซสชันใหม่แทนการ sign-out
+   */
+  static async ensureSession(
+    userId: string,
+    userEmail: string,
+    ipAddress = 'unknown'
+  ): Promise<{ isValid: boolean; remainingTime?: number; message?: string }> {
+    const existing = await this.validateSession(userId);
+    if (existing.isValid) return existing;
+
+    const created = await this.createSession(userId, userEmail || 'unknown', ipAddress);
+    if (!created.success) {
+      return { isValid: false, message: created.message || 'ไม่สามารถสร้างเซสชันได้' };
+    }
+    return this.validateSession(userId);
+  }
+
   /** ต่ออายุเมื่อมี activity (เลื่อนหมดอายุอีก 30 นาที) */
   static async touch(
     userId: string,

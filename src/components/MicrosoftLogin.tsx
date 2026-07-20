@@ -227,7 +227,8 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
   const checkExistingSession = async (userId: string) => {
     try {
-      const sessionResult = await SessionManager.validateSession(userId);
+      const email = auth.currentUser?.email || '';
+      const sessionResult = await SessionManager.ensureSession(userId, email);
 
       if (sessionResult.isValid) {
         setSessionValid(true);

@@ -1158,7 +1158,7 @@ const RegisterPageContent: React.FC = () => {
     if (!user?.uid) return;
     setSessionValidating(true);
     try {
-      const result = await SessionManager.validateSession(user.uid);
+      const result = await SessionManager.ensureSession(user.uid, user.email || '');
       if (!result.isValid) {
         await auth.signOut();
         return;
@@ -1175,7 +1175,7 @@ const RegisterPageContent: React.FC = () => {
   const validateUserSession = async (isInitial = false) => {
     if (!user?.uid) return;
     try {
-      const result = await SessionManager.validateSession(user.uid);
+      const result = await SessionManager.ensureSession(user.uid, user.email || '');
       if (!result.isValid) {
         await auth.signOut();
         return;
