@@ -213,7 +213,7 @@ export const EnhancedAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
   };
 
   const exportToCSV = () => {
-    const headers = ['วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'สาขา', 'รหัสกิจกรรม'];
+    const headers = ['วันที่/เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'สังกัด', 'รหัสกิจกรรม'];
     const csv = [
       headers.join(','),
       ...filtered.map((r) =>
@@ -244,7 +244,7 @@ export const EnhancedAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     },
     {
       id: 'studentId',
-      label: 'รหัสนักศึกษา',
+      label: 'รหัสผู้เข้าร่วม',
       format: (v: string) => (
         <Typography variant="body2" fontWeight="600" color="primary.main" sx={{ fontFamily: 'monospace' }}>
           {v}
@@ -254,7 +254,7 @@ export const EnhancedAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     { id: 'fullName', label: 'ชื่อ-นามสกุล', format: (_: any, row: any) => <Typography variant="body2" fontWeight="medium">{row.firstName} {row.lastName}</Typography> },
     {
       id: 'department',
-      label: 'สาขา',
+      label: 'สังกัด',
       format: (v: string) => <Chip label={v} size="small" variant="outlined" color="secondary" />,
       hideOnMobile: true,
     },
@@ -292,7 +292,7 @@ export const EnhancedAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
           <StatsCard title="รายการทั้งหมด" value={stats.totalRecords} icon={<EventIcon />} color="#1976d2" subtitle="บันทึกการเข้าร่วม" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatsCard title="นักศึกษา" value={stats.uniqueStudents} icon={<PeopleIcon />} color="#9c27b0" subtitle="คนที่เข้าร่วม" />
+          <StatsCard title="ผู้เข้าร่วม" value={stats.uniqueStudents} icon={<PeopleIcon />} color="#9c27b0" subtitle="คนที่เข้าร่วม" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatsCard title="กิจกรรม" value={stats.uniqueActivities} icon={<EventIcon />} color="#2e7d32" subtitle="กิจกรรมทั้งหมด" />
@@ -317,7 +317,7 @@ export const EnhancedAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
             label="ค้นหา"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            placeholder="รหัสกิจกรรม, นักศึกษา, ชื่อ..."
+            placeholder="รหัสกิจกรรม, ผู้เข้าร่วม, ชื่อ..."
             sx={{ minWidth: { xs: '100%', md: 300 } }}
             InputProps={{
               startAdornment: (

@@ -415,7 +415,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
         const snap = await getDocs(q);
         const allData = snap.docs.map(d => ({...d.data(), timestamp: d.data().timestamp?.toDate() } as ActivityRecord));
         
-        const headers = ['วันที่', 'เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'คณะ', 'สาขา', 'ชื่อกิจกรรม', 'รหัสกิจกรรม'];
+        const headers = ['วันที่', 'เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'คณะ/สถานศึกษา', 'สาขา/ระดับ', 'ชื่อกิจกรรม', 'รหัสกิจกรรม'];
         const rows = allData.map(r => [
             r.timestamp.toLocaleDateString('th-TH'),
             r.timestamp.toLocaleTimeString('th-TH'),
@@ -635,8 +635,8 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                     />
                   </TableHead>
                   <TableHead>เวลา</TableHead>
-                  <TableHead>นักศึกษา</TableHead>
-                  <TableHead>คณะ/สาขา</TableHead>
+                  <TableHead>ผู้เข้าร่วม</TableHead>
+                  <TableHead>สังกัด</TableHead>
                   <TableHead>กิจกรรม</TableHead>
                   <TableHead className="text-right">จัดการ</TableHead>
                 </TableRow>
@@ -754,7 +754,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <DetailField
-                  label={selectedRecord.studentId?.startsWith('EXT-') ? 'รหัสอ้างอิง' : 'รหัสนักศึกษา'}
+                  label={selectedRecord.studentId?.startsWith('EXT-') ? 'รหัสอ้างอิง' : 'รหัสผู้เข้าร่วม'}
                   value={selectedRecord.studentId}
                 />
                 <DetailField

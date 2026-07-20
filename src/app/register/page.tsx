@@ -952,10 +952,30 @@ const RegisterPageContent: React.FC = () => {
 
         setActivityData(activity);
         
-        // Dynamic QR Validation
+        // Dynamic QR Validation (HMAC ตามเวลา + fallback token เก่า)
         if (activity.dynamicQREnabled) {
           const dt = searchParams.get('dt');
-          if (!dt || (dt !== activity.dynamicToken && dt !== activity.previousDynamicToken)) {
+          if (!dt) {
+            setError('QR Code หมดอายุ หรือไม่ถูกต้อง กรุณาสแกนใหม่จากหน้าจอจุดลงทะเบียน');
+            setValidActivity(false);
+            setLoading(false);
+            return;
+          }
+
+          let valid = false;
+          try {
+            const res = await fetch(
+              `/api/dynamic-qr/validate?code=${encodeURIComponent(activity.activityCode)}&dt=${encodeURIComponent(dt)}`,
+              { cache: 'no-store' }
+            );
+            const data = await res.json();
+            valid = Boolean(data?.valid);
+          } catch {
+            // ถ้า API ล้ม ใช้เทียบ token เก่าในเอกสารชั่วคราว
+            valid = dt === activity.dynamicToken || dt === activity.previousDynamicToken;
+          }
+
+          if (!valid) {
             setError('QR Code หมดอายุ หรือไม่ถูกต้อง กรุณาสแกนใหม่จากหน้าจอจุดลงทะเบียน');
             setValidActivity(false);
             setLoading(false);

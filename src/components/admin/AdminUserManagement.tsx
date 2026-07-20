@@ -227,7 +227,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     ]);
 
     const csv = [
-      ['รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'อีเมล', 'คณะ', 'สาขา', 'ระดับปริญญา', 'สถานะ', 'วันที่สร้าง'],
+      ['รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'อีเมล', 'คณะ/สถานศึกษา', 'สาขา/ระดับ', 'ระดับปริญญา', 'สถานะ', 'วันที่สร้าง'],
       ...rows,
     ]
       .map((r) => r.map(csvCell).join(','))
@@ -501,7 +501,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
           {!showSensitive && filtered.length > 0 && (
             <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1.5">
               <EyeOff className="h-3.5 w-3.5" />
-              กำลังปิดบังอีเมลและรหัสนักศึกษา — กด &quot;แสดงข้อมูลเต็ม&quot; เพื่อดู (มีการบันทึก audit log)
+              กำลังปิดบังอีเมลและรหัสผู้เข้าร่วม — กด &quot;แสดงข้อมูลเต็ม&quot; เพื่อดู (มีการบันทึก audit log)
             </p>
           )}
           {loading ? (
@@ -648,15 +648,15 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                   <p className="text-sm font-medium break-all">{showSensitive ? (sel.email || '-') : maskEmail(sel.email)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">รหัสนักศึกษา</p>
+                  <p className="text-xs text-muted-foreground">รหัสผู้เข้าร่วม</p>
                   <p className="text-sm font-medium font-mono">{showSensitive ? (sel.studentId || '-') : maskStudentId(sel.studentId)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">คณะ</p>
+                  <p className="text-xs text-muted-foreground">คณะ/สถานศึกษา</p>
                   <p className="text-sm font-medium">{sel.faculty || '-'}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">สาขา</p>
+                  <p className="text-xs text-muted-foreground">สาขา/ระดับ</p>
                   <p className="text-sm font-medium">{String(sel.department || '-')}</p>
                 </div>
                 <div>

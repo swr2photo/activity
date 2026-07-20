@@ -51,7 +51,7 @@ const Table: React.FC<{ rows: ActivityRecord[] }> = ({ rows }) => {
       <Box component="table" sx={{ width: "100%", borderCollapse: "collapse" }}>
         <Box component="thead">
           <Box component="tr">
-            {["วันที่/เวลา", "รหัสนักศึกษา", "ชื่อ", "นามสกุล", "สาขา", "รหัสกิจกรรม"].map(
+            {["วันที่/เวลา", "รหัสผู้เข้าร่วม", "ชื่อ", "นามสกุล", "สังกัด", "รหัสกิจกรรม"].map(
               (h) => (
                 <Box
                   key={h}
@@ -230,10 +230,10 @@ export default function RecordsClient() {
   const exportCSV = () => {
     const headers = [
       "วันที่/เวลา",
-      "รหัสนักศึกษา",
+      "รหัสผู้เข้าร่วม",
       "ชื่อ",
       "นามสกุล",
-      "สาขา",
+      "สังกัด",
       "รหัสกิจกรรม",
     ];
 
@@ -292,7 +292,7 @@ export default function RecordsClient() {
                 <Chip color="default" label="ทุกกิจกรรม" />
               )}
               <Chip label={`ทั้งหมด: ${all.length}`} />
-              <Chip label={`นักศึกษา: ${stats.uniqueStudents}`} />
+              <Chip label={`ผู้เข้าร่วม: ${stats.uniqueStudents}`} />
               <Chip label={`กิจกรรม: ${stats.uniqueActivities}`} />
             </Stack>
           </Grid>
@@ -307,7 +307,7 @@ export default function RecordsClient() {
               label="ค้นหา"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="รหัสกิจกรรม, รหัสนักศึกษา, ชื่อ..."
+              placeholder="รหัสกิจกรรม, รหัสผู้เข้าร่วม, ชื่อ..."
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">

@@ -3114,6 +3114,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     control={<Switch checked={form.dynamicQREnabled} onChange={(e) => updateForm('dynamicQREnabled', e.target.checked as any)} />}
                     label="เปิดใช้งาน Dynamic QR (จอ Rolling QR)"
                   />
+                  <Typography variant="caption" color="text.secondary" sx={{ pl: 4, display: 'block', mt: -0.5 }}>
+                    QR หมุนตามเวลาทุก 45 วินาที (HMAC) — ภาพสแกนเก่าใช้ต่อไม่ได้ แต่ยังรับช่วงก่อนหน้าได้
+                  </Typography>
                 </Stack>
               </Grid>
 

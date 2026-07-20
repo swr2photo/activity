@@ -168,10 +168,10 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
     const data = rows ?? filtered;
     const headers = [
       'วันที่/เวลา',
-      'รหัสนักศึกษา',
+      'รหัสผู้เข้าร่วม',
       'ชื่อ',
       'นามสกุล',
-      'สาขา',
+      'สังกัด',
       'รหัสกิจกรรม',
       'ชื่อกิจกรรม',
     ];
@@ -235,7 +235,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground font-medium">นักศึกษา (ไม่ซ้ำ)</p>
+                <p className="text-sm text-muted-foreground font-medium">ผู้เข้าร่วม (ไม่ซ้ำ)</p>
                 <p className="text-3xl font-bold text-slate-900">{stats.uniqueStudents.toLocaleString()}</p>
               </div>
               <div className="h-12 w-12 rounded-xl bg-green-100 flex items-center justify-center">
@@ -268,7 +268,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="ค้นหา รหัสกิจกรรม, รหัสนักศึกษา, ชื่อ..."
+                placeholder="ค้นหา รหัสกิจกรรม, รหัสผู้เข้าร่วม, ชื่อ..."
                 value={searchText}
                 onChange={(e) => { setSearchText(e.target.value); setCurrentPage(1); }}
                 className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
@@ -458,7 +458,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                       </div>
                       <div className="text-center">
                         <p className="text-xl font-bold text-slate-900">{g.uniqueStudents.toLocaleString()}</p>
-                        <p className="text-[11px] text-muted-foreground">นักศึกษา</p>
+                        <p className="text-[11px] text-muted-foreground">ผู้เข้าร่วม</p>
                       </div>
                       <ChevronDown className={cn('h-5 w-5 text-slate-400 transition-transform', expanded && 'rotate-180')} />
                     </div>
@@ -482,7 +482,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
                         <table className="w-full min-w-[560px]">
                           <thead className="sticky top-0 bg-slate-50">
                             <tr className="border-b border-slate-100">
-                              {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'สาขา'].map((h) => (
+                              {['#', 'วันที่/เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'สังกัด'].map((h) => (
                                 <th key={h} className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
                                   {h}
                                 </th>
@@ -540,7 +540,7 @@ const AdminRegistrationHistory: React.FC<Props> = ({ currentAdmin }) => {
               <table className="w-full min-w-[640px]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
-                    {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'สาขา', 'รหัสกิจกรรม'].map(
+                    {['#', 'วันที่/เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'สังกัด', 'รหัสกิจกรรม'].map(
                       (h) => (
                         <th
                           key={h}

@@ -289,7 +289,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   const exportCSV = () => {
     if (!selectedActivity) return;
     const headers = [
-      'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'สาขา',
+      'วันที่/เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'สังกัด',
       ...questions.map((q, i) => `${i + 1}. ${q.question}`),
     ];
     const body = filteredResponses.map((r) => {
@@ -489,7 +489,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         query(collection(db, 'universityUsers'), where('studentId', '==', sid))
       );
       if (snap.empty) {
-        setError(`ไม่พบผู้ใช้รหัสนักศึกษา ${sid}`);
+        setError(`ไม่พบผู้ใช้รหัสผู้เข้าร่วม ${sid}`);
         return;
       }
       const docSnap = snap.docs[0];
@@ -699,7 +699,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                   <input
                     type="text"
-                    placeholder="รหัสนักศึกษา เช่น 6710210317"
+                    placeholder="รหัสผู้เข้าร่วม เช่น 6710210317"
                     value={manualStudentId}
                     onChange={(e) => setManualStudentId(e.target.value)}
                     className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-mono"
@@ -904,7 +904,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <input
                       type="text"
-                      placeholder="ค้นหา ชื่อ, รหัสนักศึกษา, คำตอบ..."
+                      placeholder="ค้นหา ชื่อ, รหัสผู้เข้าร่วม, คำตอบ..."
                       value={searchText}
                       onChange={(e) => setSearchText(e.target.value)}
                       className="w-full pl-10 pr-9 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
@@ -937,7 +937,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                   <table className="w-full min-w-[640px]">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50">
-                        {['#', 'วันที่/เวลา', 'รหัสนักศึกษา', 'ชื่อ-นามสกุล', 'สาขา', 'จัดการ'].map((h, i) => (
+                        {['#', 'วันที่/เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ-นามสกุล', 'สังกัด', 'จัดการ'].map((h, i) => (
                           <th key={i} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
                             {h}
                           </th>

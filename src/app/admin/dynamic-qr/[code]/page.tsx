@@ -2,13 +2,14 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, onSnapshot, query, collection, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, query, collection, where, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { adminDb as db, adminAuth } from '../../../../lib/firebase';
 import QRCode from 'qrcode';
 import { Button, CircularProgress, Typography, Box, Stack } from '@mui/material';
 import { ArrowLeft, Maximize2, ScanLine } from 'lucide-react';
 import { Activity } from '../../../../lib/adminFirebase';
+import { DYNAMIC_QR_WINDOW_SECONDS } from '@/lib/dynamicQrConstants';
 
 /* ============================= Liquid Glass styles ============================= */
 
@@ -112,12 +113,15 @@ export default function DynamicQrPage() {
   const [docId, setDocId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [qrSrc, setQrSrc] = useState<string>('');
-  const [timeRemaining, setTimeRemaining] = useState(15);
-  
-  // Timer config
-  const REFRESH_INTERVAL = 15;
+  const [timeRemaining, setTimeRemaining] = useState(DYNAMIC_QR_WINDOW_SECONDS);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+
+  const WINDOW_SECONDS = DYNAMIC_QR_WINDOW_SECONDS;
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const refreshRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const fetchingRef = useRef(false);
+  const lastTokenRef = useRef<string>('');
+
 
   useEffect(() => {
     if (!code || !user) return;
@@ -159,83 +163,88 @@ export default function DynamicQrPage() {
     return () => unsub();
   }, [docId]);
 
-  // Sync activity ref to avoid stale closures in interval
+  // Sync activity ref to avoid stale closures
   const activityRef = useRef<Activity | null>(null);
   useEffect(() => {
     activityRef.current = activity;
   }, [activity]);
 
-  const updateDynamicToken = async () => {
-    if (!docId || !activityRef.current) return;
-    
-    const currentActivity = activityRef.current;
-    const newToken = Math.random().toString(36).substring(2, 12);
-    const prevToken = currentActivity.dynamicToken || '';
-    
+  const fetchAndRenderToken = async () => {
+    if (!activityRef.current || fetchingRef.current) return;
+    const currentUser = adminAuth.currentUser;
+    if (!currentUser) return;
+
+    fetchingRef.current = true;
     try {
-      await updateDoc(doc(db, 'activityQRCodes', docId), {
-        previousDynamicToken: prevToken,
-        dynamicToken: newToken,
-        updatedAt: serverTimestamp(),
-      });
-      
-      const shortCode = String(currentActivity.customCode || code || '');
-      const url = `${window.location.origin}/r/${encodeURIComponent(shortCode)}?dt=${newToken}`;
-      
-      // Generate QR
-      const qrDataUrl = await QRCode.toDataURL(url, {
-        width: 600,
-        margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
-        }
-      });
-      setQrSrc(qrDataUrl);
-      setTimeRemaining(REFRESH_INTERVAL);
-    } catch (err) {
-      console.error('Failed to update dynamic token', err);
+      const idToken = await currentUser.getIdToken();
+      const activityCode = String(activityRef.current.activityCode || code || '');
+      const res = await fetch(
+        `/api/dynamic-qr/current?code=${encodeURIComponent(activityCode)}`,
+        { headers: { Authorization: `Bearer ${idToken}` }, cache: 'no-store' }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'โหลด Dynamic QR ไม่สำเร็จ');
+      }
+
+      const token = String(data.token || '');
+      const shortCode = String(
+        data.customCode || activityRef.current.customCode || code || ''
+      );
+      const url = `${window.location.origin}/r/${encodeURIComponent(shortCode)}?dt=${encodeURIComponent(token)}`;
+
+      if (token !== lastTokenRef.current) {
+        const qrDataUrl = await QRCode.toDataURL(url, {
+          width: 600,
+          margin: 2,
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+        setQrSrc(qrDataUrl);
+        lastTokenRef.current = token;
+      }
+
+      setTimeRemaining(Math.max(1, Number(data.expiresIn) || WINDOW_SECONDS));
+      setTokenError(null);
+
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      const waitMs = Math.max(1, Number(data.expiresIn) || WINDOW_SECONDS) * 1000 + 200;
+      refreshTimerRef.current = setTimeout(() => {
+        fetchAndRenderToken();
+      }, waitMs);
+    } catch (err: any) {
+      console.error('Failed to fetch HMAC dynamic token', err);
+      setTokenError(err?.message || 'โหลด Dynamic QR ไม่สำเร็จ');
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        fetchAndRenderToken();
+      }, 5000);
+    } finally {
+      fetchingRef.current = false;
     }
   };
 
-  // Regenerate QR immediately if customCode changes
+  // HMAC time-window: ดึง token จาก API (ไม่เขียน Firestore ทุกรอบ)
   useEffect(() => {
-    if (!docId || !activity) return;
-    if (qrSrc) {
-      const shortCode = String(activity.customCode || code || '');
-      const url = `${window.location.origin}/r/${encodeURIComponent(shortCode)}?dt=${activity.dynamicToken || ''}`;
-      QRCode.toDataURL(url, {
-        width: 600,
-        margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
-        }
-      }).then(setQrSrc).catch(console.error);
-    }
-  }, [activity?.customCode]);
+    if (!docId || !activity || !user) return;
+    if (!activity.dynamicQREnabled) return;
 
-  // Run the interval
-  useEffect(() => {
-    if (!docId || !activity) return;
-    if (!activity.dynamicQREnabled) return; // If disabled, don't run
-    
-    // Initial run
-    updateDynamicToken();
-    
-    refreshRef.current = setInterval(() => {
-      updateDynamicToken();
-    }, REFRESH_INTERVAL * 1000);
-    
+    fetchAndRenderToken();
+
     timerRef.current = setInterval(() => {
-      setTimeRemaining((prev) => Math.max(0, prev - 1));
+      setTimeRemaining((prev) => {
+        const next = Math.max(0, prev - 1);
+        if (next === 0) {
+          fetchAndRenderToken();
+        }
+        return next;
+      });
     }, 1000);
-    
+
     return () => {
-      if (refreshRef.current) clearInterval(refreshRef.current);
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [docId, activity?.dynamicQREnabled]); // intentionally omits updateDynamicToken to avoid loop
+  }, [docId, activity?.dynamicQREnabled, activity?.customCode, user?.uid]);
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
@@ -304,7 +313,7 @@ export default function DynamicQrPage() {
   }
 
   const bgUrl = (activity as any).dynamicQrBgUrl as string | undefined;
-  const urgent = timeRemaining <= 5;
+  const urgent = timeRemaining <= 8;
 
   return (
     <GlassShell bgUrl={bgUrl}>
@@ -451,7 +460,7 @@ export default function DynamicQrPage() {
           <Box sx={{ position: 'relative', display: 'inline-flex' }}>
             <CircularProgress
               variant="determinate"
-              value={(timeRemaining / REFRESH_INTERVAL) * 100}
+              value={(timeRemaining / WINDOW_SECONDS) * 100}
               size={34}
               thickness={4.5}
               sx={{
@@ -477,6 +486,11 @@ export default function DynamicQrPage() {
             เปลี่ยน QR ใหม่ในอีก {timeRemaining} วินาที
           </Typography>
         </Stack>
+        {tokenError && (
+          <Typography sx={{ mt: 1.5, fontSize: '0.85rem', color: '#ff6961' }}>
+            {tokenError}
+          </Typography>
+        )}
       </Box>
     </GlassShell>
   );

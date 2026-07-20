@@ -189,7 +189,7 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
 
   const exportUsers = () => {
     const rows = [
-      ['รหัสนักศึกษา', 'ชื่อ', 'นามสกุล', 'อีเมล', 'คณะ', 'สาขา', 'ระดับปริญญา', 'สถานะ', 'วันที่สร้าง'],
+      ['รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'อีเมล', 'คณะ/สถานศึกษา', 'สาขา/ระดับ', 'ระดับปริญญา', 'สถานะ', 'วันที่สร้าง'],
       ...filtered.map((u) =>
         [
           u.studentId || '',
@@ -236,7 +236,7 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     },
     {
       id: 'studentId',
-      label: 'รหัสนักศึกษา',
+      label: 'รหัสผู้เข้าร่วม',
       format: (v: string) => (
         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
           {v}
@@ -245,7 +245,7 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     },
     {
       id: 'faculty',
-      label: 'คณะ/สาขา',
+      label: 'สังกัด',
       format: (_: any, row: UnivUser) => (
         <Box>
           <Typography variant="body2">{row.faculty}</Typography>
@@ -413,7 +413,7 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
             label="ค้นหาผู้ใช้"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ชื่อ, อีเมล, รหัสนักศึกษา, คณะ, สาขา"
+            placeholder="ชื่อ, อีเมล, รหัสผู้เข้าร่วม, คณะ, สาขา"
             sx={{ minWidth: { xs: '100%', md: 350 } }}
             InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon /></InputAdornment>) }}
           />
@@ -492,7 +492,7 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
 
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      รหัสนักศึกษา
+                      รหัสผู้เข้าร่วม
                     </Typography>
                     <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
                       {selectedUser.studentId}
@@ -503,14 +503,14 @@ export const EnhancedUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                 <Grid size={{ xs: 12, md: 6 }}>
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      คณะ
+                      คณะ/สถานศึกษา
                     </Typography>
                     <Typography variant="body1">{selectedUser.faculty}</Typography>
                   </Box>
 
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      สาขาวิชา
+                      สาขา/ระดับ
                     </Typography>
                     <Typography variant="body1">{selectedUser.department}</Typography>
                   </Box>
