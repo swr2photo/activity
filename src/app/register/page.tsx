@@ -10,7 +10,6 @@ import {
   Chip,
   CircularProgress,
   Container,
-  Divider,
   Grid,
   Skeleton,
   Stack,
@@ -28,6 +27,15 @@ import {
   Lock as LockIcon,
   Info as InfoIcon,
   AccessTime as AccessTimeIcon,
+  PlaceOutlined as PlaceIcon,
+  EventAvailableOutlined as EventStartIcon,
+  EventBusyOutlined as EventEndIcon,
+  GroupsOutlined as GroupsIcon,
+  ArticleOutlined as ArticleIcon,
+  ViewAgendaOutlined as SessionsIcon,
+  MyLocationOutlined as MyLocationIcon,
+  RadarOutlined as RadarIcon,
+  PlayCircleOutline as PlayIcon,
 } from '@mui/icons-material';
 import {
   addDoc,
@@ -46,7 +54,7 @@ import {
 } from 'firebase/firestore';
 
 // Components
-import NavigationBar, { NavNotice } from '../../components/navigation/NavigationBar';
+import Navbar from '../../components/Navbar';
 import MicrosoftAuthSection from '../../components/auth/MicrosoftAuthSection';
 import {
   DuplicateRegistrationAlert,
@@ -270,6 +278,83 @@ const getActivityStatus = (activity: ActivityData): ActivityStatusInfo => {
   return { status: 'active', message: '' };
 };
 
+/* ============================= UI: icon sections ============================= */
+const SectionIcon: React.FC<{
+  icon: React.ReactNode;
+  color?: string;
+  bg?: string;
+}> = ({ icon, color = pageColors.accentInfo, bg }) => (
+  <Box
+    sx={{
+      width: 40,
+      height: 40,
+      borderRadius: '12px',
+      display: 'grid',
+      placeItems: 'center',
+      flexShrink: 0,
+      color,
+      bgcolor: bg || alpha(color, 0.12),
+      '& .MuiSvgIcon-root': { fontSize: 22 },
+    }}
+  >
+    {icon}
+  </Box>
+);
+
+const DetailSection: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  hint?: string;
+  color?: string;
+  children: React.ReactNode;
+}> = ({ icon, title, hint, color = pageColors.accentInfo, children }) => (
+  <Box
+    sx={{
+      p: { xs: 1.75, sm: 2 },
+      borderRadius: '16px',
+      border: `1px solid ${pageColors.border}`,
+      bgcolor: 'action.hover',
+    }}
+  >
+    <Stack direction="row" spacing={1.5} alignItems="flex-start" sx={{ mb: children ? 1.5 : 0 }}>
+      <SectionIcon icon={icon} color={color} />
+      <Box sx={{ minWidth: 0, pt: 0.25 }}>
+        <Typography variant="subtitle2" fontWeight={800} sx={{ color: pageColors.textPrimary, lineHeight: 1.3 }}>
+          {title}
+        </Typography>
+        {hint && (
+          <Typography variant="caption" sx={{ color: pageColors.textSecondary, display: 'block', mt: 0.25 }}>
+            {hint}
+          </Typography>
+        )}
+      </Box>
+    </Stack>
+    {children}
+  </Box>
+);
+
+const MetaRow: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+  color?: string;
+}> = ({ icon, label, value, color = pageColors.accentInfo }) => (
+  <Stack direction="row" spacing={1.25} alignItems="flex-start">
+    <SectionIcon icon={icon} color={color} />
+    <Box sx={{ minWidth: 0 }}>
+      <Typography
+        variant="caption"
+        sx={{ color: pageColors.textSecondary, fontWeight: 700, letterSpacing: 0.3, displayTransform: 'uppercase' }}
+      >
+        {label}
+      </Typography>
+      <Typography variant="body2" fontWeight={600} sx={{ color: pageColors.textPrimary, mt: 0.15, lineHeight: 1.4 }}>
+        {value}
+      </Typography>
+    </Box>
+  </Stack>
+);
+
 /* ============================= Modern Activity Banner ============================= */
 const ModernActivityBanner: React.FC<{
   activity: ActivityData;
@@ -303,20 +388,32 @@ const ModernActivityBanner: React.FC<{
       ? 'สิ้นสุดแล้ว'
       : 'ปิดใช้งาน';
 
+  const statusIcon =
+    status.status === 'active' ? (
+      <PlayIcon />
+    ) : status.status === 'upcoming' ? (
+      <AccessTimeIcon />
+    ) : status.status === 'full' ? (
+      <GroupsIcon />
+    ) : (
+      <LockIcon />
+    );
+
   const statusChipSx = {
     backdropFilter: 'blur(12px)',
     WebkitBackdropFilter: 'blur(12px)',
-    fontWeight: 600,
+    fontWeight: 700,
     borderRadius: '12px',
     border: '1px solid rgba(255,255,255,0.2)',
     boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    '& .MuiChip-icon': { color: 'inherit' },
     ...(status.status === 'active'
-      ? { bgcolor: 'rgba(52, 199, 89, 0.3)', color: '#fff' }
+      ? { bgcolor: 'rgba(52, 199, 89, 0.35)', color: '#fff' }
       : status.status === 'upcoming'
-      ? { bgcolor: 'rgba(0, 122, 255, 0.3)', color: '#fff' }
+      ? { bgcolor: 'rgba(0, 122, 255, 0.35)', color: '#fff' }
       : status.status === 'full'
-      ? { bgcolor: 'rgba(255, 149, 0, 0.3)', color: '#fff' }
-      : { bgcolor: 'rgba(0, 0, 0, 0.4)', color: '#fff' }),
+      ? { bgcolor: 'rgba(255, 149, 0, 0.35)', color: '#fff' }
+      : { bgcolor: 'rgba(0, 0, 0, 0.45)', color: '#fff' }),
   };
 
   return (
@@ -358,6 +455,7 @@ const ModernActivityBanner: React.FC<{
         )}
         <Box sx={{ position: 'absolute', top: 12, left: 12 }}>
           <Chip
+            icon={statusIcon}
             label={statusLabel}
             color={statusColor}
             size="small"
@@ -370,31 +468,56 @@ const ModernActivityBanner: React.FC<{
         <Typography
           variant="h5"
           fontWeight={800}
-          sx={{ color: pageColors.textPrimary, letterSpacing: '-0.02em', mb: 0.5 }}
+          sx={{ color: pageColors.textPrimary, letterSpacing: '-0.02em', mb: 2 }}
         >
           {activity.activityName}
         </Typography>
-        <Typography variant="body2" sx={{ color: pageColors.textSecondary, mb: 2 }}>
-          {activity.location}
-        </Typography>
-        <Divider sx={{ mb: 2, opacity: 0.5 }} />
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <Typography variant="overline" sx={{ color: pageColors.textSecondary, fontWeight: 600 }}>
-              ช่วงเวลา
-            </Typography>
-            <Typography variant="body2" sx={{ color: pageColors.textPrimary, fontWeight: 500 }}>
-              {formatDateTime(activity.startDateTime)} — {formatDateTime(activity.endDateTime)}
-            </Typography>
+
+        <Grid container spacing={2.25}>
+          {activity.location && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <MetaRow
+                icon={<PlaceIcon />}
+                label="สถานที่"
+                value={activity.location}
+                color={pageColors.accentError}
+              />
+            </Grid>
+          )}
+          <Grid size={{ xs: 12, sm: activity.location ? 6 : 12 }}>
+            <MetaRow
+              icon={<AccessTimeIcon />}
+              label="ช่วงเวลา"
+              value={
+                <>
+                  {formatDateTime(activity.startDateTime)}
+                  <Box component="span" sx={{ color: pageColors.textSecondary, mx: 0.75 }}>
+                    →
+                  </Box>
+                  {formatDateTime(activity.endDateTime)}
+                </>
+              }
+              color={pageColors.accentInfo}
+            />
           </Grid>
           {activity.maxParticipants > 0 && (
             <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="overline" sx={{ color: pageColors.textSecondary, fontWeight: 600 }}>
-                ผู้สมัคร
-              </Typography>
-              <Typography variant="body2" sx={{ color: pageColors.textPrimary, fontWeight: 500 }}>
-                {activity.currentParticipants}/{activity.maxParticipants} คน
-              </Typography>
+              <MetaRow
+                icon={<GroupsIcon />}
+                label="ผู้สมัคร"
+                value={`${activity.currentParticipants}/${activity.maxParticipants} คน`}
+                color={pageColors.appleGreen}
+              />
+            </Grid>
+          )}
+          {activity.sessions && activity.sessions.length > 0 && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <MetaRow
+                icon={<SessionsIcon />}
+                label="รอบย่อย"
+                value={`${activity.sessions.length} รอบ`}
+                color={pageColors.accentWarning}
+              />
             </Grid>
           )}
         </Grid>
@@ -466,24 +589,65 @@ const SessionCard: React.FC<{ session: any; isCheckedIn: boolean }> = ({ session
       
       <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
-          <Box>
-            <Typography variant="body2" fontWeight="bold" color={isCheckedIn ? 'success.main' : isActive ? 'primary.main' : 'text.primary'} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              {!isActive && !isCheckedIn && <LockIcon fontSize="small" color="inherit" />}
-              {session.name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {formatDateTime(sStart)} - {formatDateTime(sEnd)}
-            </Typography>
-            
-            {isUpcoming && timeLeft && (
-              <Typography variant="caption" color="info.main" sx={{ display: 'block', mt: 0.5, fontWeight: 500 }}>
-                เปิดให้เช็คอินในอีก {timeLeft.d > 0 ? `${timeLeft.d} วัน ` : ''}{timeLeft.h > 0 ? `${timeLeft.h} ชม. ` : ''}{timeLeft.m} นาที {timeLeft.s} วินาที
+          <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ minWidth: 0, flex: 1 }}>
+            <Box
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: '10px',
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+                bgcolor: isCheckedIn
+                  ? alpha('#34c759', 0.15)
+                  : isActive
+                    ? alpha('#007aff', 0.15)
+                    : 'action.hover',
+                color: isCheckedIn ? 'success.main' : isActive ? 'primary.main' : 'text.secondary',
+              }}
+            >
+              {isCheckedIn ? (
+                <CheckIcon fontSize="small" />
+              ) : isActive ? (
+                <PlayIcon fontSize="small" />
+              ) : (
+                <LockIcon fontSize="small" />
+              )}
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
+                variant="body2"
+                fontWeight="bold"
+                color={isCheckedIn ? 'success.main' : isActive ? 'primary.main' : 'text.primary'}
+              >
+                {session.name}
               </Typography>
-            )}
-          </Box>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}
+              >
+                <AccessTimeIcon sx={{ fontSize: 14 }} />
+                {formatDateTime(sStart)} – {formatDateTime(sEnd)}
+              </Typography>
+
+              {isUpcoming && timeLeft && (
+                <Typography
+                  variant="caption"
+                  color="info.main"
+                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, fontWeight: 600 }}
+                >
+                  <AccessTimeIcon sx={{ fontSize: 14 }} />
+                  เปิดในอีก {timeLeft.d > 0 ? `${timeLeft.d} วัน ` : ''}
+                  {timeLeft.h > 0 ? `${timeLeft.h} ชม. ` : ''}
+                  {timeLeft.m} นาที {timeLeft.s} วินาที
+                </Typography>
+              )}
+            </Box>
+          </Stack>
           {status.label ? (
-            <Chip 
-              size="small" 
+            <Chip
+              size="small"
               label={status.label}
               color={status.color}
               variant={status.variant}
@@ -530,6 +694,8 @@ const RegisterPageContent: React.FC = () => {
   const [isDuplicateRegistration, setIsDuplicateRegistration] = useState(false);
   const [checkedInSessions, setCheckedInSessions] = useState<string[]>([]);
   const [hasRegisteredRecord, setHasRegisteredRecord] = useState(false);
+  /** รอเช็กประวัติลงทะเบียนเสร็จก่อนค่อยขอ GPS — กัน prompt โผล่ทั้งที่ลงทะเบียนแล้ว */
+  const [registrationCheckDone, setRegistrationCheckDone] = useState(false);
 
   // Survey
   const [surveyCompleted, setSurveyCompleted] = useState(false);
@@ -557,10 +723,10 @@ const RegisterPageContent: React.FC = () => {
   );
   const lastActiveRef = useRef<boolean | null>(null);
   const sessionCheckStartedRef = useRef(false);
+  const geoRequestIdRef = useRef(0);
 
-  // Notices for NavigationBar
-  const [navNotices, setNavNotices] = useState<NavNotice[]>([]);
-  const [urgentNotices, setUrgentNotices] = useState<NavNotice[]>([]);
+  /** นับถอยหลังก่อนปิดลงทะเบียน (≤ 5 นาที) */
+  const [deadlineCountdown, setDeadlineCountdown] = useState<string | null>(null);
 
   const isAuthed = useMemo(
     () => !!(user && userData && !sessionExpired && !sessionValidating),
@@ -604,9 +770,12 @@ const RegisterPageContent: React.FC = () => {
   }, [user, sessionExpired]);
 
   useEffect(() => {
+    setRegistrationCheckDone(false);
     if (user && activityCode && activityData && !sessionExpired && !sessionValidating) {
       checkForDuplicateRegistration();
       checkForSingleUserMode();
+    } else if (!user) {
+      setRegistrationCheckDone(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, activityCode, activityData, sessionExpired, sessionValidating]);
@@ -669,17 +838,13 @@ const RegisterPageContent: React.FC = () => {
         const prevActive = lastActiveRef.current;
         const nowActive = updated.isActive;
         if (prevActive !== null && prevActive !== nowActive) {
-          setNavNotices((prevNotices) => [
-            ...prevNotices,
-            {
-              key: `live-${Date.now()}`,
-              severity: nowActive ? 'success' : 'warning',
-              message: nowActive
-                ? 'ผู้ดูแลได้เปิดกิจกรรมแล้ว — เริ่มลงทะเบียนได้'
-                : `ผู้ดูแลได้ปิดกิจกรรมแล้ว${updated.closeReason ? ' — ' + updated.closeReason : ''}`,
-              autoHideMs: 4000,
-            },
-          ]);
+          setSnack({
+            open: true,
+            severity: nowActive ? 'success' : 'warning',
+            text: nowActive
+              ? 'ผู้ดูแลได้เปิดกิจกรรมแล้ว — เริ่มลงทะเบียนได้'
+              : `ผู้ดูแลได้ปิดกิจกรรมแล้ว${updated.closeReason ? ' — ' + updated.closeReason : ''}`,
+          });
         }
         lastActiveRef.current = nowActive;
 
@@ -698,10 +863,13 @@ const RegisterPageContent: React.FC = () => {
     }
   }, [hasRegisteredRecord, activityData]);
 
-  // countdown ≤ 5 นาที (urgent)
+  // countdown ≤ 5 นาที
   useEffect(() => {
-    if (!activityData?.endDateTime) return;
-    let t: any;
+    if (!activityData?.endDateTime) {
+      setDeadlineCountdown(null);
+      return;
+    }
+    let t: ReturnType<typeof setTimeout>;
     const tick = () => {
       const end: Date = activityData.endDateTime?.toDate?.() || new Date(activityData.endDateTime);
       const now = new Date();
@@ -709,25 +877,14 @@ const RegisterPageContent: React.FC = () => {
       if (sec <= 300 && sec > 0) {
         const m = Math.floor(sec / 60).toString().padStart(2, '0');
         const s = (sec % 60).toString().padStart(2, '0');
-        setUrgentNotices([
-          {
-            key: 'deadline-countdown',
-            severity: 'warning',
-            message: (
-              <>
-                จะปิดการลงทะเบียนในอีก <b>{m}:{s}</b>
-              </>
-            ),
-            autoHideMs: 1000,
-          },
-        ]);
+        setDeadlineCountdown(`${m}:${s}`);
       } else {
-        setUrgentNotices([]);
+        setDeadlineCountdown(null);
       }
       t = setTimeout(tick, 1000);
     };
     tick();
-    return () => t && clearTimeout(t);
+    return () => clearTimeout(t);
   }, [activityData?.endDateTime]);
 
   /* ============================= Helpers & Actions ============================= */
@@ -825,19 +982,22 @@ const RegisterPageContent: React.FC = () => {
 
   // เช็คซ้ำจาก activityRecords (id = `${activityCode}_${uid}`)
   const checkForDuplicateRegistration = async () => {
-    if (!user?.uid || !activityCode) return;
+    if (!user?.uid || !activityCode) {
+      setRegistrationCheckDone(true);
+      return;
+    }
     try {
       const recId = `${activityCode}_${user.uid}`;
       const snap = await getDoc(doc(db, 'activityRecords', recId));
       const dup = snap.exists();
-      
+
       if (dup) {
         setHasRegisteredRecord(true);
         const data = snap.data();
         if (data.checkedInSessions) {
           setCheckedInSessions(data.checkedInSessions);
         }
-        
+
         // ถ้ามี sessions → ตรวจว่าเช็กอินครบทุก session หรือยัง
         const hasSessions = activityData?.sessions && activityData.sessions.length > 0;
         if (hasSessions) {
@@ -862,8 +1022,15 @@ const RegisterPageContent: React.FC = () => {
         if (!surveySnap.empty) {
           setSurveyCompleted(true);
         }
+      } else {
+        setHasRegisteredRecord(false);
+        setIsDuplicateRegistration(false);
       }
-    } catch {}
+    } catch {
+      /* ignore */
+    } finally {
+      setRegistrationCheckDone(true);
+    }
   };
 
   const checkForSingleUserMode = async () => {
@@ -909,9 +1076,18 @@ const RegisterPageContent: React.FC = () => {
   };
 
   /* ============================= GEOLOCATION ============================= */
+  const needsGeoCheck =
+    Boolean(activityData) &&
+    isAuthed &&
+    registrationCheckDone &&
+    !isDuplicateRegistration &&
+    !singleUserBlocked &&
+    !ipBlocked;
+
   const triggerGeoCheck = useCallback(() => {
     if (!activityData) return;
     if (!isAuthed) return; // ✅ สำคัญ: ซ่อน/หยุด map ก่อน login และกัน state ค้างหลัง logout
+    if (isDuplicateRegistration || singleUserBlocked) return; // ลงทะเบียนแล้ว ไม่ขอตำแหน่ง
 
     if (!('geolocation' in navigator)) {
       setGeoSupported(false);
@@ -922,12 +1098,14 @@ const RegisterPageContent: React.FC = () => {
       return;
     }
 
+    const requestId = ++geoRequestIdRef.current;
     setGeoSupported(true);
     setGeoLoading(true);
     setGeoError('');
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (requestId !== geoRequestIdRef.current) return;
         const { latitude, longitude, accuracy } = pos.coords;
         setUserPos({ lat: latitude, lng: longitude, accuracy });
 
@@ -938,6 +1116,7 @@ const RegisterPageContent: React.FC = () => {
         setGeoLoading(false);
       },
       (err) => {
+        if (requestId !== geoRequestIdRef.current) return;
         setUserPos(null);
         setGeoAllowed(false);
         setGeoLoading(false);
@@ -950,12 +1129,26 @@ const RegisterPageContent: React.FC = () => {
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  }, [activityData, isAuthed]);
+  }, [activityData, isAuthed, isDuplicateRegistration, singleUserBlocked]);
 
-  // ✅ เมื่อ activity พร้อมและล็อกอินแล้ว ค่อยตรวจตำแหน่ง (เพื่อให้ map โผล่หลัง login)
+  // ขอตำแหน่งเฉพาะเมื่อยังต้องลงทะเบียน/เช็กอิน (ไม่ขอถ้ารายการนี้ลงทะเบียนแล้ว)
   useEffect(() => {
-    if (activityData && isAuthed) triggerGeoCheck();
-  }, [activityData, isAuthed, triggerGeoCheck]);
+    if (needsGeoCheck) {
+      triggerGeoCheck();
+    } else {
+      geoRequestIdRef.current += 1; // ยกเลิกผล callback ค้าง
+      if (isDuplicateRegistration || singleUserBlocked || !isAuthed) {
+        resetGeoState();
+      }
+    }
+  }, [
+    needsGeoCheck,
+    triggerGeoCheck,
+    isDuplicateRegistration,
+    singleUserBlocked,
+    isAuthed,
+    resetGeoState,
+  ]);
 
   /* ============================= Session helpers ============================= */
   const validateInitialSession = async () => {
@@ -1048,16 +1241,18 @@ const RegisterPageContent: React.FC = () => {
       setIpBlocked(false);
       setBlockRemainingTime(0);
       setIsDuplicateRegistration(false);
+      setHasRegisteredRecord(false);
+      setRegistrationCheckDone(false);
       setNeedsProfileSetup(false);
       setSessionExpired(false);
       setSessionWarning('');
       setSessionValidating(false);
       setSingleUserBlocked(false);
       setSingleUserMessage('');
-      setNavNotices([]);
-      setUrgentNotices([]);
+      setDeadlineCountdown(null);
       setSnack({ open: false, text: '', severity: 'info' });
 
+      geoRequestIdRef.current += 1;
       resetGeoState(); // ✅ สำคัญ: logout แล้ว map + geo หายทันที
       sessionCheckStartedRef.current = false;
     } catch {
@@ -1089,9 +1284,6 @@ const RegisterPageContent: React.FC = () => {
     setSuccessMessage('ลงทะเบียนกิจกรรมเรียบร้อยแล้ว');
     setTimeout(() => setSuccessMessage(''), 4000);
   };
-
-  /* ============================= รวม notices ไปแสดงบน NavigationBar ============================= */
-  // (ย้ายไปหลัง needsSurvey)
 
   const statusInfo = activityData ? getActivityStatus(activityData) : null;
 
@@ -1141,39 +1333,6 @@ const RegisterPageContent: React.FC = () => {
   // ยังต้องทำแบบประเมิน
   const needsSurvey = isSurveyPeriodOpen && !surveyCompleted;
 
-  /* ============================= รวม notices ไปแสดงบน NavigationBar ============================= */
-  useEffect(() => {
-    const tmp: NavNotice[] = [];
-
-    if (error && !sessionExpired && !singleUserBlocked && !ipBlocked && !isDuplicateRegistration) {
-      tmp.push({ key: `err-${Date.now()}`, severity: 'error', message: error, autoHideMs: 5000 });
-    }
-    if (sessionWarning) {
-      tmp.push({ key: `sess-${Date.now()}`, severity: 'warning', message: sessionWarning, autoHideMs: 5000 });
-    }
-    if (geoError) {
-      tmp.push({
-        key: `geo-${Date.now()}`,
-        severity: 'warning',
-        message: geoError,
-        actionLabel: 'ตรวจอีกครั้ง',
-        onAction: () => triggerGeoCheck(),
-      });
-    }
-    if (ipBlocked) {
-      tmp.push({
-        key: 'ip-block',
-        severity: 'error',
-        message: `IP นี้ถูกจำกัดชั่วคราว — เหลืออีก ${blockRemainingTime} นาที`,
-      });
-    }
-    if (isDuplicateRegistration && !needsSurvey) {
-      tmp.push({ key: 'dup', severity: 'info', message: 'คุณได้ลงทะเบียนกิจกรรมนี้แล้ว', autoHideMs: 4000 });
-    }
-    setNavNotices(tmp);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [error, sessionWarning, geoError, ipBlocked, blockRemainingTime, isDuplicateRegistration, needsSurvey]);
-
   /* ============================= Render ============================= */
   // ระหว่างโหลด แสดง skeleton โครงหน้าจริงแทนหน้าสปินเนอร์ ให้รู้สึกว่าเข้าหน้าได้ทันที
   if (loading || authLoading) {
@@ -1185,32 +1344,38 @@ const RegisterPageContent: React.FC = () => {
   // IP ถูกจำกัดชั่วคราว
   if (ipBlocked) {
     return (
-      <FullPageError
-        variant="blocked"
-        code="IP_RESTRICTED"
-        title="การเข้าถึงถูกจำกัดชั่วคราว"
-        message={`IP ของคุณถูกจำกัดการใช้งานชั่วคราวเนื่องจากตรวจพบการใช้งานที่ผิดปกติ ระบบจะปลดล็อกโดยอัตโนมัติในอีก ${blockRemainingTime} นาที`}
-        actions={[
-          { label: 'ตรวจสอบอีกครั้ง', onClick: () => window.location.reload() },
-          { label: 'กลับหน้าหลัก', href: '/' },
-        ]}
-      />
+      <>
+        <Navbar />
+        <FullPageError
+          variant="blocked"
+          code="IP_RESTRICTED"
+          title="การเข้าถึงถูกจำกัดชั่วคราว"
+          message={`IP ของคุณถูกจำกัดการใช้งานชั่วคราวเนื่องจากตรวจพบการใช้งานที่ผิดปกติ ระบบจะปลดล็อกโดยอัตโนมัติในอีก ${blockRemainingTime} นาที`}
+          actions={[
+            { label: 'ตรวจสอบอีกครั้ง', onClick: () => window.location.reload() },
+            { label: 'กลับหน้าหลัก', href: '/' },
+          ]}
+        />
+      </>
     );
   }
 
   // บัญชีถูกระงับโดยแอดมิน — บล็อกทุกอย่าง
   if (user && userData && (userData as any).isActive === false) {
     return (
-      <FullPageError
-        variant="blocked"
-        code="ACCOUNT_SUSPENDED"
-        title="บัญชีถูกระงับการใช้งาน"
-        message="บัญชีของคุณถูกระงับโดยผู้ดูแลระบบ จึงไม่สามารถใช้งานระบบลงทะเบียนได้ หากคิดว่าเป็นความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ"
-        actions={[
-          { label: 'ออกจากระบบ', onClick: handleLogout },
-          { label: 'กลับหน้าหลัก', href: '/', kind: 'ghost' },
-        ]}
-      />
+      <>
+        <Navbar />
+        <FullPageError
+          variant="blocked"
+          code="ACCOUNT_SUSPENDED"
+          title="บัญชีถูกระงับการใช้งาน"
+          message="บัญชีของคุณถูกระงับโดยผู้ดูแลระบบ จึงไม่สามารถใช้งานระบบลงทะเบียนได้ หากคิดว่าเป็นความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ"
+          actions={[
+            { label: 'ออกจากระบบ', onClick: handleLogout },
+            { label: 'กลับหน้าหลัก', href: '/', kind: 'ghost' },
+          ]}
+        />
+      </>
     );
   }
 
@@ -1224,16 +1389,19 @@ const RegisterPageContent: React.FC = () => {
   ) {
     const isAllCheckedIn = singleUserMessage.includes('ครบ');
     return (
-      <FullPageError
-        variant="locked"
-        code={isAllCheckedIn ? 'ALL_CHECKED_IN' : 'SINGLE_USER_MODE'}
-        title={isAllCheckedIn ? 'คุณเช็กอินครบทุกรอบแล้ว' : 'ไม่สามารถลงทะเบียนได้'}
-        message={singleUserMessage}
-        actions={[
-          { label: 'ออกจากระบบ', onClick: handleLogout },
-          { label: 'ปิดหน้าต่าง', onClick: () => window.close(), kind: 'ghost' },
-        ]}
-      />
+      <>
+        <Navbar />
+        <FullPageError
+          variant="locked"
+          code={isAllCheckedIn ? 'ALL_CHECKED_IN' : 'SINGLE_USER_MODE'}
+          title={isAllCheckedIn ? 'คุณเช็กอินครบทุกรอบแล้ว' : 'ไม่สามารถลงทะเบียนได้'}
+          message={singleUserMessage}
+          actions={[
+            { label: 'ออกจากระบบ', onClick: handleLogout },
+            { label: 'ปิดหน้าต่าง', onClick: () => window.close(), kind: 'ghost' },
+          ]}
+        />
+      </>
     );
   }
 
@@ -1269,16 +1437,19 @@ const RegisterPageContent: React.FC = () => {
     }
 
     return (
-      <FullPageError
-        variant={variant}
-        code={code}
-        title={title}
-        message={error}
-        actions={[
-          { label: 'ลองใหม่อีกครั้ง', onClick: loadInitialData },
-          { label: 'กลับหน้าหลัก', href: '/', kind: 'ghost' },
-        ]}
-      />
+      <>
+        <Navbar />
+        <FullPageError
+          variant={variant}
+          code={code}
+          title={title}
+          message={error}
+          actions={[
+            { label: 'ลองใหม่อีกครั้ง', onClick: loadInitialData },
+            { label: 'กลับหน้าหลัก', href: '/', kind: 'ghost' },
+          ]}
+        />
+      </>
     );
   }
 
@@ -1298,40 +1469,42 @@ const RegisterPageContent: React.FC = () => {
       !surveyCompleted;
 
     return (
-      <FullPageError
-        variant="expired"
-        code={surveyExpiredForUser ? 'SURVEY_EXPIRED' : 'ACTIVITY_ENDED'}
-        title={surveyExpiredForUser ? 'หมดเวลาทำแบบประเมินแล้ว' : 'กิจกรรมสิ้นสุดแล้ว'}
-        message={
-          surveyExpiredForUser
-            ? `แบบประเมินของ "${activityData.activityName}" ปิดรับไปแล้ว (เปิดได้ ${surveyWindow.openMinutes} นาทีหลังกิจกรรมสิ้นสุด)`
-            : endedAt
-              ? `"${activityData.activityName}" สิ้นสุดไปแล้วเมื่อวันที่ ${endedAt} น. ขอบคุณที่ให้ความสนใจ`
-              : `"${activityData.activityName}" สิ้นสุดไปแล้ว ขอบคุณที่ให้ความสนใจ`
-        }
-        actions={[
-          { label: 'ดูกิจกรรมอื่น', href: '/' },
-          ...(user
-            ? [{ label: 'ประวัติของฉัน', href: '/my-history', kind: 'ghost' as const }]
-            : []),
-        ]}
-      />
+      <>
+        <Navbar />
+        <FullPageError
+          variant="expired"
+          code={surveyExpiredForUser ? 'SURVEY_EXPIRED' : 'ACTIVITY_ENDED'}
+          title={surveyExpiredForUser ? 'หมดเวลาทำแบบประเมินแล้ว' : 'กิจกรรมสิ้นสุดแล้ว'}
+          message={
+            surveyExpiredForUser
+              ? `แบบประเมินของ "${activityData.activityName}" ปิดรับไปแล้ว (เปิดได้ ${surveyWindow.openMinutes} นาทีหลังกิจกรรมสิ้นสุด)`
+              : endedAt
+                ? `"${activityData.activityName}" สิ้นสุดไปแล้วเมื่อวันที่ ${endedAt} น. ขอบคุณที่ให้ความสนใจ`
+                : `"${activityData.activityName}" สิ้นสุดไปแล้ว ขอบคุณที่ให้ความสนใจ`
+          }
+          actions={[
+            { label: 'ดูกิจกรรมอื่น', href: '/' },
+            ...(user
+              ? [{ label: 'ประวัติของฉัน', href: '/my-history', kind: 'ghost' as const }]
+              : []),
+          ]}
+        />
+      </>
     );
   }
 
   return (
     <>
-      <NavigationBar
-        user={user}
-        userData={userData}
-        onLogout={handleLogout}
-        onEditProfile={() => setShowProfileDialog(true)}
-        notices={navNotices}
-        urgentNotices={urgentNotices}
-      />
+      <Navbar />
 
       <Box sx={{ ...pageLayoutSx, flex: 1 }}>
         <Container maxWidth="md" sx={{ flex: 1, pt: { xs: 2, md: 3 }, pb: 4 }}>
+          {deadlineCountdown && (
+            <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }} icon={<AccessTimeIcon />}>
+              จะปิดการลงทะเบียนในอีก <b>{deadlineCountdown}</b>
+            </Alert>
+          )}
+
           {/* Banner + Status */}
           {activityData && statusInfo && !ipBlocked && !singleUserBlocked && (
             <ModernActivityBanner activity={activityData} status={statusInfo} adminSettings={adminSettings} />
@@ -1344,17 +1517,17 @@ const RegisterPageContent: React.FC = () => {
           {needsSurvey && activityData && (
             <Box sx={{ mb: 3 }}>
               {!user && (
-                <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }}>
+                <Alert severity="info" icon={<LockIcon />} sx={{ mb: 2, borderRadius: 3 }}>
                   กรุณาเข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยเพื่อทำแบบประเมินหลังกิจกรรม
                 </Alert>
               )}
               {user && !hasRegisteredRecord && (
-                <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
+                <Alert severity="warning" icon={<WarningIcon />} sx={{ mb: 2, borderRadius: 3 }}>
                   ไม่พบประวัติการลงทะเบียนกิจกรรมนี้ในบัญชีของคุณ จึงยังไม่สามารถทำแบบประเมินได้
                 </Alert>
               )}
               {user && hasRegisteredRecord && !isEligibleForSurvey && (
-                <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
+                <Alert severity="warning" icon={<InfoIcon />} sx={{ mb: 2, borderRadius: 3 }}>
                   คุณยังไม่ผ่านเงื่อนไขการทำแบบประเมิน (เช่น ต้องเช็กอินครบตามที่ผู้ดูแลกำหนด)
                 </Alert>
               )}
@@ -1390,7 +1563,7 @@ const RegisterPageContent: React.FC = () => {
           )}
 
           {isSurveyPeriodOpen && surveyCompleted && (
-            <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
+            <Alert severity="success" icon={<CheckIcon />} sx={{ mb: 2, borderRadius: 3 }}>
               ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว
             </Alert>
           )}
@@ -1510,51 +1683,94 @@ const RegisterPageContent: React.FC = () => {
 
                 {/* GPS Status Card */}
                 <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
-                  <CardContent>
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                      <GpsFixedIcon />
-                      <Typography variant="h6" fontWeight={800}>
-                        สถานะตำแหน่งของคุณ
-                      </Typography>
+                  <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
+                      <SectionIcon icon={<GpsFixedIcon />} color={pageColors.accentInfo} />
+                      <Box>
+                        <Typography variant="h6" fontWeight={800} sx={{ lineHeight: 1.2 }}>
+                          สถานะตำแหน่ง
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          ต้องอยู่ในรัศมีที่กำหนดจึงลงทะเบียนได้
+                        </Typography>
+                      </Box>
                     </Stack>
 
-                    <Grid container spacing={2} alignItems="center">
-                      {/* ✅ Grid v2: ใช้ size แทน item/xs/md */}
-                      <Grid size={{ xs: 12, md: 8 }}>
-                        {geoLoading ? (
-                          <Typography variant="body2" color="text.secondary">
-                            กำลังตรวจสอบตำแหน่ง...
-                          </Typography>
-                        ) : !geoSupported ? (
-                          <Alert severity="error" icon={<ErrorIcon />} sx={{ borderRadius: 2 }}>
-                            อุปกรณ์ของคุณไม่รองรับการระบุตำแหน่ง
-                          </Alert>
-                        ) : geoError ? (
-                          <Alert severity="warning" icon={<WarningIcon />} sx={{ borderRadius: 2 }}>
-                            {geoError}
-                          </Alert>
-                        ) : (
-                          <Stack direction="row" spacing={2} alignItems="center">
-                            {inRadius ? <CheckIcon color="success" /> : <ErrorIcon color="error" />}
-                            <Typography variant="body2">
-                              {inRadius ? 'คุณอยู่ในพื้นที่ที่กำหนด' : 'คุณอยู่นอกพื้นที่ที่กำหนด'}
-                              {typeof distanceM === 'number' && (
-                                <>
-                                  {' '}
-                                  — ระยะห่างประมาณ <b>{distanceM}</b> เมตร (กำหนดไม่เกิน <b>{activityData.checkInRadius}</b> เมตร)
-                                </>
-                              )}
-                            </Typography>
-                          </Stack>
-                        )}
+                    <Grid container spacing={2}>
+                      <Grid size={{ xs: 12, md: 7 }}>
+                        <DetailSection
+                          icon={<MyLocationIcon />}
+                          title={
+                            geoLoading
+                              ? 'กำลังตรวจสอบ...'
+                              : !geoSupported
+                                ? 'ไม่รองรับ GPS'
+                                : geoError
+                                  ? 'ตรวจสอบตำแหน่งไม่สำเร็จ'
+                                  : inRadius
+                                    ? 'อยู่ในพื้นที่'
+                                    : 'อยู่นอกพื้นที่'
+                          }
+                          hint={
+                            typeof distanceM === 'number' && !geoLoading && !geoError
+                              ? `ห่างจากจุดเช็กอินประมาณ ${distanceM} เมตร`
+                              : undefined
+                          }
+                          color={
+                            geoLoading
+                              ? pageColors.accentInfo
+                              : !geoSupported || geoError
+                                ? pageColors.accentWarning
+                                : inRadius
+                                  ? pageColors.appleGreen
+                                  : pageColors.accentError
+                          }
+                        >
+                          {!geoLoading && !geoSupported && (
+                            <Alert severity="error" icon={<ErrorIcon />} sx={{ borderRadius: 2 }}>
+                              อุปกรณ์ของคุณไม่รองรับการระบุตำแหน่ง
+                            </Alert>
+                          )}
+                          {!geoLoading && geoSupported && geoError && (
+                            <Alert severity="warning" icon={<WarningIcon />} sx={{ borderRadius: 2 }}>
+                              {geoError}
+                            </Alert>
+                          )}
+                          {!geoLoading && geoSupported && !geoError && (
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                              <Chip
+                                size="small"
+                                icon={inRadius ? <CheckIcon /> : <ErrorIcon />}
+                                label={inRadius ? 'พร้อมลงทะเบียน' : 'ยังไม่พร้อม'}
+                                color={inRadius ? 'success' : 'error'}
+                                variant="filled"
+                                sx={{ fontWeight: 700 }}
+                              />
+                              <Chip
+                                size="small"
+                                icon={<RadarIcon />}
+                                label={`รัศมี ${activityData.checkInRadius} ม.`}
+                                variant="outlined"
+                                sx={{ fontWeight: 600 }}
+                              />
+                            </Stack>
+                          )}
+                        </DetailSection>
                       </Grid>
-
-                      {/* ✅ Grid v2 */}
-                      <Grid size={{ xs: 12, md: 4 }}>
-                        <Stack direction="row" spacing={1} justifyContent={{ xs: 'flex-start', md: 'flex-end' }}>
-                          <Button variant="outlined" onClick={triggerGeoCheck}>
-                            ตรวจสอบตำแหน่งอีกครั้ง
+                      <Grid size={{ xs: 12, md: 5 }}>
+                        <Stack spacing={1.25} justifyContent="center" sx={{ height: '100%' }}>
+                          <Button
+                            variant="contained"
+                            startIcon={<RefreshIcon />}
+                            onClick={triggerGeoCheck}
+                            disabled={geoLoading}
+                            sx={{ borderRadius: 3, fontWeight: 700, py: 1.25 }}
+                          >
+                            {geoLoading ? 'กำลังตรวจ...' : 'ตรวจตำแหน่งอีกครั้ง'}
                           </Button>
+                          <Typography variant="caption" color="text.secondary" sx={{ textAlign: { md: 'center' } }}>
+                            เปิด GPS และอนุญาตสิทธิ์ตำแหน่งบนอุปกรณ์
+                          </Typography>
                         </Stack>
                       </Grid>
                     </Grid>
@@ -1566,60 +1782,148 @@ const RegisterPageContent: React.FC = () => {
           {/* รายละเอียดกิจกรรม — ซ่อนชั่วคราวเมื่อค้างแบบประเมิน เพื่อโฟกัสฟอร์ม */}
           {activityData && !ipBlocked && !singleUserBlocked && !needsSurvey && (
             <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
-                  รายละเอียดกิจกรรม
-                </Typography>
-                <Divider sx={{ mb: 2 }} />
+              <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+                <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2.5 }}>
+                  <SectionIcon icon={<ArticleIcon />} color={pageColors.accentInfo} />
+                  <Box>
+                    <Typography variant="h6" fontWeight={800} sx={{ lineHeight: 1.2 }}>
+                      รายละเอียดกิจกรรม
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      ข้อมูลสำคัญก่อนลงทะเบียน
+                    </Typography>
+                  </Box>
+                </Stack>
 
-                <Grid container spacing={2}>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Stack spacing={0.5}>
-                      <Typography variant="overline">วันที่เริ่ม</Typography>
-                      <Typography variant="body2">{formatDateTime(activityData.startDateTime)}</Typography>
-                    </Stack>
+                <Stack spacing={1.75}>
+                  <Grid container spacing={1.75}>
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <DetailSection
+                        icon={<EventStartIcon />}
+                        title="วันเวลาเริ่ม"
+                        color={pageColors.appleGreen}
+                      >
+                        <Typography variant="body2" fontWeight={600}>
+                          {formatDateTime(activityData.startDateTime)}
+                        </Typography>
+                      </DetailSection>
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <DetailSection
+                        icon={<EventEndIcon />}
+                        title="วันเวลาสิ้นสุด"
+                        color={pageColors.accentError}
+                      >
+                        <Typography variant="body2" fontWeight={600}>
+                          {formatDateTime(activityData.endDateTime)}
+                        </Typography>
+                      </DetailSection>
+                    </Grid>
                   </Grid>
 
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Stack spacing={0.5}>
-                      <Typography variant="overline">วันที่สิ้นสุด</Typography>
-                      <Typography variant="body2">{formatDateTime(activityData.endDateTime)}</Typography>
-                    </Stack>
-                  </Grid>
-
-                  <Grid size={{ xs: 12 }}>
-                    <Stack spacing={0.5}>
-                      <Typography variant="overline">คำอธิบาย</Typography>
-                      {activityData.description ? (
-                        <div 
-                          className="ql-editor"
-                          style={{ padding: 0, minHeight: 'auto', fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.7)' }}
-                          dangerouslySetInnerHTML={{ __html: activityData.description }}
+                  {activityData.location && (
+                    <DetailSection
+                      icon={<PlaceIcon />}
+                      title="สถานที่"
+                      color={pageColors.accentWarning}
+                    >
+                      <Typography variant="body2" fontWeight={600}>
+                        {activityData.location}
+                      </Typography>
+                      {typeof activityData.checkInRadius === 'number' && activityData.checkInRadius > 0 && (
+                        <Chip
+                          size="small"
+                          icon={<RadarIcon />}
+                          label={`รัศมีเช็กอิน ${activityData.checkInRadius} เมตร`}
+                          sx={{ mt: 1, fontWeight: 600 }}
+                          variant="outlined"
                         />
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">-</Typography>
                       )}
-                    </Stack>
-                  </Grid>
+                    </DetailSection>
+                  )}
+
+                  {activityData.maxParticipants > 0 && (
+                    <DetailSection
+                      icon={<GroupsIcon />}
+                      title="จำนวนผู้สมัคร"
+                      color={pageColors.accentInfo}
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                        <Typography variant="body2" fontWeight={700}>
+                          {activityData.currentParticipants}/{activityData.maxParticipants} คน
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={
+                            activityData.currentParticipants >= activityData.maxParticipants
+                              ? 'เต็มแล้ว'
+                              : `เหลืออีก ${Math.max(0, activityData.maxParticipants - activityData.currentParticipants)} ที่นั่ง`
+                          }
+                          color={
+                            activityData.currentParticipants >= activityData.maxParticipants
+                              ? 'warning'
+                              : 'success'
+                          }
+                          variant="outlined"
+                          sx={{ fontWeight: 700 }}
+                        />
+                      </Stack>
+                    </DetailSection>
+                  )}
+
+                  <DetailSection
+                    icon={<ArticleIcon />}
+                    title="คำอธิบาย"
+                    color="#636366"
+                  >
+                    {activityData.description ? (
+                      <Box
+                        className="ql-editor"
+                        sx={{
+                          p: 0,
+                          minHeight: 'auto',
+                          fontSize: '0.875rem',
+                          color: 'text.secondary',
+                          '& img': { maxWidth: '100%', borderRadius: 2 },
+                        }}
+                        dangerouslySetInnerHTML={{ __html: activityData.description }}
+                      />
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        ไม่มีคำอธิบายเพิ่มเติม
+                      </Typography>
+                    )}
+                  </DetailSection>
 
                   {activityData.sessions && activityData.sessions.length > 0 && (
-                    <Grid size={{ xs: 12 }}>
-                      <Stack spacing={1} sx={{ mt: 2 }}>
-                        <Typography variant="overline" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          รอบกิจกรรมย่อย ({activityData.sessions.length} รอบ)
-                        </Typography>
-                        <Typography variant="caption" color="warning.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1, fontWeight: 500 }}>
-                          <InfoIcon fontSize="inherit" />
-                          กรุณาเช็กอินให้ครบตาม section
-                        </Typography>
+                    <DetailSection
+                      icon={<SessionsIcon />}
+                      title={`รอบกิจกรรมย่อย (${activityData.sessions.length} รอบ)`}
+                      hint="กรุณาเช็กอินให้ครบตามรอบที่กำหนด"
+                      color={pageColors.accentWarning}
+                    >
+                      <Alert
+                        severity="info"
+                        icon={<InfoIcon fontSize="small" />}
+                        sx={{ mb: 1.5, borderRadius: 2, py: 0.5 }}
+                      >
+                        แต่ละรอบมีช่วงเวลาของตัวเอง — เปิดหน้านี้ใหม่เมื่อถึงเวลารอบถัดไป
+                      </Alert>
+                      <Stack spacing={1}>
                         {activityData.sessions.map((session: any, index: number) => {
                           const isCheckedIn = checkedInSessions.includes(session.id);
-                          return <SessionCard key={session.id || index} session={session} isCheckedIn={isCheckedIn} />;
+                          return (
+                            <SessionCard
+                              key={session.id || index}
+                              session={session}
+                              isCheckedIn={isCheckedIn}
+                            />
+                          );
                         })}
                       </Stack>
-                    </Grid>
+                    </DetailSection>
                   )}
-                </Grid>
+                </Stack>
               </CardContent>
             </Card>
           )}
@@ -1712,23 +2016,9 @@ const RegisterPageContent: React.FC = () => {
 /* ============================= Loading Skeleton ============================= */
 // โครงหน้าจำลองระหว่างโหลดข้อมูล — แสดงเลย์เอาต์จริงทันทีแทนหน้าสปินเนอร์
 const RegisterPageSkeleton: React.FC = () => (
-  <Box sx={{ ...pageLayoutSx, flex: 1 }}>
-    {/* Navbar placeholder */}
-    <Box
-      sx={{
-        height: 64,
-        px: { xs: 2, md: 4 },
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        bgcolor: pageColors.cardBg,
-        borderBottom: `1px solid ${pageColors.border}`,
-      }}
-    >
-      <Skeleton variant="rounded" width={150} height={26} sx={{ borderRadius: '8px' }} />
-      <Skeleton variant="circular" width={36} height={36} />
-    </Box>
-
+  <>
+    <Navbar />
+    <Box sx={{ ...pageLayoutSx, flex: 1 }}>
     <Container maxWidth="md" sx={{ flex: 1, pt: { xs: 2, md: 3 }, pb: 4 }}>
       {/* Banner */}
       <Skeleton
@@ -1769,7 +2059,8 @@ const RegisterPageSkeleton: React.FC = () => (
         </CardContent>
       </Card>
     </Container>
-  </Box>
+    </Box>
+  </>
 );
 
 /* ============================= Page Wrapper with Suspense ============================= */

@@ -44,7 +44,7 @@ import { UniversityUserProfile, parseStudentInfo, facultyMap, departmentMap } fr
 import { alpha, useTheme } from '@mui/material/styles';
 import Autocomplete from '@mui/material/Autocomplete';
 import Cropper from 'react-easy-crop';
-import getCroppedImg from '../../utils/cropImage';
+import getCroppedImg, { compressImageFile } from '../../utils/cropImage';
 
 const FACULTY_OPTIONS = Array.from(new Set(Object.values(facultyMap)));
 
@@ -182,17 +182,30 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     return Object.keys(errors).length === 0;
   };
 
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    event.target.value = '';
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.addEventListener('load', () => {
-      setImageToCrop(reader.result?.toString() || null);
+    try {
+      setUploadingImage(true);
+      setError('');
+      // บีบอัดก่อนเข้า Cropper — ไม่โหลดรูปเต็มความละเอียดเข้าหน่วยความจำ
+      const { dataUrl } = await compressImageFile(file, {
+        maxEdge: 1200,
+        quality: 0.82,
+        mimeType: 'image/jpeg',
+      });
+      setImageToCrop(dataUrl);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setCroppedAreaPixels(null);
       setCropModalOpen(true);
-    });
-    reader.readAsDataURL(file);
-    event.target.value = '';
+    } catch (err: any) {
+      setError(err?.message || 'ไม่สามารถโหลดรูปภาพได้');
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const onCropComplete = useCallback((_croppedArea: any, pixels: any) => {
@@ -206,10 +219,17 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
       setUploadingImage(true);
       setError('');
 
-      const croppedBlob = await getCroppedImg(imageToCrop, croppedAreaPixels);
-      const storageRef = ref(storage, `profiles/${user.uid}_${Date.now()}`);
+      const croppedBlob = await getCroppedImg(imageToCrop, croppedAreaPixels, {
+        maxEdge: 256,
+        quality: 0.72,
+        mimeType: 'image/jpeg',
+      });
+      const storageRef = ref(storage, `profiles/${user.uid}_${Date.now()}.jpg`);
 
-      await uploadBytes(storageRef, croppedBlob);
+      await uploadBytes(storageRef, croppedBlob, {
+        contentType: 'image/jpeg',
+        cacheControl: 'public,max-age=31536000',
+      });
       const url = await getDownloadURL(storageRef);
 
       setFormData((prev) => ({ ...prev, photoURL: url }));
@@ -349,6 +369,7 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
               <Box sx={{ position: 'relative', display: 'inline-block' }}>
                 <Avatar
                   src={getPreviewAvatar() || undefined}
+                  slotProps={{ img: { loading: 'lazy', decoding: 'async' } }}
                   sx={{
                     width: 100,
                     height: 100,
@@ -617,7 +638,16 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         </DialogActions>
       </Dialog>
 
-      <Dialog open={cropModalOpen} onClose={() => !uploadingImage && setCropModalOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={cropModalOpen}
+        onClose={() => {
+          if (uploadingImage) return;
+          setCropModalOpen(false);
+          setImageToCrop(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>ปรับขนาดรูปโปรไฟล์</DialogTitle>
         <DialogContent sx={{ position: 'relative', height: 400, bgcolor: '#333', p: 0 }}>
           {imageToCrop && (
@@ -635,7 +665,14 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setCropModalOpen(false)} disabled={uploadingImage} variant="outlined">
+          <Button
+            onClick={() => {
+              setCropModalOpen(false);
+              setImageToCrop(null);
+            }}
+            disabled={uploadingImage}
+            variant="outlined"
+          >
             ยกเลิก
           </Button>
           <Button

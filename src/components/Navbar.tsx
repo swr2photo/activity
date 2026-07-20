@@ -264,6 +264,7 @@ const Navbar: React.FC = () => {
                   <Tooltip title="จัดการบัญชี">
                     <Avatar
                       src={getAvatarSrc()}
+                      slotProps={{ img: { loading: 'lazy', decoding: 'async' } }}
                       sx={{
                         width: { xs: 36, sm: 40 },
                         height: { xs: 36, sm: 40 },
@@ -361,7 +362,11 @@ const Navbar: React.FC = () => {
                   }}
                 >
                   <IconButton color="inherit" sx={{ p: 0.5 }}>
-                    <Avatar src={getAvatarSrc()} sx={{ width: 28, height: 28 }}>
+                    <Avatar
+                      src={getAvatarSrc()}
+                      slotProps={{ img: { loading: 'lazy', decoding: 'async' } }}
+                      sx={{ width: 28, height: 28 }}
+                    >
                       {!getAvatarSrc() && getAvatarLetter()}
                     </Avatar>
                   </IconButton>
@@ -441,7 +446,11 @@ const Navbar: React.FC = () => {
         >
           <Box sx={{ px: 2, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar src={getAvatarSrc()} sx={{ width: 48, height: 48, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+              <Avatar
+                src={getAvatarSrc()}
+                slotProps={{ img: { loading: 'lazy', decoding: 'async' } }}
+                sx={{ width: 48, height: 48, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+              >
                 {!getAvatarSrc() && getAvatarLetter()}
               </Avatar>
               <Box sx={{ flex: 1, minWidth: 0 }}>

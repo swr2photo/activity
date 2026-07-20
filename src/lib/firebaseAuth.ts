@@ -22,6 +22,7 @@ import {
 } from 'firebase/firestore';
 import type { DocumentData } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import { SessionManager } from './sessionManager';
 
 export interface UniversityUserProfile {
   uid: string;
@@ -337,6 +338,8 @@ export const useAuth = () => {
   };
 
   const logout = async () => {
+    const uid = auth.currentUser?.uid;
+    if (uid) await SessionManager.destroySession(uid);
     await signOutUser();
     setAuthState({ user: null, userData: null, loading: false, error: null });
   };
