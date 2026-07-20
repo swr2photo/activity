@@ -91,7 +91,8 @@ const Navbar: React.FC = () => {
 
   const handleSaveProfile = useCallback(async (updates: any) => {
     if (user?.uid) {
-      await updateUserProfile(user.uid, updates);
+      const { isActive: _a, isVerified: _v, ...safe } = updates || {};
+      await updateUserProfile(user.uid, safe);
       await refreshUserData();
     }
   }, [user?.uid, refreshUserData]);

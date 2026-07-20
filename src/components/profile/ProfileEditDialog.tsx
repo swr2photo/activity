@@ -388,11 +388,8 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
           formData.studentId.trim() ||
           formData.institutionName.trim() ||
           fullDisplayName,
-        photoURL: formData.photoURL.trim(),
+        photoURL: formData.photoURL.trim() || '',
         userType: isExternal ? 'external' : 'university',
-        isVerified: true,
-        isActive: true,
-        updatedAt: new Date() as any,
       };
 
       if (isExternal) {

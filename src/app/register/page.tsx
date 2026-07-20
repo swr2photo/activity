@@ -663,7 +663,7 @@ const RegisterPageContent: React.FC = () => {
   const activityCodeRaw = searchParams.get('activity') || '';
   const activityCode = useMemo(() => activityCodeRaw.trim().toUpperCase(), [activityCodeRaw]);
 
-  const { user, userData, loading: authLoading, logout } = useAuth();
+  const { user, userData, loading: authLoading, logout, refreshUserData } = useAuth();
 
   // States
   const [adminSettings, setAdminSettings] = useState<AdminSettings | null>(null);
@@ -1256,10 +1256,16 @@ const RegisterPageContent: React.FC = () => {
 
   const handleSaveProfile = async (updatedData: Partial<UniversityUserProfile>) => {
     if (!user?.uid) throw new Error('ไม่พบข้อมูลผู้ใช้');
-    // Save to universityUsers (which useAuth/getUserProfile reads from)
-    await setDoc(doc(db, 'universityUsers', user.uid), { ...updatedData, updatedAt: new Date() }, { merge: true });
-    // Also save to users for backward compatibility
-    await setDoc(doc(db, 'users', user.uid), { ...updatedData, updatedAt: new Date() }, { merge: true });
+    // อย่าส่ง isActive/isVerified จากฟอร์ม — กัน rules ปฏิเสธตอนอัปเดต
+    const { isActive: _a, isVerified: _v, updatedAt: _u, ...safeData } = updatedData as any;
+    const payload = {
+      ...safeData,
+      updatedAt: new Date(),
+    };
+    await setDoc(doc(db, 'universityUsers', user.uid), payload, { merge: true });
+    await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
+    // ต้อง refresh ไม่งั้น isProfileComplete ยังอ่านค่าเก่า → ฟอร์มเด้งกลับ
+    await refreshUserData();
     setNeedsProfileSetup(false);
     setShowProfileDialog(false);
     setSuccessMessage('บันทึกข้อมูลเรียบร้อยแล้ว');
