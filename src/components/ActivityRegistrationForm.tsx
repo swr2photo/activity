@@ -969,6 +969,15 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
         }
 
         // ใช้ studentId จาก universityUsers โดยตรง เพื่อให้ผ่าน Firestore rules
+        let clientIp = 'unknown';
+        try {
+          const ipRes = await fetch('https://api.ipify.org?format=json');
+          const ipData = await ipRes.json();
+          clientIp = String(ipData?.ip || 'unknown');
+        } catch {
+          /* ignore */
+        }
+
         const rawPayload: Record<string, any> = {
           userId: uid,
           email: existingUserProfile?.email || (formData as any).email || profileData.email || '',
@@ -980,9 +989,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           faculty: (formData as any).faculty,
           department: (formData as any).department,
           degree: (formData as any).degree,
+          userType: existingUserProfile?.userType || profileData.userType || 'university',
+          institutionName: existingUserProfile?.institutionName || profileData.institutionName || '',
           activityCode,
           activityDocId,
           location,
+          ipAddress: clientIp,
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 300) : '',
           userCode: activityStatus.userCode || '',
           transcriptSaved: true,
           timestamp: serverTimestamp(),

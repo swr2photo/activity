@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Download, RefreshCw, Trash2, Eye, Search, Calendar,
-  Activity, Bell, FileText, ChevronDown, CheckSquare, Settings2, Trash
+  Activity, Bell, FileText, ChevronDown, CheckSquare, Settings2, Trash,
+  AlertTriangle, MapPin, Globe, Mail
 } from 'lucide-react';
 import { useSnackbar } from 'notistack';
 import { DatePicker, ConfigProvider } from 'antd';
@@ -63,6 +64,110 @@ type AdminNotif = {
   createdAt?: Date | Timestamp | null;
 };
 
+type RecordAnomaly = { level: 'warning' | 'danger'; message: string };
+
+function detectRecordAnomalies(
+  record: ActivityRecord,
+  all: ActivityRecord[]
+): RecordAnomaly[] {
+  const out: RecordAnomaly[] = [];
+  const sid = (record.studentId || '').trim();
+  const ip = (record.ipAddress || '').trim();
+  const email = (record.email || '').trim().toLowerCase();
+  const fullName = `${record.firstName || ''} ${record.lastName || ''}`.trim().toLowerCase();
+  const code = record.activityCode;
+
+  const loc = record.location;
+  if (!loc || (typeof loc.latitude === 'number' && loc.latitude === 0 && loc.longitude === 0)) {
+    out.push({ level: 'warning', message: 'ไม่มีพิกัด GPS ตอนลงทะเบียน หรือพิกัดเป็น 0,0' });
+  }
+
+  if (sid.startsWith('EXT-') && record.faculty && record.faculty !== 'บุคคลภายนอก') {
+    out.push({
+      level: 'warning',
+      message: `บัญชีบุคคลภายนอก แต่คณะเป็น "${record.faculty}" ซึ่งไม่สอดคล้องกัน`,
+    });
+  }
+
+  if (ip && ip !== 'unknown') {
+    const sameIpSameActivity = all.filter(
+      (r) =>
+        r.id !== record.id &&
+        r.activityCode === code &&
+        (r.ipAddress || '').trim() === ip &&
+        (r.studentId || '').trim() !== sid
+    );
+    const uniqueUsers = new Set(sameIpSameActivity.map((r) => r.studentId));
+    if (uniqueUsers.size >= 1) {
+      out.push({
+        level: uniqueUsers.size >= 2 ? 'danger' : 'warning',
+        message: `IP เดียวกัน (${ip}) ใช้ลงทะเบียนกิจกรรมนี้กับอีก ${uniqueUsers.size} บัญชี: ${[...uniqueUsers].slice(0, 5).join(', ')}${uniqueUsers.size > 5 ? '…' : ''}`,
+      });
+    }
+
+    const sameIpAny = all.filter(
+      (r) => r.id !== record.id && (r.ipAddress || '').trim() === ip && (r.studentId || '').trim() !== sid
+    );
+    const anyUsers = new Set(sameIpAny.map((r) => r.studentId));
+    if (anyUsers.size >= 3 && uniqueUsers.size < 1) {
+      out.push({
+        level: 'warning',
+        message: `IP นี้พบกับอีก ${anyUsers.size} บัญชีในข้อมูลที่โหลด (อาจเป็น Wi‑Fi ร่วม หรือแชร์อุปกรณ์)`,
+      });
+    }
+  }
+
+  if (fullName.length >= 4) {
+    const sameName = all.filter(
+      (r) =>
+        r.id !== record.id &&
+        r.activityCode === code &&
+        `${r.firstName || ''} ${r.lastName || ''}`.trim().toLowerCase() === fullName &&
+        (r.studentId || '').trim() !== sid
+    );
+    if (sameName.length > 0) {
+      out.push({
+        level: 'danger',
+        message: `ชื่อ-นามสกุลซ้ำกับบัญชีอื่นในกิจกรรมนี้ (${sameName.map((r) => r.studentId).slice(0, 3).join(', ')})`,
+      });
+    }
+  }
+
+  if (email) {
+    const sameEmail = all.filter(
+      (r) =>
+        r.id !== record.id &&
+        (r.email || '').trim().toLowerCase() === email &&
+        (r.studentId || '').trim() !== sid
+    );
+    if (sameEmail.length > 0) {
+      out.push({
+        level: 'danger',
+        message: `อีเมลเดียวกันใช้กับรหัสอื่น: ${sameEmail.map((r) => r.studentId).slice(0, 3).join(', ')}`,
+      });
+    }
+  }
+
+  return out;
+}
+
+function DetailField({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn('space-y-1', className)}>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="font-medium text-sm break-words">{value || '-'}</div>
+    </div>
+  );
+}
+
 
 
 // --- Main Component ---
@@ -81,6 +186,20 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   const [progress, setProgress] = useState(0);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<ActivityRecord | null>(null);
+
+  const selectedAnomalies = useMemo(() => {
+    if (!selectedRecord) return [] as RecordAnomaly[];
+    return detectRecordAnomalies(selectedRecord, records);
+  }, [selectedRecord, records]);
+
+  const anomalyCountById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of records) {
+      const n = detectRecordAnomalies(r, records).length;
+      if (n > 0) map.set(r.id, n);
+    }
+    return map;
+  }, [records]);
 
   // Export State
   const [exportOpen, setExportOpen] = useState(false);
@@ -471,7 +590,12 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="font-semibold truncate">{r.firstName} {r.lastName}</p>
+                          <p className="font-semibold truncate flex items-center gap-1.5">
+                            {anomalyCountById.has(r.id) && (
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                            )}
+                            {r.firstName} {r.lastName}
+                          </p>
                           <p className="text-xs text-muted-foreground">{r.studentId}</p>
                         </div>
                         <Button
@@ -540,8 +664,23 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                         <div className="text-xs text-muted-foreground">{r.timestamp.toLocaleTimeString('th-TH')}</div>
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium">{r.firstName} {r.lastName}</div>
+                        <div className="font-medium flex items-center gap-1.5">
+                          {anomalyCountById.has(r.id) && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                </TooltipTrigger>
+                                <TooltipContent>พบความผิดปกติ — เปิดรายละเอียดเพื่อดู</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                          {r.firstName} {r.lastName}
+                        </div>
                         <div className="text-xs text-muted-foreground">{r.studentId}</div>
+                        {r.ipAddress && (
+                          <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{r.ipAddress}</div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">{String(r.faculty || '-')}</div>
@@ -583,33 +722,150 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
 
       {/* Detail Dialog */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>รายละเอียดการเข้าร่วม</DialogTitle>
           </DialogHeader>
           {selectedRecord && (
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-2">
+              {selectedAnomalies.length > 0 && (
+                <div className="space-y-2">
+                  {selectedAnomalies.map((a, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        'flex gap-2 rounded-lg border p-3 text-sm',
+                        a.level === 'danger'
+                          ? 'border-red-200 bg-red-50 text-red-900'
+                          : 'border-amber-200 bg-amber-50 text-amber-950'
+                      )}
+                    >
+                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold">
+                          {a.level === 'danger' ? 'พบความผิดปกติ' : 'ควรตรวจสอบ'}
+                        </p>
+                        <p className="mt-0.5 leading-snug">{a.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">รหัสนักศึกษา</Label>
-                  <p className="font-medium">{selectedRecord.studentId}</p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">ชื่อ-นามสกุล</Label>
-                  <p className="font-medium">{selectedRecord.firstName} {selectedRecord.lastName}</p>
-                </div>
-                <div className="space-y-1 col-span-2">
-                  <Label className="text-xs text-muted-foreground">กิจกรรม</Label>
-                  <p className="font-medium">{activityNameByCode[selectedRecord.activityCode] || selectedRecord.activityCode}</p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">เวลา</Label>
-                  <p className="font-medium">{selectedRecord.timestamp.toLocaleString('th-TH')}</p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">คณะ</Label>
-                  <p className="font-medium">{selectedRecord.faculty || '-'}</p>
-                </div>
+                <DetailField
+                  label={selectedRecord.studentId?.startsWith('EXT-') ? 'รหัสอ้างอิง' : 'รหัสนักศึกษา'}
+                  value={selectedRecord.studentId}
+                />
+                <DetailField
+                  label="ชื่อ-นามสกุล"
+                  value={`${selectedRecord.nameTitle || ''}${selectedRecord.firstName || ''} ${selectedRecord.lastName || ''}`.trim()}
+                />
+                <DetailField
+                  label="อีเมล"
+                  value={
+                    selectedRecord.email ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                        {selectedRecord.email}
+                      </span>
+                    ) : (
+                      '-'
+                    )
+                  }
+                  className="sm:col-span-2"
+                />
+                <DetailField
+                  label="กิจกรรม"
+                  value={activityNameByCode[selectedRecord.activityCode] || selectedRecord.activityCode}
+                  className="sm:col-span-2"
+                />
+                <DetailField label="รหัสกิจกรรม" value={selectedRecord.activityCode} />
+                <DetailField
+                  label="รอบ / เซสชัน"
+                  value={selectedRecord.sessionName || selectedRecord.sessionId || '-'}
+                />
+                <DetailField
+                  label="เวลา"
+                  value={selectedRecord.timestamp.toLocaleString('th-TH')}
+                />
+                <DetailField
+                  label="ประเภทผู้ใช้"
+                  value={
+                    selectedRecord.userType === 'external' || selectedRecord.studentId?.startsWith('EXT-')
+                      ? 'บุคคลภายนอก'
+                      : 'มหาวิทยาลัย'
+                  }
+                />
+                <DetailField
+                  label={
+                    selectedRecord.userType === 'external' || selectedRecord.studentId?.startsWith('EXT-')
+                      ? 'สถานศึกษา / หน่วยงาน'
+                      : 'คณะ'
+                  }
+                  value={
+                    selectedRecord.institutionName ||
+                    selectedRecord.faculty ||
+                    '-'
+                  }
+                />
+                <DetailField
+                  label={
+                    selectedRecord.userType === 'external' || selectedRecord.studentId?.startsWith('EXT-')
+                      ? 'ระดับการศึกษา'
+                      : 'สาขา'
+                  }
+                  value={
+                    selectedRecord.userType === 'external' || selectedRecord.studentId?.startsWith('EXT-')
+                      ? selectedRecord.degree || selectedRecord.department || '-'
+                      : String(selectedRecord.department || '-')
+                  }
+                />
+                {!(selectedRecord.userType === 'external' || selectedRecord.studentId?.startsWith('EXT-')) && (
+                  <DetailField label="ระดับการศึกษา" value={selectedRecord.degree || '-'} />
+                )}
+                <DetailField
+                  label="IP Address"
+                  value={
+                    <span className="inline-flex items-center gap-1.5 font-mono text-xs sm:text-sm">
+                      <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                      {selectedRecord.ipAddress || 'ไม่มีข้อมูล (รายการเก่า)'}
+                    </span>
+                  }
+                  className="sm:col-span-2"
+                />
+                <DetailField
+                  label="พิกัด GPS"
+                  value={
+                    selectedRecord.location?.latitude != null &&
+                    selectedRecord.location?.longitude != null ? (
+                      <span className="inline-flex items-center gap-1.5 font-mono text-xs">
+                        <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                        {Number(selectedRecord.location.latitude).toFixed(6)},{' '}
+                        {Number(selectedRecord.location.longitude).toFixed(6)}
+                        <a
+                          className="ml-1 text-primary underline font-sans text-xs"
+                          href={`https://www.google.com/maps?q=${selectedRecord.location.latitude},${selectedRecord.location.longitude}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          เปิดแผนที่
+                        </a>
+                      </span>
+                    ) : (
+                      'ไม่มีข้อมูล'
+                    )
+                  }
+                  className="sm:col-span-2"
+                />
+                {selectedRecord.userAgent && (
+                  <DetailField
+                    label="อุปกรณ์ / เบราว์เซอร์"
+                    value={<span className="text-xs text-muted-foreground font-normal">{selectedRecord.userAgent}</span>}
+                    className="sm:col-span-2"
+                  />
+                )}
+                <DetailField label="User ID" value={selectedRecord.userId || '-'} className="sm:col-span-2" />
               </div>
             </div>
           )}

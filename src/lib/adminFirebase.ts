@@ -290,6 +290,16 @@ export interface ActivityRecord {
   faculty?: string;
   sessionId?: string; // ถ้าเช็คอินแบบเลือก session
   sessionName?: string;
+  nameTitle?: string;
+  email?: string;
+  userId?: string;
+  degree?: string;
+  userType?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  institutionName?: string;
+  location?: { latitude?: number; longitude?: number; accuracy?: number };
+  checkedInSessions?: string[];
 }
 
 export interface UnivUser {
