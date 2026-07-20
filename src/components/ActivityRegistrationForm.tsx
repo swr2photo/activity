@@ -58,6 +58,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import type { UserType } from '../lib/firebaseAuth';
+import { EDUCATION_LEVEL_OPTIONS } from '../lib/firebaseAuth';
 import LocationChecker from './LocationChecker';
 import { AdminSettings } from '../types';
 import SurveyForm from './activity/SurveyForm';
@@ -98,6 +99,35 @@ interface UserProfile {
 }
 
 export type ActivityUserProfile = UserProfile;
+
+/** มหาวิทยาลัย (ม.อ.) | นักเรียนโรงเรียน | บุคคลภายนอกอื่น */
+type AffiliationKind = 'university' | 'school' | 'other';
+
+const SCHOOL_EDU_LEVELS = new Set<string>([
+  'มัธยมศึกษาตอนต้น',
+  'มัธยมศึกษาตอนปลาย',
+  'ประกาศนียบัตรวิชาชีพ (ปวช.)',
+  'ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)',
+]);
+
+function detectAffiliationKind(profile?: UserProfile | null): AffiliationKind {
+  if (!profile || profile.userType !== 'external') return 'university';
+
+  const level = (profile.educationLevel || '').trim();
+  const inst = (profile.institutionName || profile.department || '').trim();
+
+  if (
+    SCHOOL_EDU_LEVELS.has(level) ||
+    /^(โรงเรียน|รร\.|วิทยาลัยเทคนิค|วิทยาลัยอาชีว)/u.test(inst) ||
+    inst.includes('โรงเรียน')
+  ) {
+    return 'school';
+  }
+  if (/มหาวิทยาลัย|สถาบัน/u.test(inst) || /^ปริญญา/u.test(level)) {
+    return 'other';
+  }
+  return 'other';
+}
 
 interface ActivityRegistrationFormProps {
   activityCode: string;
@@ -368,6 +398,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
   const [currentRegisteredUser, setCurrentRegisteredUser] = useState<string>('');
 
   const initialData = extractAndGenerateUserData(existingUserProfile);
+  const affiliationKind = detectAffiliationKind(existingUserProfile);
+  const isExternal = affiliationKind !== 'university';
   const [formData, setFormData] = useState({
     ...initialData,
     userCode: '',
@@ -733,6 +765,10 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
 
   const isFieldReadOnly = (field: string): boolean => {
     if (!(autoFilledData as any).isAutoFilled) return false;
+    if (isExternal) {
+      // บุคคลภายนอก: ล็อกเฉพาะรหัสอ้างอิง + ชื่อที่มาจากโปรไฟล์
+      return ['studentId', 'firstName', 'lastName'].includes(field);
+    }
     return ['studentId', 'firstName', 'lastName', 'faculty', 'degree'].includes(field);
   };
 
@@ -747,13 +783,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       return false;
     }
 
-    const isExternal = existingUserProfile?.userType === 'external';
+    const isExternalUser = existingUserProfile?.userType === 'external';
 
-    if (!isExternal && !validateNewStudentId((formData as any).studentId)) {
+    if (!isExternalUser && !validateNewStudentId((formData as any).studentId)) {
       setFieldErrors({ studentId: 'รหัสนักศึกษาไม่ถูกต้อง (ต้องเป็นตัวเลข 10 หลัก)' });
       return false;
     }
-    if (isExternal && !(formData as any).studentId?.trim()) {
+    if (isExternalUser && !(formData as any).studentId?.trim()) {
       setFieldErrors({ studentId: 'ไม่พบรหัสอ้างอิงผู้ใช้ กรุณาเข้าสู่ระบบใหม่' });
       return false;
     }
@@ -769,17 +805,25 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       setFieldErrors({ lastName: 'นามสกุลต้องเป็นภาษาไทยเท่านั้น (อย่างน้อย 2 ตัวอักษร)' });
       return false;
     }
-    if (!isExternal && !(formData as any).faculty) {
+    if (!isExternalUser && !(formData as any).faculty) {
       setFieldErrors({ faculty: 'กรุณาเลือกคณะ' });
       return false;
     }
-    if (!isExternal && !(formData as any).department) {
+    if (!isExternalUser && !(formData as any).department) {
       setFieldErrors({ department: 'กรุณาเลือกสาขา' });
       return false;
     }
-    if (isExternal && !((formData as any).department || existingUserProfile?.institutionName)) {
-      setFieldErrors({ department: 'กรุณากรอกสถานศึกษาในโปรไฟล์ก่อน' });
-      return false;
+    if (isExternalUser) {
+      const institution =
+        (formData as any).department || existingUserProfile?.institutionName || '';
+      if (!institution.trim()) {
+        setFieldErrors({ department: 'กรุณากรอกสถานศึกษาในโปรไฟล์ก่อน' });
+        return false;
+      }
+      if (!(formData as any).degree?.trim() && !existingUserProfile?.educationLevel?.trim()) {
+        setFieldErrors({ degree: 'กรุณาระบุระดับการศึกษาในโปรไฟล์ก่อน' });
+        return false;
+      }
     }
 
     // กันลงทะเบียนซ้ำด้วย studentId (เร็ว)
@@ -1363,13 +1407,17 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     severity="info" 
                     sx={{ mb: 3, borderRadius: 3, bgcolor: 'primary.50', color: 'primary.900', border: '1px solid', borderColor: 'primary.100' }}
                   >
-                    ข้อมูลส่วนใหญ่ถูกดึงมาจากระบบของมหาวิทยาลัยและได้รับการยืนยันแล้ว
+                    {affiliationKind === 'university'
+                      ? 'ข้อมูลส่วนใหญ่ถูกดึงมาจากระบบของมหาวิทยาลัยและได้รับการยืนยันแล้ว'
+                      : affiliationKind === 'school'
+                        ? 'ลงทะเบียนในฐานะนักเรียนโรงเรียน — แสดงสถานศึกษาและระดับการศึกษาจากโปรไฟล์ของคุณ'
+                        : 'ลงทะเบียนในฐานะบุคคลภายนอก — แสดงสถานศึกษาและระดับการศึกษาจากโปรไฟล์ของคุณ'}
                   </Alert>
                 )}
                 <Grid container spacing={2.5}>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
-                      label="รหัสนักศึกษา"
+                      label={isExternal ? 'รหัสอ้างอิง' : 'รหัสนักศึกษา'}
                       value={(formData as any).studentId}
                       onChange={handleInputChange('studentId')}
                       fullWidth
@@ -1386,7 +1434,11 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                         )
                       }}
                       error={!!fieldErrors.studentId}
-                      helperText={fieldErrors.studentId || (!isFieldReadOnly('studentId') && 'เช่น 6421021234 (10 หลัก)')}
+                      helperText={
+                        fieldErrors.studentId ||
+                        (!isFieldReadOnly('studentId') && !isExternal && 'เช่น 6421021234 (10 หลัก)') ||
+                        (isExternal && 'รหัสอ้างอิงจากระบบสำหรับบุคคลภายนอก')
+                      }
                       sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' }, ...(isFieldReadOnly('studentId') && { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } }) }}
                     />
                   </Grid>
@@ -1396,14 +1448,13 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       fullWidth
                       required
                       error={!!fieldErrors.nameTitle}
-                      disabled={isFieldReadOnly('firstName') || loading || forceRefreshEnabled}
+                      disabled={loading || forceRefreshEnabled}
                     >
                       <InputLabel>คำนำหน้าชื่อ</InputLabel>
                       <Select
                         value={(formData as any).nameTitle || ''}
                         onChange={handleSelectChange('nameTitle')}
                         label="คำนำหน้าชื่อ"
-                        sx={isFieldReadOnly('firstName') ? { bgcolor: 'grey.50' } : {}}
                       >
                         {NAME_TITLE_OPTIONS.map((t) => (
                           <MenuItem key={t} value={t}>
@@ -1469,6 +1520,67 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     />
                   </Grid>
 
+                  {isExternal ? (
+                    <>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label={affiliationKind === 'school' ? 'โรงเรียน / สถานศึกษา' : 'สถานศึกษา / หน่วยงาน'}
+                          value={
+                            (formData as any).department ||
+                            existingUserProfile?.institutionName ||
+                            ''
+                          }
+                          fullWidth
+                          required
+                          disabled
+                          error={!!fieldErrors.department}
+                          helperText={
+                            fieldErrors.department ||
+                            'ดึงจากโปรไฟล์ — แก้ไขได้ที่เมนูโปรไฟล์'
+                          }
+                          sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } }}
+                          InputProps={{
+                            endAdornment: (
+                              <Chip
+                                size="small"
+                                icon={<VerifiedIcon />}
+                                label={affiliationKind === 'school' ? 'นักเรียน' : 'บุคคลภายนอก'}
+                                color="primary"
+                                variant="outlined"
+                                sx={{ border: 'none' }}
+                              />
+                            ),
+                          }}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          label="ระดับการศึกษา"
+                          value={
+                            (formData as any).degree ||
+                            existingUserProfile?.educationLevel ||
+                            ''
+                          }
+                          fullWidth
+                          required
+                          disabled
+                          error={!!fieldErrors.degree}
+                          helperText={
+                            fieldErrors.degree ||
+                            (EDUCATION_LEVEL_OPTIONS.includes(
+                              ((formData as any).degree ||
+                                existingUserProfile?.educationLevel ||
+                                '') as any
+                            )
+                              ? 'ดึงจากโปรไฟล์'
+                              : 'กรุณาระบุในโปรไฟล์ก่อนลงทะเบียน')
+                          }
+                          sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } }}
+                        />
+                      </Grid>
+                    </>
+                  ) : (
+                    <>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <FormControl fullWidth required error={!!fieldErrors.faculty} disabled={isFieldReadOnly('faculty') || loading || forceRefreshEnabled}>
                       <InputLabel>คณะ</InputLabel>
@@ -1553,6 +1665,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                       </Select>
                     </FormControl>
                   </Grid>
+                    </>
+                  )}
 
                   {/* userCode field removed */}
                 </Grid>
@@ -1575,10 +1689,18 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
                     onClick={handleSubmit}
                     disabled={
                       loading ||
-                      departmentsLoading ||
                       forceRefreshEnabled ||
-                      !(formData as any).faculty ||
-                      filteredDepartments.length === 0
+                      !validateNameTitle((formData as any).nameTitle || '') ||
+                      !validateThaiName((formData as any).firstName || '') ||
+                      !validateThaiName((formData as any).lastName || '') ||
+                      (isExternal
+                        ? !(
+                            (formData as any).department ||
+                            existingUserProfile?.institutionName
+                          )?.trim()
+                        : departmentsLoading ||
+                          !(formData as any).faculty ||
+                          filteredDepartments.length === 0)
                     }
                     sx={{
                       px: 4,

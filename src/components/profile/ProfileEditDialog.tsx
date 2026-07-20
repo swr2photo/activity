@@ -669,7 +669,10 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                           required
                           variant="outlined"
                           placeholder="เลือกหรือพิมพ์ระดับการศึกษา"
-                          helperText={validationErrors.educationLevel || 'ระดับการศึกษาปัจจุบัน'}
+                          helperText={
+                            validationErrors.educationLevel ||
+                            'เช่น ม.ปลาย = นักเรียนโรงเรียน / ปริญญาตรี = มหาวิทยาลัย'
+                          }
                           error={!!validationErrors.educationLevel}
                           InputProps={{
                             ...params.InputProps,
