@@ -57,11 +57,13 @@
     "eslint-config-next": "^16.1.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.12",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
     "dev": "node --dns-result-order=ipv4first ./node_modules/next/dist/bin/next dev",
     "build": "next build",
+    "build:thai-schools": "node scripts/build-thai-schools.js",
     "start": "next start",
     "lint": "next lint",
     "test": "node --experimental-strip-types --test src/lib/surveyWindow.test.ts"

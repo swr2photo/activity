@@ -33,6 +33,13 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local open-data dumps (rebuild with scripts/build-thai-schools.js)
+/src/data/moe_schools_dump.csv
+/src/data/obec_schools_raw.json
+/src/data/school64.xlsx
+/src/data/school68.xlsx
+/src/data/mhesi_univ_2564.csv
+
 # vercel
 .vercel
 

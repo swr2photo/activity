@@ -99,6 +99,46 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   const [error, setError] = useState('');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
+  const [institutionOptions, setInstitutionOptions] = useState<string[]>([]);
+  const [institutionLoading, setInstitutionLoading] = useState(false);
+  const institutionSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const searchInstitutions = useCallback((q: string) => {
+    if (institutionSearchRef.current) clearTimeout(institutionSearchRef.current);
+    const query = q.trim();
+    if (query.length < 1) {
+      setInstitutionOptions([]);
+      setInstitutionLoading(false);
+      return;
+    }
+    setInstitutionLoading(true);
+    institutionSearchRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/institutions/search?q=${encodeURIComponent(query)}&scope=all`);
+        if (!res.ok) throw new Error('search failed');
+        const data = await res.json();
+        const names: string[] = Array.from(
+          new Set(
+            (data.items || [])
+              .map((it: { name?: string; label?: string }) => it.label || it.name)
+              .filter(Boolean)
+          )
+        );
+        setInstitutionOptions(names);
+      } catch {
+        setInstitutionOptions([]);
+      } finally {
+        setInstitutionLoading(false);
+      }
+    }, 280);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (institutionSearchRef.current) clearTimeout(institutionSearchRef.current);
+    };
+  }, []);
+
   // Crop State
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -502,23 +542,55 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
               {isExternal ? (
                 <>
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField
-                      label="สถานศึกษา / หน่วยงาน *"
-                      value={formData.institutionName}
-                      onChange={(e) => handleInputChange('institutionName', e.target.value)}
-                      fullWidth
-                      required
-                      variant="outlined"
-                      placeholder="เช่น โรงเรียน… / มหาวิทยาลัย…"
-                      helperText={validationErrors.institutionName || 'ชื่อสถานศึกษาหรือหน่วยงานที่สังกัด'}
-                      error={!!validationErrors.institutionName}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <SchoolIcon sx={{ color: 'text.secondary' }} />
-                          </InputAdornment>
-                        ),
+                    <Autocomplete
+                      freeSolo
+                      options={institutionOptions}
+                      loading={institutionLoading}
+                      value={formData.institutionName || null}
+                      onChange={(_, newValue) => {
+                        handleInputChange('institutionName', (newValue as string) || '');
                       }}
+                      onInputChange={(_, newInputValue, reason) => {
+                        if (reason === 'input' || reason === 'clear') {
+                          handleInputChange('institutionName', newInputValue);
+                          searchInstitutions(newInputValue);
+                        } else if (reason === 'reset') {
+                          // keep current value; still refresh suggestions when dialog opens with value
+                          if (newInputValue) searchInstitutions(newInputValue);
+                        }
+                      }}
+                      filterOptions={(x) => x}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="สถานศึกษา / หน่วยงาน *"
+                          required
+                          variant="outlined"
+                          placeholder="พิมพ์ค้นหา เช่น หาดใหญ่ / สงขลา / Chulalongkorn"
+                          helperText={
+                            validationErrors.institutionName ||
+                            'ค้นมหาวิทยาลัยไทย (อว.) + โรงเรียนไทย (ศธ.) + มหาวิทยาลัยทั่วโลก — หรือพิมพ์ชื่อเองได้'
+                          }
+                          error={!!validationErrors.institutionName}
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <SchoolIcon sx={{ color: 'text.secondary' }} />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                            endAdornment: (
+                              <>
+                                {institutionLoading ? <CircularProgress color="inherit" size={16} /> : null}
+                                {params.InputProps.endAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
