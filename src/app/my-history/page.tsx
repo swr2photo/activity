@@ -209,8 +209,12 @@ const MyHistoryPage: React.FC = () => {
                   const win = getSurveyWindowStatus({
                     enabled: cfg.enabled,
                     questionsLength: cfg.questions?.length ?? 0,
+                    openAt: cfg.openAt,
+                    closeAt: cfg.closeAt,
                     surveyOpenMinutes: cfg.surveyOpenMinutes,
                     forceOpenUntil: cfg.forceOpenUntil,
+                    userForceOpenUntil: cfg.userForceOpenUntil,
+                    userId: user?.uid,
                     endDateTime: actData.endDateTime,
                     sessions: actData.sessions || [],
                   });

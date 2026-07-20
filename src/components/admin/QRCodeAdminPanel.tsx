@@ -336,10 +336,13 @@ type CreateForm = {
   // แบบประเมิน (Survey)
   surveyConfig: {
     enabled: boolean;
-    surveyOpenMinutes: number;
+    openAt: Dayjs | null;
+    closeAt: Dayjs | null;
     sessionEligibility: 'any' | 'all' | 'specific';
     requiredSessionIds: string[];
     questions: SurveyQuestion[];
+    forceOpenUntil?: any;
+    userForceOpenUntil?: Record<string, any>;
   };
 
   // ไฟล์/เอกสารแนบกิจกรรมหลัก
@@ -383,8 +386,32 @@ const defaultForm: CreateForm = {
   
   dynamicQREnabled: false,
   sessions: [],
-  surveyConfig: { enabled: false, surveyOpenMinutes: 1440, sessionEligibility: 'any', requiredSessionIds: [], questions: [] },
+  surveyConfig: {
+    enabled: false,
+    openAt: dayjs().add(2, 'hour').startOf('minute'),
+    closeAt: dayjs().add(1, 'day').add(2, 'hour').startOf('minute'),
+    sessionEligibility: 'any',
+    requiredSessionIds: [],
+    questions: [],
+  },
   files: [],
+};
+
+/** แปลง surveyConfig จากฟอร์ม → บันทึก Firestore */
+const serializeSurveyConfig = (cfg: CreateForm['surveyConfig']) => {
+  const out: Record<string, any> = {
+    enabled: !!cfg.enabled,
+    questions: cfg.questions || [],
+    sessionEligibility: cfg.sessionEligibility || 'any',
+    requiredSessionIds: cfg.requiredSessionIds || [],
+  };
+  if (cfg.openAt) out.openAt = cfg.openAt.toDate();
+  if (cfg.closeAt) out.closeAt = cfg.closeAt.toDate();
+  if (cfg.forceOpenUntil != null) out.forceOpenUntil = cfg.forceOpenUntil;
+  if (cfg.userForceOpenUntil && Object.keys(cfg.userForceOpenUntil).length > 0) {
+    out.userForceOpenUntil = cfg.userForceOpenUntil;
+  }
+  return out;
 };
 
 interface Props {
@@ -1138,13 +1165,19 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     setErrMsg('');
     const ac = randomActivityCode();
     const start = defaultForm.regCodeStart || 1;
+    const endDt = dayjs().add(2, 'hour').startOf('minute');
     setForm({
       ...defaultForm,
       activityCode: ac,
       userCode: randomUserCode(),
       startDateTime: dayjs().startOf('minute'),
-      endDateTime: dayjs().add(2, 'hour').startOf('minute'),
+      endDateTime: endDt,
       targetUrl: makeRegisterUrl(ac),
+      surveyConfig: {
+        ...defaultForm.surveyConfig,
+        openAt: endDt,
+        closeAt: endDt.add(1, 'day'),
+      },
 
       // series counters
       regCodeNext: start,
@@ -1323,7 +1356,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           endDateTime: s.endDateTime?.toDate() || null,
           files: s.files || [],
         })),
-        surveyConfig: form.surveyConfig,
+        surveyConfig: serializeSurveyConfig(form.surveyConfig),
         files: form.files || [],
 
         createdAt: serverTimestamp(),
@@ -1436,7 +1469,33 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           endDateTime: toDayjsSafe(s.endDateTime),
         })) || [],
         
-        surveyConfig: a.surveyConfig ?? qr?.surveyConfig ?? { enabled: false, questions: [] },
+        surveyConfig: (() => {
+          const raw = (a.surveyConfig ?? qr?.surveyConfig ?? { enabled: false, questions: [] }) as any;
+          const endFallback = a.endDateTime
+            ? dayjs(a.endDateTime)
+            : qr?.endDateTime
+              ? dayjs(qr.endDateTime.toDate?.() ?? qr.endDateTime)
+              : dayjs();
+          let openAt = toDayjsSafe(raw.openAt);
+          let closeAt = toDayjsSafe(raw.closeAt);
+          // กิจกรรมเก่าที่ยังใช้ surveyOpenMinutes
+          if (!openAt && !closeAt && raw.surveyOpenMinutes != null) {
+            openAt = endFallback;
+            closeAt = endFallback.add(Math.max(1, Number(raw.surveyOpenMinutes) || 1440), 'minute');
+          }
+          if (!openAt) openAt = endFallback;
+          if (!closeAt) closeAt = endFallback.add(1, 'day');
+          return {
+            enabled: !!raw.enabled,
+            openAt,
+            closeAt,
+            sessionEligibility: raw.sessionEligibility || 'any',
+            requiredSessionIds: raw.requiredSessionIds || [],
+            questions: raw.questions || [],
+            forceOpenUntil: raw.forceOpenUntil,
+            userForceOpenUntil: raw.userForceOpenUntil,
+          };
+        })(),
         files: a.files || qr?.files || [],
       });
 
@@ -1583,7 +1642,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             endDateTime: s.endDateTime?.toDate() || null,
             files: s.files || [],
           })),
-          surveyConfig: form.surveyConfig,
+          surveyConfig: serializeSurveyConfig(form.surveyConfig),
           files: form.files || [],
 
           updatedAt: serverTimestamp(),
@@ -1931,7 +1990,19 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             control={
               <Switch
                 checked={form.surveyConfig.enabled}
-                onChange={(e) => updateForm('surveyConfig', { ...form.surveyConfig, enabled: e.target.checked } as any)}
+                onChange={(e) => {
+                  const enabled = e.target.checked;
+                  const openAt = form.surveyConfig.openAt || form.endDateTime || dayjs();
+                  const closeAt =
+                    form.surveyConfig.closeAt ||
+                    (openAt ? openAt.add(1, 'day') : dayjs().add(1, 'day'));
+                  updateForm('surveyConfig', {
+                    ...form.surveyConfig,
+                    enabled,
+                    openAt,
+                    closeAt,
+                  } as any);
+                }}
               />
             }
             label="เปิดใช้งาน"
@@ -1940,20 +2011,52 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
         {form.surveyConfig.enabled && (
           <Stack spacing={2}>
-            {/* ช่วงเวลาเปิดให้ทำแบบประเมิน */}
-            <TextField
-              label="ช่วงเวลาที่เปิดให้ทำแบบประเมิน (นาที หลังกิจกรรมสิ้นสุด)"
-              type="number"
-              size="small"
-              fullWidth
-              value={form.surveyConfig.surveyOpenMinutes ?? 1440}
-              onChange={(e) => {
-                const val = Math.max(1, Math.min(10080, Number(e.target.value) || 1440));
-                updateForm('surveyConfig', { ...form.surveyConfig, surveyOpenMinutes: val } as any);
-              }}
-              slotProps={{ htmlInput: { min: 1, max: 10080 } }}
-              helperText={`แบบประเมินจะเปิดให้ทำได้ ${form.surveyConfig.surveyOpenMinutes ?? 1440} นาที หลังจากกิจกรรมสิ้นสุด (ค่าเริ่มต้น 1,440 = 24 ชม., สูงสุด 10,080 = 7 วัน)`}
-            />
+            {/* วันเวลาเปิด–ปิดแบบประเมิน */}
+            <Typography variant="body2" fontWeight={600}>
+              ช่วงเวลาเปิด–ปิดแบบประเมิน
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1 }}>
+              กำหนดวันและเวลาที่ผู้ใช้สามารถเข้าทำแบบประเมินได้โดยตรง
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                  <DatePicker
+                    showTime
+                    placeholder="วันเวลาที่เปิด"
+                    style={{ width: '100%', height: '48px' }}
+                    format="DD/MM/YYYY HH:mm"
+                    value={form.surveyConfig.openAt}
+                    onChange={(value: any) =>
+                      updateForm('surveyConfig', { ...form.surveyConfig, openAt: value } as any)
+                    }
+                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                  />
+                </ConfigProvider>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                  <DatePicker
+                    showTime
+                    placeholder="วันเวลาที่ปิด"
+                    style={{ width: '100%', height: '48px' }}
+                    format="DD/MM/YYYY HH:mm"
+                    value={form.surveyConfig.closeAt}
+                    onChange={(value: any) =>
+                      updateForm('surveyConfig', { ...form.surveyConfig, closeAt: value } as any)
+                    }
+                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                  />
+                </ConfigProvider>
+              </Grid>
+            </Grid>
+            {form.surveyConfig.openAt &&
+              form.surveyConfig.closeAt &&
+              form.surveyConfig.closeAt.isBefore(form.surveyConfig.openAt) && (
+                <Alert severity="warning" sx={{ borderRadius: 2 }}>
+                  เวลาปิดต้องอยู่หลังเวลาเปิด
+                </Alert>
+              )}
             {/* เงื่อนไขการเข้าถึงแบบประเมิน */}
             <Box>
               <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>เงื่อนไขการเข้าถึงแบบประเมิน</Typography>

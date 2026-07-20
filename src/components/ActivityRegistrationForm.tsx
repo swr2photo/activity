@@ -57,6 +57,7 @@ import {
   increment,
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import type { UserType } from '../lib/firebaseAuth';
 import LocationChecker from './LocationChecker';
 import { AdminSettings } from '../types';
 import SurveyForm from './activity/SurveyForm';
@@ -90,7 +91,12 @@ interface UserProfile {
   department?: string;
   faculty?: string;
   studentId?: string;
+  userType?: UserType;
+  institutionName?: string;
+  educationLevel?: string;
 }
+
+export type ActivityUserProfile = UserProfile;
 
 interface ActivityRegistrationFormProps {
   activityCode: string;
@@ -211,20 +217,34 @@ function extractAndGenerateUserData(profile?: UserProfile) {
   const displayName = profile.displayName || '';
   const email = profile.email || '';
   const extracted = extractMicrosoftUserInfo(displayName);
+  const isExternal = profile.userType === 'external';
 
   let studentId = profile.studentId?.trim() || '';
-  if (!studentId) {
+  if (!studentId && !isExternal) {
     const emailMatch = email.match(/^(\d{8,12})/);
     if (emailMatch) studentId = emailMatch[1];
     else studentId = generateStudentId('คณะวิทยาศาสตร์');
+  }
+
+  if (isExternal) {
+    return {
+      studentId,
+      firstName: profile.givenName || extracted.firstName || 'ไม่ระบุ',
+      lastName: profile.surname || extracted.lastName || 'ไม่ระบุ',
+      department: profile.institutionName || profile.department || 'ไม่ระบุ',
+      faculty: 'บุคคลภายนอก',
+      degree: profile.educationLevel || 'ไม่ระบุ',
+      englishName: extracted.englishName,
+      isAutoFilled: true,
+    };
   }
 
   const detected = detectInfoFromStudentId(studentId);
 
   return {
     studentId,
-    firstName: extracted.firstName || 'ไม่ระบุ',
-    lastName: extracted.lastName || 'ไม่ระบุ',
+    firstName: profile.givenName || extracted.firstName || 'ไม่ระบุ',
+    lastName: profile.surname || extracted.lastName || 'ไม่ระบุ',
     department: profile.department || 'วิทยาการคอมพิวเตอร์',
     faculty: profile.faculty || detected.faculty,
     degree: detected.degree,
@@ -714,8 +734,14 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       return false;
     }
 
-    if (!validateNewStudentId((formData as any).studentId)) {
+    const isExternal = existingUserProfile?.userType === 'external';
+
+    if (!isExternal && !validateNewStudentId((formData as any).studentId)) {
       setFieldErrors({ studentId: 'รหัสนักศึกษาไม่ถูกต้อง (ต้องเป็นตัวเลข 10 หลัก)' });
+      return false;
+    }
+    if (isExternal && !(formData as any).studentId?.trim()) {
+      setFieldErrors({ studentId: 'ไม่พบรหัสอ้างอิงผู้ใช้ กรุณาเข้าสู่ระบบใหม่' });
       return false;
     }
     if (!validateThaiName((formData as any).firstName)) {
@@ -726,12 +752,16 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
       setFieldErrors({ lastName: 'นามสกุลไม่ถูกต้อง (ต้องมีอย่างน้อย 2 ตัวอักษร)' });
       return false;
     }
-    if (!(formData as any).faculty) {
+    if (!isExternal && !(formData as any).faculty) {
       setFieldErrors({ faculty: 'กรุณาเลือกคณะ' });
       return false;
     }
-    if (!(formData as any).department) {
+    if (!isExternal && !(formData as any).department) {
       setFieldErrors({ department: 'กรุณาเลือกสาขา' });
+      return false;
+    }
+    if (isExternal && !((formData as any).department || existingUserProfile?.institutionName)) {
+      setFieldErrors({ department: 'กรุณากรอกสถานศึกษาในโปรไฟล์ก่อน' });
       return false;
     }
 

@@ -4,6 +4,7 @@
 import {
   User,
   OAuthProvider,
+  GoogleAuthProvider,
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
@@ -24,6 +25,9 @@ import type { DocumentData } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { SessionManager } from './sessionManager';
 
+export type UserType = 'university' | 'external';
+export type AuthProviderId = 'microsoft' | 'google';
+
 export interface UniversityUserProfile {
   uid: string;
   email: string;
@@ -36,6 +40,13 @@ export interface UniversityUserProfile {
   faculty: string;
   username?: string;
   photoURL?: string;
+  /** นักศึกษา/บุคลากร ม.อ. หรือบุคคลภายนอก */
+  userType?: UserType;
+  authProvider?: AuthProviderId;
+  /** สถานศึกษา (บุคคลภายนอก) */
+  institutionName?: string;
+  /** ระดับการศึกษา (บุคคลภายนอก) — อาจซ้ำกับ degreeLevel */
+  educationLevel?: string;
   isActive: boolean;
   /** kept for compatibility; no longer used for gating */
   isVerified?: boolean;
@@ -44,6 +55,18 @@ export interface UniversityUserProfile {
   lastLoginAt: any;
   loginCount: number;
 }
+
+/** ระดับการศึกษาสำหรับบุคคลภายนอก */
+export const EDUCATION_LEVEL_OPTIONS = [
+  'มัธยมศึกษาตอนต้น',
+  'มัธยมศึกษาตอนปลาย',
+  'ประกาศนียบัตรวิชาชีพ (ปวช.)',
+  'ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)',
+  'ปริญญาตรี',
+  'ปริญญาโท',
+  'ปริญญาเอก',
+  'อื่นๆ',
+] as const;
 
 export interface AuthState {
   user: User | null;
@@ -142,8 +165,7 @@ export const mapAuthError = (err: any): string => {
 
   switch (code) {
     case 'auth/account-exists-with-different-credential':
-      // แสดงเป็นข้อผิดพลาดการเข้าสู่ระบบทั่วไป โดยไม่พูดถึง “บัญชีมีอยู่แล้ว…”
-      return 'ไม่สามารถเข้าสู่ระบบด้วย Microsoft สำหรับอีเมลนี้ กรุณาใช้วิธีที่ผูกไว้กับบัญชีนี้';
+      return 'อีเมลนี้เคยเข้าสู่ระบบด้วยวิธีอื่นแล้ว กรุณาใช้วิธีเดิม (Microsoft หรือ Google) ที่ผูกกับบัญชีนี้';
     case 'auth/popup-closed-by-user':
       return 'การเข้าสู่ระบบถูกยกเลิก กรุณาลองใหม่อีกครั้ง';
     case 'auth/popup-blocked':
@@ -160,47 +182,79 @@ export const mapAuthError = (err: any): string => {
   }
 };
 
-/** ล็อกอินด้วย Microsoft + บันทึก/อัปเดตโปรไฟล์ (ไม่มี admin verify) */
-export const signInWithMicrosoft = async (): Promise<{
-  user: User;
-  userData: UniversityUserProfile;
-}> => {
-  const provider = new OAuthProvider('microsoft.com');
-  provider.addScope('openid');
-  provider.addScope('email');
-  provider.addScope('profile');
-  provider.setCustomParameters({ prompt: 'select_account' });
-
-  const result = await signInWithPopup(auth, provider);
-  const firebaseUser = result.user;
-
-  // ตรวจโดเมน PSU
-  if (!firebaseUser.email || !isUniversityEmail(firebaseUser.email)) {
-    await firebaseSignOut(auth);
-    throw new Error('กรุณาใช้บัญชีของมหาวิทยาลัยเท่านั้น (@psu.ac.th)');
-  }
-
-  try {
-    getAdditionalUserInfo(result);
-  } catch {
-    /* noop */
-  }
-
-  const { studentId, degreeLevel, department, faculty } = parseStudentInfo(firebaseUser.email);
-  const displayName = firebaseUser.displayName || '';
-  
+const splitDisplayName = (displayName: string) => {
   let firstName = 'ไม่ระบุ';
   let lastName = 'ไม่ระบุ';
-
   const thaiMatch = displayName.match(/\(([\u0E00-\u0E7F\s]+)\)/);
-  if (thaiMatch && thaiMatch[1]) {
+  if (thaiMatch?.[1]) {
     const nameParts = thaiMatch[1].trim().split(/\s+/);
     firstName = nameParts[0] || 'ไม่ระบุ';
     lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
   } else {
-    const nameParts = displayName.trim().split(/\s+/);
+    const nameParts = displayName.trim().split(/\s+/).filter(Boolean);
     firstName = nameParts[0] || 'ไม่ระบุ';
     lastName = nameParts.slice(1).join(' ') || 'ไม่ระบุ';
+  }
+  return { firstName, lastName };
+};
+
+/** studentId คงที่สำหรับบุคคลภายนอก (ให้ผ่าน activityRecords rules) */
+export const makeExternalStudentId = (uid: string) =>
+  `EXT-${uid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16)}`;
+
+export const isExternalUser = (profile?: UniversityUserProfile | null): boolean =>
+  profile?.userType === 'external';
+
+/** โปรไฟล์ครบพอสำหรับลงทะเบียนหรือยัง */
+export const isProfileComplete = (profile?: UniversityUserProfile | null): boolean => {
+  if (!profile) return false;
+  const hasName =
+    !!profile.firstName?.trim() &&
+    profile.firstName !== 'ไม่ระบุ' &&
+    !!profile.lastName?.trim() &&
+    profile.lastName !== 'ไม่ระบุ';
+  if (!hasName) return false;
+  if (profile.userType === 'external') {
+    return !!(profile.institutionName?.trim() && (profile.educationLevel || profile.degreeLevel)?.trim());
+  }
+  return true;
+};
+
+async function upsertUserAfterSignIn(
+  firebaseUser: User,
+  authProvider: AuthProviderId,
+  opts: { requireUniversityEmail: boolean }
+): Promise<UniversityUserProfile> {
+  if (!firebaseUser.email) {
+    await firebaseSignOut(auth);
+    throw new Error('ไม่พบอีเมลจากบัญชีที่เข้าสู่ระบบ');
+  }
+
+  const email = firebaseUser.email;
+  const isUni = isUniversityEmail(email);
+
+  if (opts.requireUniversityEmail && !isUni) {
+    await firebaseSignOut(auth);
+    throw new Error('กรุณาใช้บัญชีของมหาวิทยาลัยเท่านั้น (@psu.ac.th)');
+  }
+
+  const userType: UserType = isUni ? 'university' : 'external';
+  const displayName = firebaseUser.displayName || '';
+  const { firstName, lastName } = splitDisplayName(displayName);
+
+  let studentId = '';
+  let degreeLevel = 'ไม่ระบุ';
+  let department = 'ไม่ระบุ';
+  let faculty = 'ไม่ระบุ';
+
+  if (userType === 'university') {
+    const parsed = parseStudentInfo(email);
+    studentId = parsed.studentId;
+    degreeLevel = parsed.degreeLevel;
+    department = parsed.department;
+    faculty = parsed.faculty;
+  } else {
+    studentId = makeExternalStudentId(firebaseUser.uid);
   }
 
   const userDocRef = doc(db, 'universityUsers', firebaseUser.uid);
@@ -210,7 +264,6 @@ export const signInWithMicrosoft = async (): Promise<{
   if (existing.exists()) {
     const prev = existing.data() as UniversityUserProfile;
 
-    // ✅ บัญชีที่ถูกระงับโดยแอดมิน ห้ามเข้าสู่ระบบ (และห้ามเขียนทับ isActive)
     if (prev.isActive === false) {
       await firebaseSignOut(auth);
       throw new Error('บัญชีของคุณถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
@@ -220,16 +273,20 @@ export const signInWithMicrosoft = async (): Promise<{
       ...prev,
       displayName: firebaseUser.displayName || prev.displayName,
       photoURL: firebaseUser.photoURL || prev.photoURL,
+      userType: prev.userType || userType,
+      authProvider,
+      // เติม studentId ภายนอกถ้ายังไม่มี
+      studentId: prev.studentId || studentId,
       updatedAt: serverTimestamp(),
       lastLoginAt: serverTimestamp(),
       loginCount: (prev.loginCount || 0) + 1,
-      isVerified: true, // no admin gate — always true
+      isVerified: true,
     };
     await setDoc(userDocRef, userData, { merge: true });
   } else {
     userData = {
       uid: firebaseUser.uid,
-      email: firebaseUser.email,
+      email,
       displayName,
       firstName,
       lastName,
@@ -237,6 +294,10 @@ export const signInWithMicrosoft = async (): Promise<{
       degreeLevel,
       department,
       faculty,
+      userType,
+      authProvider,
+      institutionName: userType === 'external' ? '' : undefined,
+      educationLevel: userType === 'external' ? '' : undefined,
       photoURL: firebaseUser.photoURL || '',
       isActive: true,
       isVerified: true,
@@ -248,7 +309,58 @@ export const signInWithMicrosoft = async (): Promise<{
     await setDoc(userDocRef, userData as DocumentData);
   }
 
-  return { user: firebaseUser, userData };
+  return userData;
+}
+
+/** ล็อกอินด้วย Microsoft + บันทึก/อัปเดตโปรไฟล์ (เฉพาะ @psu.ac.th) */
+export const signInWithMicrosoft = async (): Promise<{
+  user: User;
+  userData: UniversityUserProfile;
+}> => {
+  const provider = new OAuthProvider('microsoft.com');
+  provider.addScope('openid');
+  provider.addScope('email');
+  provider.addScope('profile');
+  provider.setCustomParameters({ prompt: 'select_account' });
+
+  const result = await signInWithPopup(auth, provider);
+  try {
+    getAdditionalUserInfo(result);
+  } catch {
+    /* noop */
+  }
+
+  const userData = await upsertUserAfterSignIn(result.user, 'microsoft', {
+    requireUniversityEmail: true,
+  });
+  return { user: result.user, userData };
+};
+
+/**
+ * ล็อกอินด้วย Google
+ * - @psu.ac.th → ถือเป็นผู้ใช้มหาวิทยาลัย
+ * - อื่นๆ → บุคคลภายนอก ต้องกรอกสถานศึกษา/ระดับการศึกษา
+ */
+export const signInWithGoogle = async (): Promise<{
+  user: User;
+  userData: UniversityUserProfile;
+}> => {
+  const provider = new GoogleAuthProvider();
+  provider.addScope('email');
+  provider.addScope('profile');
+  provider.setCustomParameters({ prompt: 'select_account' });
+
+  const result = await signInWithPopup(auth, provider);
+  try {
+    getAdditionalUserInfo(result);
+  } catch {
+    /* noop */
+  }
+
+  const userData = await upsertUserAfterSignIn(result.user, 'google', {
+    requireUniversityEmail: false,
+  });
+  return { user: result.user, userData };
 };
 
 /** ออกจากระบบ */
@@ -337,6 +449,12 @@ export const useAuth = () => {
     return { user, userData };
   };
 
+  const loginWithGoogle = async () => {
+    const { user, userData } = await signInWithGoogle();
+    setAuthState({ user, userData, loading: false, error: null });
+    return { user, userData };
+  };
+
   const logout = async () => {
     const uid = auth.currentUser?.uid;
     if (uid) await SessionManager.destroySession(uid);
@@ -352,7 +470,7 @@ export const useAuth = () => {
     return userData;
   };
 
-  return { ...authState, login, logout, refreshUserData };
+  return { ...authState, login, loginWithGoogle, logout, refreshUserData };
 };
 
 /** สำหรับ admin (คงฟังก์ชันไว้เพื่อความเข้ากันได้) */

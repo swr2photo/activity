@@ -11,10 +11,14 @@ import {
   Chip,
   Fade,
   Collapse,
+  Divider,
+  Stack,
 } from '@mui/material';
 import { Security as SecurityIcon } from '@mui/icons-material';
 import { glassCardLargeSx, pageColors } from '../../lib/uiTheme';
 import MicrosoftLogin from '../MicrosoftLogin';
+import GoogleLoginButton from './GoogleLoginButton';
+import { isUniversityEmail, signOutUser } from '../../lib/firebaseAuth';
 
 interface MicrosoftAuthSectionProps {
   activityData: any;
@@ -64,11 +68,21 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
     try {
       setAuthState((prev) => ({ ...prev, isLoading: true, error: null }));
 
-      // (คง logic ตรวจโดเมนไว้ แต่ไม่แสดงข้อความประกาศ)
-      if (activityData?.requiresUniversityLogin && userProfile?.email) {
-        const email = String(userProfile.email).toLowerCase();
+      const email = String(userProfile?.email || '').toLowerCase();
+      const requiresUni = Boolean(activityData?.requiresUniversityLogin);
+      const isExternal = userProfile?.userType === 'external' || (email && !isUniversityEmail(email));
+
+      if (requiresUni && isExternal) {
+        await signOutUser();
+        throw new Error(
+          `กิจกรรมนี้ต้องใช้บัญชีมหาวิทยาลัย (${allowedDomains.map((d) => `@${d}`).join(', ')})`
+        );
+      }
+
+      if (requiresUni && email) {
         const isValidDomain = allowedDomains.some((domain) => email.endsWith(`@${domain}`));
         if (!isValidDomain) {
+          await signOutUser();
           throw new Error(
             `กรุณาใช้บัญชีมหาวิทยาลัยที่ลงท้ายด้วย: ${allowedDomains.map((d) => `@${d}`).join(', ')}`
           );
@@ -103,9 +117,11 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
   };
 
   const canRetry = authState.retryCount < maxRetries;
+  const loginDisabled = disabled || checkingIP || authState.isLoading || !canRetry;
 
   const getErrorSeverity = (error: string): 'error' | 'warning' | 'info' => {
-    if (error.includes('domain') || error.includes('โดเมน')) return 'warning';
+    if (error.includes('domain') || error.includes('โดเมน') || error.includes('มหาวิทยาลัย'))
+      return 'warning';
     if (error.includes('network') || error.includes('เครือข่าย')) return 'info';
     return 'error';
   };
@@ -120,7 +136,6 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
         overflow: 'visible',
       }}
     >
-      {/* Overlay loading */}
       <Fade in={checkingIP || authState.isLoading}>
         <Box
           sx={{
@@ -148,7 +163,6 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
       </Fade>
 
       <CardContent sx={{ p: 4 }}>
-        {/* Header (สั้น) */}
         <Box sx={{ textAlign: 'center', mb: 3 }}>
           <SecurityIcon
             sx={{
@@ -165,6 +179,10 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
           >
             เข้าสู่ระบบ
           </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            เลือก Microsoft (บัญชี ม.อ.) หรือ Google
+            {!activityData?.requiresUniversityLogin && ' — Google นอก @psu.ac.th = บุคคลภายนอก'}
+          </Typography>
 
           {authState.retryCount > 0 && (
             <Box sx={{ mt: 2 }}>
@@ -177,7 +195,6 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
           )}
         </Box>
 
-        {/* Error only */}
         <Collapse in={!!authState.error}>
           <Alert
             severity={getErrorSeverity(authState.error || '')}
@@ -200,14 +217,28 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
           </Alert>
         </Collapse>
 
-        {/* Login */}
-        <MicrosoftLogin
-          onLoginSuccess={handleLoginSuccess}
-          onLoginError={handleLoginError}
-          onLogout={() => {}}
-          onPreLoginCheck={onPreLoginCheck}
-          disabled={disabled || checkingIP || authState.isLoading || !canRetry}
-        />
+        <Stack spacing={2}>
+          <MicrosoftLogin
+            onLoginSuccess={handleLoginSuccess}
+            onLoginError={handleLoginError}
+            onLogout={() => {}}
+            onPreLoginCheck={onPreLoginCheck}
+            disabled={loginDisabled}
+          />
+
+          <Divider>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              หรือ
+            </Typography>
+          </Divider>
+
+          <GoogleLoginButton
+            onLoginSuccess={handleLoginSuccess}
+            onLoginError={handleLoginError}
+            onPreLoginCheck={onPreLoginCheck}
+            disabled={loginDisabled}
+          />
+        </Stack>
       </CardContent>
     </Card>
   );

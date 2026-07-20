@@ -40,13 +40,22 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../lib/firebase';
 
-import { UniversityUserProfile, parseStudentInfo, facultyMap, departmentMap } from '../../lib/firebaseAuth';
+import {
+  UniversityUserProfile,
+  parseStudentInfo,
+  facultyMap,
+  departmentMap,
+  EDUCATION_LEVEL_OPTIONS,
+  isUniversityEmail,
+  isExternalUser,
+} from '../../lib/firebaseAuth';
 import { alpha, useTheme } from '@mui/material/styles';
 import Autocomplete from '@mui/material/Autocomplete';
 import Cropper from 'react-easy-crop';
 import getCroppedImg, { compressImageFile } from '../../utils/cropImage';
 
 const FACULTY_OPTIONS = Array.from(new Set(Object.values(facultyMap)));
+const EDUCATION_OPTIONS = [...EDUCATION_LEVEL_OPTIONS];
 
 interface ProfileEditDialogProps {
   open: boolean;
@@ -79,7 +88,13 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     department: '',
     faculty: '',
     studentId: '',
+    institutionName: '',
+    educationLevel: '',
   });
+
+  const isExternal =
+    isExternalUser(userData) ||
+    (!!user?.email && !isUniversityEmail(user.email) && userData?.userType !== 'university');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState('');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -125,25 +140,31 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
       }
     }
 
+    const external =
+      userData?.userType === 'external' ||
+      (!!user.email && !isUniversityEmail(user.email) && userData?.userType !== 'university');
+
     setFormData({
       displayName: userData?.displayName || rawDisplayName || emailLocal,
-      firstName: derivedFirstName,
-      lastName: derivedLastName,
+      firstName: derivedFirstName === 'ไม่ระบุ' ? '' : derivedFirstName,
+      lastName: derivedLastName === 'ไม่ระบุ' ? '' : derivedLastName,
       username: userData?.username || '',
       photoURL: userData?.photoURL || user?.photoURL || '',
       department:
         userData?.department && userData.department !== 'ไม่ระบุ'
           ? userData.department
-          : parsedInfo.department !== 'ไม่ระบุ'
+          : !external && parsedInfo.department !== 'ไม่ระบุ'
             ? parsedInfo.department
             : '',
       faculty:
         userData?.faculty && userData.faculty !== 'ไม่ระบุ'
           ? userData.faculty
-          : parsedInfo.faculty !== 'ไม่ระบุ'
+          : !external && parsedInfo.faculty !== 'ไม่ระบุ'
             ? parsedInfo.faculty
             : '',
-      studentId: userData?.studentId || parsedInfo.studentId || emailLocal,
+      studentId: userData?.studentId || (!external ? parsedInfo.studentId || emailLocal : userData?.studentId || ''),
+      institutionName: userData?.institutionName || '',
+      educationLevel: userData?.educationLevel || userData?.degreeLevel || '',
     });
     setError('');
     setValidationErrors({});
@@ -176,6 +197,15 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
 
     if (formData.username.trim() && formData.username.trim().length < 3) {
       errors.username = 'Username ต้องมีอย่างน้อย 3 ตัวอักษร';
+    }
+
+    if (isExternal) {
+      if (!formData.institutionName.trim()) {
+        errors.institutionName = 'กรุณากรอกชื่อสถานศึกษา / หน่วยงาน';
+      }
+      if (!formData.educationLevel.trim()) {
+        errors.educationLevel = 'กรุณาเลือกระดับการศึกษา';
+      }
     }
 
     setValidationErrors(errors);
@@ -274,20 +304,34 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
       }
 
       const fullDisplayName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
-      const updatedData = {
-        ...formData,
+      const updatedData: Partial<UniversityUserProfile> = {
         displayName: fullDisplayName,
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
-        username: formData.username.trim() || formData.studentId.trim(),
-        department: formData.department.trim() || 'ไม่ระบุ',
-        faculty: formData.faculty.trim() || 'ไม่ระบุ',
-        studentId: formData.studentId.trim(),
+        username:
+          formData.username.trim() ||
+          formData.studentId.trim() ||
+          formData.institutionName.trim() ||
+          fullDisplayName,
         photoURL: formData.photoURL.trim(),
+        userType: isExternal ? 'external' : 'university',
         isVerified: true,
         isActive: true,
-        updatedAt: new Date(),
+        updatedAt: new Date() as any,
       };
+
+      if (isExternal) {
+        updatedData.institutionName = formData.institutionName.trim();
+        updatedData.educationLevel = formData.educationLevel.trim();
+        updatedData.degreeLevel = formData.educationLevel.trim();
+        updatedData.faculty = 'บุคคลภายนอก';
+        updatedData.department = formData.institutionName.trim() || 'ไม่ระบุ';
+        updatedData.studentId = formData.studentId.trim() || userData?.studentId || '';
+      } else {
+        updatedData.department = formData.department.trim() || 'ไม่ระบุ';
+        updatedData.faculty = formData.faculty.trim() || 'ไม่ระบุ';
+        updatedData.studentId = formData.studentId.trim();
+      }
 
       await onSave(updatedData);
       onClose();
@@ -307,6 +351,8 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
   const isFormValid =
     formData.firstName.trim().length >= 2 &&
     formData.lastName.trim().length >= 2 &&
+    (!isExternal ||
+      (!!formData.institutionName.trim() && !!formData.educationLevel.trim())) &&
     Object.keys(validationErrors).length === 0;
 
   return (
@@ -359,8 +405,15 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                   กรุณากรอกข้อมูลให้ครบถ้วนก่อนดำเนินการใดๆ
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  ระบบจำเป็นต้องมีข้อมูลของคุณเพื่อใช้ในการลงทะเบียนกิจกรรม
+                  {isExternal
+                    ? 'บัญชี Google นอก @psu.ac.th ถือเป็นบุคคลภายนอก — กรุณาระบุสถานศึกษาและระดับการศึกษา'
+                    : 'ระบบจำเป็นต้องมีข้อมูลของคุณเพื่อใช้ในการลงทะเบียนกิจกรรม'}
                 </Typography>
+              </Alert>
+            )}
+            {isExternal && (
+              <Alert severity="info" sx={{ borderRadius: 2 }} icon={<SchoolIcon />}>
+                คุณเข้าสู่ระบบในฐานะบุคคลภายนอก
               </Alert>
             )}
             {error && <Alert severity="error">{error}</Alert>}
@@ -446,94 +499,157 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                 />
               </Grid>
 
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <Autocomplete
-                  freeSolo
-                  options={FACULTY_OPTIONS}
-                  value={formData.faculty || null}
-                  onChange={(_, newValue) => {
-                    handleFacultyChange((newValue as string) || '');
-                  }}
-                  onInputChange={(_, newInputValue, reason) => {
-                    // อย่าอัปเดตตอน reset — กันวนเรนเดอร์กับ options/value แบบ controlled
-                    if (reason === 'input' || reason === 'clear') {
-                      handleFacultyChange(newInputValue);
-                    }
-                  }}
-                  renderInput={(params) => (
+              {isExternal ? (
+                <>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
-                      {...params}
-                      label="คณะ"
+                      label="สถานศึกษา / หน่วยงาน *"
+                      value={formData.institutionName}
+                      onChange={(e) => handleInputChange('institutionName', e.target.value)}
+                      fullWidth
+                      required
                       variant="outlined"
-                      placeholder="เช่น วิทยาศาสตร์"
-                      helperText="คณะที่คุณศึกษาหรือทำงาน"
+                      placeholder="เช่น โรงเรียน… / มหาวิทยาลัย…"
+                      helperText={validationErrors.institutionName || 'ชื่อสถานศึกษาหรือหน่วยงานที่สังกัด'}
+                      error={!!validationErrors.institutionName}
                       InputProps={{
-                        ...params.InputProps,
                         startAdornment: (
-                          <>
-                            <InputAdornment position="start">
-                              <SchoolIcon sx={{ color: 'text.secondary' }} />
-                            </InputAdornment>
-                            {params.InputProps.startAdornment}
-                          </>
+                          <InputAdornment position="start">
+                            <SchoolIcon sx={{ color: 'text.secondary' }} />
+                          </InputAdornment>
                         ),
                       }}
                     />
-                  )}
-                />
-              </Grid>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      freeSolo
+                      options={EDUCATION_OPTIONS}
+                      value={formData.educationLevel || null}
+                      onChange={(_, newValue) =>
+                        handleInputChange('educationLevel', (newValue as string) || '')
+                      }
+                      onInputChange={(_, newInputValue, reason) => {
+                        if (reason === 'input' || reason === 'clear') {
+                          handleInputChange('educationLevel', newInputValue);
+                        }
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="ระดับการศึกษา *"
+                          required
+                          variant="outlined"
+                          placeholder="เลือกหรือพิมพ์ระดับการศึกษา"
+                          helperText={validationErrors.educationLevel || 'ระดับการศึกษาปัจจุบัน'}
+                          error={!!validationErrors.educationLevel}
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <BadgeIcon sx={{ color: 'text.secondary' }} />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
+                    />
+                  </Grid>
+                </>
+              ) : (
+                <>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      freeSolo
+                      options={FACULTY_OPTIONS}
+                      value={formData.faculty || null}
+                      onChange={(_, newValue) => {
+                        handleFacultyChange((newValue as string) || '');
+                      }}
+                      onInputChange={(_, newInputValue, reason) => {
+                        if (reason === 'input' || reason === 'clear') {
+                          handleFacultyChange(newInputValue);
+                        }
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="คณะ"
+                          variant="outlined"
+                          placeholder="เช่น วิทยาศาสตร์"
+                          helperText="คณะที่คุณศึกษาหรือทำงาน"
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <SchoolIcon sx={{ color: 'text.secondary' }} />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
+                    />
+                  </Grid>
 
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <Autocomplete
-                  freeSolo
-                  options={availableDepartments}
-                  value={formData.department || null}
-                  onChange={(_, newValue) => handleInputChange('department', (newValue as string) || '')}
-                  onInputChange={(_, newInputValue, reason) => {
-                    if (reason === 'input' || reason === 'clear') {
-                      handleInputChange('department', newInputValue);
-                    }
-                  }}
-                  renderInput={(params) => (
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      freeSolo
+                      options={availableDepartments}
+                      value={formData.department || null}
+                      onChange={(_, newValue) => handleInputChange('department', (newValue as string) || '')}
+                      onInputChange={(_, newInputValue, reason) => {
+                        if (reason === 'input' || reason === 'clear') {
+                          handleInputChange('department', newInputValue);
+                        }
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="สาขา/หน่วยงาน"
+                          variant="outlined"
+                          placeholder="เช่น วิทยาการคอมพิวเตอร์"
+                          helperText="สาขาวิชาหรือหน่วยงานที่สังกัด"
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <BadgeIcon sx={{ color: 'text.secondary' }} />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
+                    />
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
-                      {...params}
-                      label="สาขา/หน่วยงาน"
+                      label="รหัสนักศึกษา/รหัสพนักงาน"
+                      value={formData.studentId}
+                      onChange={(e) => handleInputChange('studentId', e.target.value)}
+                      fullWidth
                       variant="outlined"
-                      placeholder="เช่น วิทยาการคอมพิวเตอร์"
-                      helperText="สาขาวิชาหรือหน่วยงานที่สังกัด"
+                      helperText="รหัสประจำตัวของคุณ"
                       InputProps={{
-                        ...params.InputProps,
                         startAdornment: (
-                          <>
-                            <InputAdornment position="start">
-                              <BadgeIcon sx={{ color: 'text.secondary' }} />
-                            </InputAdornment>
-                            {params.InputProps.startAdornment}
-                          </>
+                          <InputAdornment position="start">
+                            <PersonIcon sx={{ color: 'text.secondary' }} />
+                          </InputAdornment>
                         ),
                       }}
                     />
-                  )}
-                />
-              </Grid>
-
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  label="รหัสนักศึกษา/รหัสพนักงาน"
-                  value={formData.studentId}
-                  onChange={(e) => handleInputChange('studentId', e.target.value)}
-                  fullWidth
-                  variant="outlined"
-                  helperText="รหัสประจำตัวของคุณ"
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PersonIcon sx={{ color: 'text.secondary' }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Grid>
+                  </Grid>
+                </>
+              )}
 
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField

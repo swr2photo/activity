@@ -42,7 +42,7 @@ import {
   History as HistoryActiveIcon,
 } from '@mui/icons-material';
 import { useAdminAuth } from '../hooks/useAdminAuth';
-import { useAuth, updateUserProfile } from '../lib/firebaseAuth';
+import { useAuth, updateUserProfile, isProfileComplete } from '../lib/firebaseAuth';
 import ProfileEditDialog from './profile/ProfileEditDialog';
 import ThemeToggle from './common/ThemeToggle';
 
@@ -73,10 +73,12 @@ const Navbar: React.FC = () => {
   const isTabletOrMobile = useMediaQuery(theme.breakpoints.down('lg'));
 
   const { currentAdmin, refetch } = useAdminAuth();
-  const { user, userData, login: userLogin, logout: userLogout, refreshUserData } = useAuth();
+  const { user, userData, login: userLogin, loginWithGoogle, logout: userLogout, refreshUserData } = useAuth();
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [loginMenuEl, setLoginMenuEl] = useState<null | HTMLElement>(null);
+  const [loginBusy, setLoginBusy] = useState(false);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget);
   const handleMenuClose = () => setAnchorEl(null);
@@ -115,9 +117,20 @@ const Navbar: React.FC = () => {
   };
 
   const getSubtitle = () => {
+    if (userData?.userType === 'external') {
+      if (userData.institutionName?.trim()) return userData.institutionName.trim();
+      return 'บุคคลภายนอก — กรุณากรอกข้อมูล';
+    }
     if (userData?.department && userData.department !== 'ไม่ระบุ') return userData.department;
     return 'กรุณากรอกข้อมูลส่วนตัว';
   };
+
+  // Google บุคคลภายนอก / โปรไฟล์ไม่ครบ → บังคับกรอก
+  useEffect(() => {
+    if (user && userData && !isProfileComplete(userData)) {
+      setProfileDialogOpen(true);
+    }
+  }, [user, userData]);
 
   const getAvatarSrc = () => userData?.photoURL || user?.photoURL || undefined;
 
@@ -278,14 +291,53 @@ const Navbar: React.FC = () => {
                   </Tooltip>
                 </Box>
               ) : (
-                <Button 
-                  variant="contained" 
-                  onClick={userLogin} 
-                  startIcon={<LoginOutlined />}
-                  sx={{ borderRadius: 4, px: 3, fontWeight: 700 }}
-                >
-                  เข้าสู่ระบบ
-                </Button>
+                <>
+                  <Button
+                    variant="contained"
+                    onClick={(e) => setLoginMenuEl(e.currentTarget)}
+                    startIcon={<LoginOutlined />}
+                    disabled={loginBusy}
+                    sx={{ borderRadius: 4, px: 3, fontWeight: 700 }}
+                  >
+                    เข้าสู่ระบบ
+                  </Button>
+                  <Menu
+                    anchorEl={loginMenuEl}
+                    open={Boolean(loginMenuEl)}
+                    onClose={() => setLoginMenuEl(null)}
+                    anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+                    transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                  >
+                    <MenuItem
+                      disabled={loginBusy}
+                      onClick={async () => {
+                        setLoginMenuEl(null);
+                        setLoginBusy(true);
+                        try {
+                          await userLogin();
+                        } finally {
+                          setLoginBusy(false);
+                        }
+                      }}
+                    >
+                      <ListItemText primary="Microsoft (@psu.ac.th)" secondary="บัญชีมหาวิทยาลัย" />
+                    </MenuItem>
+                    <MenuItem
+                      disabled={loginBusy}
+                      onClick={async () => {
+                        setLoginMenuEl(null);
+                        setLoginBusy(true);
+                        try {
+                          await loginWithGoogle();
+                        } finally {
+                          setLoginBusy(false);
+                        }
+                      }}
+                    >
+                      <ListItemText primary="Google" secondary="ม.อ. หรือบุคคลภายนอก" />
+                    </MenuItem>
+                  </Menu>
+                </>
               )}
             </Stack>
           )}
@@ -376,7 +428,7 @@ const Navbar: React.FC = () => {
                 </Box>
               ) : (
                 <Box
-                  onClick={userLogin}
+                  onClick={(e) => setLoginMenuEl(e.currentTarget)}
                   sx={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -386,7 +438,7 @@ const Navbar: React.FC = () => {
                     cursor: 'pointer'
                   }}
                 >
-                  <IconButton color="inherit">
+                  <IconButton color="inherit" disabled={loginBusy}>
                     <LoginOutlined />
                   </IconButton>
                   <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, opacity: 0.7 }}>
@@ -522,7 +574,11 @@ const Navbar: React.FC = () => {
       {/* Profile Edit Dialog */}
       <ProfileEditDialog
         open={profileDialogOpen}
-        onClose={() => setProfileDialogOpen(false)}
+        isFirstTimeSetup={Boolean(user && userData && !isProfileComplete(userData))}
+        onClose={() => {
+          if (user && userData && !isProfileComplete(userData)) return;
+          setProfileDialogOpen(false);
+        }}
         user={user}
         userData={userData}
         onSave={handleSaveProfile}

@@ -212,11 +212,18 @@ export interface SurveyQuestion {
 export interface SurveyConfig {
   enabled: boolean;
   questions: SurveyQuestion[];
-  surveyOpenMinutes?: number;          // นาทีที่เปิดให้ทำแบบประเมินหลังกิจกรรมสิ้นสุด (default: 1440)
+  /** วันเวลาเปิดแบบประเมิน */
+  openAt?: any;
+  /** วันเวลาปิดแบบประเมิน */
+  closeAt?: any;
+  /** @deprecated ใช้ openAt/closeAt — คงไว้เพื่อกิจกรรมเก่า */
+  surveyOpenMinutes?: number;
   sessionEligibility?: 'any' | 'all' | 'specific'; // เงื่อนไขว่าต้องเช็กอิน session ไหนบ้าง (default: 'any')
   requiredSessionIds?: string[];       // ใช้เมื่อ sessionEligibility = 'specific'
-  /** แอดมินบังคับเปิดแบบประเมินถึงเวลานี้ (Date / Timestamp) — ใช้หลังรีเซ็ตคำตอบ */
+  /** แอดมินบังคับเปิดทั้งกิจกรรมถึงเวลานี้ */
   forceOpenUntil?: any;
+  /** แอดมินเปิดให้รายบุคคล: map uid → deadline */
+  userForceOpenUntil?: Record<string, any>;
 }
 
 export interface ActivityFile {

@@ -64,6 +64,7 @@ import {
 } from '../../components/alerts/StatusAlerts';
 import ProfileEditDialog from '../../components/profile/ProfileEditDialog';
 import ActivityRegistrationForm from '../../components/ActivityRegistrationForm';
+import type { ActivityUserProfile } from '../../components/ActivityRegistrationForm';
 import GeofenceMap from '../../components/maps/GeofenceMap';
 import Footer from '../../components/Footer';
 import SurveyForm from '../../components/activity/SurveyForm';
@@ -74,7 +75,7 @@ import 'quill/dist/quill.snow.css';
 
 // Firebase helpers
 import { db, auth } from '../../lib/firebase';
-import { useAuth, UniversityUserProfile } from '../../lib/firebaseAuth';
+import { useAuth, UniversityUserProfile, isProfileComplete } from '../../lib/firebaseAuth';
 import { SessionManager } from '../../lib/sessionManager';
 import { AdminSettings } from '../../types';
 import { getSurveyWindowStatus } from '../../lib/surveyWindow';
@@ -770,19 +771,20 @@ const RegisterPageContent: React.FC = () => {
   }, [user, sessionExpired]);
 
   useEffect(() => {
+    // รีเซ็ตเฉพาะเมื่อ user/กิจกรรม/เซสชันเปลี่ยน — ไม่รีเซ็ตทุกครั้งที่ activityData อัปเดต realtime
     setRegistrationCheckDone(false);
-    if (user && activityCode && activityData && !sessionExpired && !sessionValidating) {
+    if (user && activityCode && activityData?.id && !sessionExpired && !sessionValidating) {
       checkForDuplicateRegistration();
       checkForSingleUserMode();
     } else if (!user) {
       setRegistrationCheckDone(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, activityCode, activityData, sessionExpired, sessionValidating]);
+  }, [user?.uid, activityCode, activityData?.id, sessionExpired, sessionValidating]);
 
   useEffect(() => {
     if (user && userData !== null && !sessionExpired && !sessionValidating) {
-      const needsSetup = !userData?.firstName || !userData?.lastName;
+      const needsSetup = !isProfileComplete(userData);
       setNeedsProfileSetup(needsSetup);
       if (needsSetup && !showProfileDialog) setShowProfileDialog(true);
     }
@@ -894,6 +896,7 @@ const RegisterPageContent: React.FC = () => {
     if (sessionExpired) return false;
     if (sessionValidating) return false;
     if (ipBlocked) return false;
+    if (!registrationCheckDone) return false; // รอเช็กประวัติก่อน — กันแผนที่/ฟอร์มแว็บโผล่
     if (isDuplicateRegistration) return false;
     if (needsProfileSetup) return false;
     if (singleUserBlocked) return false;
@@ -1293,12 +1296,16 @@ const RegisterPageContent: React.FC = () => {
     return getSurveyWindowStatus({
       enabled: cfg?.enabled,
       questionsLength: cfg?.questions?.length ?? 0,
+      openAt: cfg?.openAt,
+      closeAt: cfg?.closeAt,
       surveyOpenMinutes: cfg?.surveyOpenMinutes,
       forceOpenUntil: cfg?.forceOpenUntil,
+      userForceOpenUntil: cfg?.userForceOpenUntil,
+      userId: user?.uid,
       endDateTime: activityData?.endDateTime,
       sessions: activityData?.sessions,
     });
-  }, [activityData]);
+  }, [activityData, user?.uid]);
 
   const isSurveyWindowOpen = surveyWindow.open;
 
@@ -1477,7 +1484,11 @@ const RegisterPageContent: React.FC = () => {
           title={surveyExpiredForUser ? 'หมดเวลาทำแบบประเมินแล้ว' : 'กิจกรรมสิ้นสุดแล้ว'}
           message={
             surveyExpiredForUser
-              ? `แบบประเมินของ "${activityData.activityName}" ปิดรับไปแล้ว (เปิดได้ ${surveyWindow.openMinutes} นาทีหลังกิจกรรมสิ้นสุด)`
+              ? `แบบประเมินของ "${activityData.activityName}" ปิดรับไปแล้ว${
+                  surveyWindow.closeTime
+                    ? ` (ปิดเมื่อ ${formatDateTime(surveyWindow.closeTime)})`
+                    : ''
+                } — หากต้องการทำต่อ กรุณาติดต่อผู้ดูแลเพื่อเปิดสิทธิ์รายบุคคล`
               : endedAt
                 ? `"${activityData.activityName}" สิ้นสุดไปแล้วเมื่อวันที่ ${endedAt} น. ขอบคุณที่ให้ความสนใจ`
                 : `"${activityData.activityName}" สิ้นสุดไปแล้ว ขอบคุณที่ให้ความสนใจ`
@@ -1554,9 +1565,13 @@ const RegisterPageContent: React.FC = () => {
                   }}
                 />
               )}
-              {surveyWindow.closeTime && (
+              {(surveyWindow.openTime || surveyWindow.closeTime) && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  เปิดทำแบบประเมินถึง {formatDateTime(surveyWindow.closeTime)} น.
+                  {surveyWindow.openTime && surveyWindow.closeTime
+                    ? `ช่วงทำแบบประเมิน: ${formatDateTime(surveyWindow.openTime)} – ${formatDateTime(surveyWindow.closeTime)} น.`
+                    : surveyWindow.closeTime
+                      ? `เปิดทำแบบประเมินถึง ${formatDateTime(surveyWindow.closeTime)} น.`
+                      : `เปิดทำแบบประเมินตั้งแต่ ${formatDateTime(surveyWindow.openTime)} น.`}
                 </Typography>
               )}
             </Box>
@@ -1662,10 +1677,11 @@ const RegisterPageContent: React.FC = () => {
             />
           )}
 
-          {/* ✅ Map + Details (แสดงหลัง login เท่านั้น) */}
+          {/* ✅ Map + GPS — แสดงเฉพาะหลังเช็กประวัติแล้ว และยังต้องลงทะเบียน */}
           {activityData &&
             statusInfo?.status === 'active' &&
             isAuthed &&
+            registrationCheckDone &&
             !ipBlocked &&
             !isDuplicateRegistration &&
             !singleUserBlocked && (
@@ -1958,7 +1974,7 @@ const RegisterPageContent: React.FC = () => {
               existingAuthStatus={isAuthed}
               existingUserProfile={
                 user
-                  ? {
+                  ? ({
                       id: user.uid,
                       email: user.email || '',
                       displayName: user.displayName || '',
@@ -1967,7 +1983,10 @@ const RegisterPageContent: React.FC = () => {
                       department: userData?.department || '',
                       faculty: userData?.faculty || '',
                       studentId: userData?.studentId || '',
-                    }
+                      userType: userData?.userType,
+                      institutionName: userData?.institutionName,
+                      educationLevel: userData?.educationLevel || userData?.degreeLevel,
+                    } satisfies ActivityUserProfile)
                   : undefined
               }
               onSuccess={handleRegistrationSuccess}

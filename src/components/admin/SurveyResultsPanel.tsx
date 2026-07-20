@@ -43,6 +43,15 @@ type RespondentProfile = {
   email?: string;
 };
 
+type PendingUser = {
+  userId: string;
+  studentId?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  department?: string;
+};
+
 interface Props {
   currentAdmin: AdminProfile;
 }
@@ -81,6 +90,9 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   const [searchText, setSearchText] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [extendHours, setExtendHours] = useState(24);
+  const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [grantBusyId, setGrantBusyId] = useState<string | null>(null);
+  const [manualStudentId, setManualStudentId] = useState('');
 
   /* ---------- โหลดกิจกรรมที่มีแบบประเมิน ---------- */
   useEffect(() => {
@@ -114,6 +126,8 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     return getSurveyWindowStatus({
       enabled: cfg?.enabled,
       questionsLength: cfg?.questions?.length ?? 0,
+      openAt: cfg?.openAt,
+      closeAt: cfg?.closeAt,
       surveyOpenMinutes: cfg?.surveyOpenMinutes,
       forceOpenUntil: cfg?.forceOpenUntil,
       endDateTime: selectedActivity?.endDateTime,
@@ -173,17 +187,39 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
       }
       setProfiles(profileMap);
 
-      // ยอดผู้เช็คอิน (ไม่ซ้ำคน) เพื่อคำนวณอัตราการตอบ
+      // ยอดผู้ลงทะเบียน + รายชื่อที่ยังไม่ทำแบบประเมิน
       try {
         const recSnap = await getDocs(
           query(collection(db, 'activityRecords'), where('activityCode', '==', code))
         );
-        const uniqueStudents = new Set(
-          recSnap.docs.map((d) => (d.data() as any).studentId).filter(Boolean)
-        );
+        const responded = new Set(rows.map((r) => r.userId).filter(Boolean));
+        const uniqueStudents = new Set<string>();
+        const pending: PendingUser[] = [];
+        const seenUid = new Set<string>();
+
+        for (const d of recSnap.docs) {
+          const data: any = d.data();
+          if (data.studentId) uniqueStudents.add(data.studentId);
+          let uid = data.userId || data.uid || '';
+          if (!uid && typeof d.id === 'string' && d.id.includes('_')) {
+            uid = d.id.slice(code.length + 1);
+          }
+          if (!uid || seenUid.has(uid) || responded.has(uid)) continue;
+          seenUid.add(uid);
+          pending.push({
+            userId: uid,
+            studentId: data.studentId,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: data.email,
+            department: data.department,
+          });
+        }
         setCheckinCount(uniqueStudents.size);
+        setPendingUsers(pending);
       } catch {
         setCheckinCount(null);
+        setPendingUsers([]);
       }
     } catch (e: any) {
       console.error(e);
@@ -293,6 +329,24 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     return until;
   };
 
+  /** เปิดสิทธิ์ทำแบบประเมินเฉพาะบุคคล (ไม่กระทบคนอื่น) */
+  const applyUserForceOpen = async (userId: string, hours: number) => {
+    if (!selectedActivity || !userId) return null;
+    const until = forceOpenUntilFromHours(hours);
+    const prev = (selectedActivity.surveyConfig || { enabled: true, questions: [] }) as any;
+    const map = { ...(prev.userForceOpenUntil || {}) };
+    map[userId] = Timestamp.fromDate(until);
+    const nextConfig = {
+      ...prev,
+      userForceOpenUntil: map,
+    };
+    await updateActivity(selectedActivity.id, { surveyConfig: nextConfig } as any);
+    setActivities((list) =>
+      list.map((a) => (a.id === selectedActivity.id ? { ...a, surveyConfig: nextConfig } : a))
+    );
+    return until;
+  };
+
   const extendSurveyWindow = async () => {
     if (!selectedActivity) return;
     const hours = extendHours;
@@ -337,9 +391,9 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     const ok = await confirm({
       title: 'ให้ผู้ใช้ทำแบบประเมินใหม่?',
       description: needExtend
-        ? `จะลบคำตอบของ «${who}» และขยายเวลาทำแบบประเมินอีก ${extendHours} ชั่วโมง เพื่อให้ส่งใหม่ได้`
+        ? `จะลบคำตอบของ «${who}» และเปิดสิทธิ์ให้เฉพาะคนนี้ทำได้อีก ${extendHours} ชั่วโมง (ไม่เปิดให้ทุกคน)`
         : `จะลบคำตอบของ «${who}» ออกจากระบบ ผู้ใช้จะสามารถส่งแบบประเมินกิจกรรมนี้อีกครั้งได้`,
-      confirmText: needExtend ? 'ลบและขยายเวลา' : 'ลบแล้วให้ทำใหม่',
+      confirmText: needExtend ? 'ลบและเปิดสิทธิ์รายบุคคล' : 'ลบแล้วให้ทำใหม่',
       cancelText: 'ยกเลิก',
       variant: 'destructive',
     });
@@ -355,7 +409,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
 
       let until: Date | null = null;
       if (needExtend) {
-        until = await applyForceOpen(extendHours);
+        until = await applyUserForceOpen(r.userId, extendHours);
       }
 
       await logAdminEvent(
@@ -366,21 +420,89 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
           responseId: r.id,
           targetUserId: r.userId,
           extendedHours: needExtend ? extendHours : 0,
-          forceOpenUntil: until?.toISOString() || null,
+          userForceOpenUntil: until?.toISOString() || null,
+          scope: 'user',
         },
         { uid: currentAdmin.uid, email: currentAdmin.email }
       );
 
       setActionMsg(
         needExtend
-          ? `ลบคำตอบของ ${who} แล้ว และขยายเวลาถึง ${until?.toLocaleString('th-TH')}`
+          ? `ลบคำตอบของ ${who} แล้ว และเปิดสิทธิ์รายบุคคลถึง ${until?.toLocaleString('th-TH')}`
           : `ลบคำตอบของ ${who} แล้ว — ผู้ใช้สามารถทำแบบประเมินใหม่ได้`
       );
+      await fetchResponses();
     } catch (e: any) {
       console.error(e);
       setError(e?.message || 'ลบคำตอบไม่สำเร็จ');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const grantUserSurveyAccess = async (userId: string, whoLabel: string) => {
+    if (!selectedActivity || !userId) return;
+    const ok = await confirm({
+      title: 'เปิดแบบประเมินให้รายบุคคล?',
+      description: `อนุญาตให้ «${whoLabel}» ทำแบบประเมินได้อีก ${extendHours} ชั่วโมง โดยไม่เปิดให้ผู้ใช้อื่น`,
+      confirmText: `เปิด ${extendHours} ชม.`,
+      cancelText: 'ยกเลิก',
+      variant: 'warning',
+    });
+    if (!ok) return;
+
+    setGrantBusyId(userId);
+    setActionMsg('');
+    setError('');
+    try {
+      const until = await applyUserForceOpen(userId, extendHours);
+      await logAdminEvent(
+        'SURVEY_USER_FORCE_OPEN',
+        {
+          activityId: selectedActivity.id,
+          activityCode: selectedActivity.activityCode,
+          targetUserId: userId,
+          hours: extendHours,
+          userForceOpenUntil: until?.toISOString(),
+        },
+        { uid: currentAdmin.uid, email: currentAdmin.email }
+      );
+      setActionMsg(
+        `เปิดสิทธิ์ให้ ${whoLabel} แล้ว — ถึง ${until?.toLocaleString('th-TH') || '-'}`
+      );
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || 'เปิดสิทธิ์รายบุคคลไม่สำเร็จ');
+    } finally {
+      setGrantBusyId(null);
+    }
+  };
+
+  const grantByStudentId = async () => {
+    const sid = manualStudentId.trim();
+    if (!sid || !selectedActivity) return;
+    setGrantBusyId('manual');
+    setActionMsg('');
+    setError('');
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'universityUsers'), where('studentId', '==', sid))
+      );
+      if (snap.empty) {
+        setError(`ไม่พบผู้ใช้รหัสนักศึกษา ${sid}`);
+        return;
+      }
+      const docSnap = snap.docs[0];
+      const d: any = docSnap.data();
+      const who =
+        `${d.firstName || ''} ${d.lastName || ''}`.trim() || d.email || sid;
+      await grantUserSurveyAccess(docSnap.id, who);
+      setManualStudentId('');
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || 'ค้นหาผู้ใช้ไม่สำเร็จ');
+    } finally {
+      setGrantBusyId(null);
     }
   };
 
@@ -513,52 +635,127 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
           </div>
 
           {selectedActivity && (
-            <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-3">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <Clock className="h-4 w-4 text-slate-500 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800">
-                    สถานะแบบประเมิน:{' '}
-                    <span className={cn(
-                      surveyWindowStatus.open ? 'text-emerald-700' : 'text-amber-700'
-                    )}>
-                      {surveyStatusLabelTh(surveyWindowStatus)}
-                    </span>
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {surveyWindowStatus.forceOpenUntil
-                      ? `เปิดพิเศษถึง ${surveyWindowStatus.forceOpenUntil.toLocaleString('th-TH')}`
-                      : surveyWindowStatus.closeTime
-                        ? `ปิดตามกำหนด ${surveyWindowStatus.closeTime.toLocaleString('th-TH')}`
-                        : 'ยังไม่มีช่วงเวลาสิ้นสุดที่คำนวณได้'}
-                  </p>
+            <div className="mt-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-3">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <Clock className="h-4 w-4 text-slate-500 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800">
+                      สถานะแบบประเมิน:{' '}
+                      <span className={cn(
+                        surveyWindowStatus.open ? 'text-emerald-700' : 'text-amber-700'
+                      )}>
+                        {surveyStatusLabelTh(surveyWindowStatus)}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {surveyWindowStatus.openTime && surveyWindowStatus.closeTime
+                        ? `เปิด ${surveyWindowStatus.openTime.toLocaleString('th-TH')} – ปิด ${surveyWindowStatus.closeTime.toLocaleString('th-TH')}`
+                        : surveyWindowStatus.closeTime
+                          ? `ปิดตามกำหนด ${surveyWindowStatus.closeTime.toLocaleString('th-TH')}`
+                          : 'ยังไม่ได้ตั้งวันเวลาเปิด–ปิด'}
+                      {surveyWindowStatus.forceOpenUntil
+                        ? ` · เปิดพิเศษทั้งกิจกรรมถึง ${surveyWindowStatus.forceOpenUntil.toLocaleString('th-TH')}`
+                        : ''}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="text-xs text-slate-600 flex items-center gap-1.5">
+                    ขยาย/เปิดสิทธิ์
+                    <input
+                      type="number"
+                      min={1}
+                      max={336}
+                      value={extendHours}
+                      onChange={(e) => setExtendHours(Math.max(1, Math.min(336, Number(e.target.value) || 24)))}
+                      className="w-16 px-2 py-1 rounded-md border border-slate-200 bg-white text-sm"
+                      title="จำนวนชั่วโมง"
+                    />
+                    ชม.
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!selectedActivity || bulkBusy}
+                    onClick={extendSurveyWindow}
+                    className="gap-1.5"
+                  >
+                    <Clock className="h-4 w-4" />
+                    ขยายทั้งกิจกรรม
+                  </Button>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="text-xs text-slate-600 flex items-center gap-1.5">
-                  ขยาย
+
+              {/* เปิดสิทธิ์รายบุคคล */}
+              <div className="rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-3 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">เปิดแบบประเมินให้รายบุคคล</p>
+                  <p className="text-xs text-muted-foreground">
+                    สำหรับผู้ที่ไม่ได้ทำภายในเวลา — เปิดสิทธิ์เฉพาะคนนั้นโดยไม่กระทบผู้อื่น
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                   <input
-                    type="number"
-                    min={1}
-                    max={336}
-                    value={extendHours}
-                    onChange={(e) => setExtendHours(Math.max(1, Math.min(336, Number(e.target.value) || 24)))}
-                    className="w-16 px-2 py-1 rounded-md border border-slate-200 bg-white text-sm"
-                    title="จำนวนชั่วโมงที่จะขยาย"
+                    type="text"
+                    placeholder="รหัสนักศึกษา เช่น 6710210317"
+                    value={manualStudentId}
+                    onChange={(e) => setManualStudentId(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-mono"
                   />
-                  ชม.
-                </label>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={!selectedActivity || bulkBusy}
-                  onClick={extendSurveyWindow}
-                  className="gap-1.5"
-                >
-                  <Clock className="h-4 w-4" />
-                  ขยายเวลาทำแบบประเมิน
-                </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!manualStudentId.trim() || bulkBusy || grantBusyId === 'manual'}
+                    onClick={grantByStudentId}
+                    className="gap-1.5"
+                  >
+                    <Users className="h-4 w-4" />
+                    เปิดสิทธิ์ตามรหัส
+                  </Button>
+                </div>
+                {!loading && pendingUsers.length > 0 && (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    <p className="text-xs font-semibold text-slate-600">
+                      ลงทะเบียนแล้วแต่ยังไม่ทำแบบประเมิน ({pendingUsers.length})
+                    </p>
+                    {pendingUsers.slice(0, 40).map((u) => {
+                      const who =
+                        `${u.firstName || ''} ${u.lastName || ''}`.trim() ||
+                        u.studentId ||
+                        u.email ||
+                        u.userId;
+                      const busy = grantBusyId === u.userId;
+                      const alreadyGranted = !!(selectedActivity.surveyConfig as any)?.userForceOpenUntil?.[u.userId];
+                      return (
+                        <div
+                          key={u.userId}
+                          className="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-100 px-2.5 py-1.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{who}</p>
+                            <p className="text-xs text-muted-foreground font-mono">
+                              {u.studentId || '-'}
+                              {alreadyGranted ? ' · มีสิทธิ์พิเศษแล้ว' : ''}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={busy || bulkBusy}
+                            onClick={() => grantUserSurveyAccess(u.userId, who)}
+                            className="h-8 shrink-0 gap-1"
+                          >
+                            <Clock className={cn('h-3.5 w-3.5', busy && 'animate-spin')} />
+                            เปิดสิทธิ์
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}

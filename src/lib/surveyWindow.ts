@@ -6,9 +6,18 @@
 export type SurveyWindowInput = {
   enabled?: boolean;
   questionsLength?: number;
+  /** @deprecated ใช้ openAt/closeAt แทน — คงไว้เพื่อกิจกรรมเก่า */
   surveyOpenMinutes?: number;
-  /** Admin-forced reopen deadline (Date or Firestore Timestamp-like) */
+  /** วันเวลาเปิดแบบประเมิน (Date / Timestamp) */
+  openAt?: unknown;
+  /** วันเวลาปิดแบบประเมิน (Date / Timestamp) */
+  closeAt?: unknown;
+  /** Admin-forced reopen deadline ทั้งกิจกรรม (Date or Firestore Timestamp-like) */
   forceOpenUntil?: unknown;
+  /** เปิดพิเศษรายบุคคล: map uid → deadline */
+  userForceOpenUntil?: Record<string, unknown> | null;
+  /** uid ผู้ใช้ปัจจุบัน — ใช้กับ userForceOpenUntil */
+  userId?: string | null;
   endDateTime?: unknown;
   sessions?: Array<{ endDateTime?: unknown }>;
   now?: Date;
@@ -20,8 +29,11 @@ export type SurveyWindowStatus = {
   expired: boolean;
   notStarted: boolean;
   endTime: Date | null;
+  openTime: Date | null;
   closeTime: Date | null;
   forceOpenUntil: Date | null;
+  /** true ถ้าเปิดเพราะสิทธิ์รายบุคคล */
+  userForced: boolean;
   openMinutes: number;
   /** Human label for UI */
   label: 'disabled' | 'not_started' | 'open' | 'expired' | 'forced_open';
@@ -53,12 +65,56 @@ export function resolveActivityEndTime(input: {
   return toDateSafe(input.endDateTime);
 }
 
+/** รวม deadline เปิดพิเศษทั้งกิจกรรม + รายบุคคล */
+export function resolveEffectiveForceOpenUntil(input: {
+  forceOpenUntil?: unknown;
+  userForceOpenUntil?: Record<string, unknown> | null;
+  userId?: string | null;
+}): { until: Date | null; userForced: boolean } {
+  const globalUntil = toDateSafe(input.forceOpenUntil);
+  const userUntil =
+    input.userId && input.userForceOpenUntil
+      ? toDateSafe(input.userForceOpenUntil[input.userId])
+      : null;
+
+  if (globalUntil && userUntil) {
+    if (userUntil.getTime() >= globalUntil.getTime()) {
+      return { until: userUntil, userForced: true };
+    }
+    return { until: globalUntil, userForced: false };
+  }
+  if (userUntil) return { until: userUntil, userForced: true };
+  if (globalUntil) return { until: globalUntil, userForced: false };
+  return { until: null, userForced: false };
+}
+
 export function getSurveyWindowStatus(input: SurveyWindowInput): SurveyWindowStatus {
   const now = input.now ?? new Date();
   const openMinutes = Math.max(1, Number(input.surveyOpenMinutes ?? 1440) || 1440);
   const enabled = Boolean(input.enabled) && (input.questionsLength ?? 0) > 0;
-  const forceOpenUntil = toDateSafe(input.forceOpenUntil);
   const endTime = resolveActivityEndTime(input);
+  const { until: forceOpenUntil, userForced } = resolveEffectiveForceOpenUntil(input);
+
+  const explicitOpen = toDateSafe(input.openAt);
+  const explicitClose = toDateSafe(input.closeAt);
+  const useExplicit = !!(explicitOpen || explicitClose);
+
+  let openTime: Date | null = explicitOpen;
+  let closeTime: Date | null = explicitClose;
+
+  if (useExplicit) {
+    if (!openTime && closeTime) {
+      // มีแค่ปิด — เปิดตั้งแต่จบกิจกรรม หรือทันทีถ้าไม่มี end
+      openTime = endTime ?? new Date(0);
+    }
+    if (!closeTime && openTime) {
+      closeTime = new Date(openTime.getTime() + openMinutes * 60 * 1000);
+    }
+  } else {
+    // โหมดเก่า: เปิดหลังจบกิจกรรม ตามนาที
+    openTime = endTime;
+    closeTime = endTime ? new Date(endTime.getTime() + openMinutes * 60 * 1000) : null;
+  }
 
   if (!enabled) {
     return {
@@ -67,25 +123,27 @@ export function getSurveyWindowStatus(input: SurveyWindowInput): SurveyWindowSta
       expired: false,
       notStarted: false,
       endTime,
+      openTime,
       closeTime: null,
       forceOpenUntil,
+      userForced: false,
       openMinutes,
       label: 'disabled',
     };
   }
 
-  const closeTime = endTime ? new Date(endTime.getTime() + openMinutes * 60 * 1000) : null;
-  const naturalOpen = !!(endTime && closeTime && now >= endTime && now <= closeTime);
+  const naturalOpen = !!(openTime && closeTime && now >= openTime && now <= closeTime);
   const forcedOpen = !!(forceOpenUntil && now <= forceOpenUntil);
   const open = naturalOpen || forcedOpen;
-  const notStarted = !!(endTime && now < endTime && !forcedOpen);
-  const expired = !open && !notStarted && !!(endTime && closeTime && now > closeTime && !forcedOpen);
+  const notStarted = !!(openTime && now < openTime && !forcedOpen);
+  const expired =
+    !open && !notStarted && !!(closeTime && now > closeTime && !forcedOpen);
 
   let label: SurveyWindowStatus['label'] = 'expired';
   if (forcedOpen && !naturalOpen) label = 'forced_open';
   else if (open) label = 'open';
   else if (notStarted) label = 'not_started';
-  else if (!endTime) label = 'expired';
+  else if (!closeTime && !openTime) label = 'expired';
   else label = 'expired';
 
   return {
@@ -94,8 +152,10 @@ export function getSurveyWindowStatus(input: SurveyWindowInput): SurveyWindowSta
     expired,
     notStarted,
     endTime,
+    openTime,
     closeTime,
     forceOpenUntil,
+    userForced: forcedOpen && userForced && !naturalOpen,
     openMinutes,
     label,
   };
@@ -112,7 +172,9 @@ export function surveyStatusLabelTh(status: SurveyWindowStatus): string {
     case 'open':
       return 'เปิดทำแบบประเมิน';
     case 'forced_open':
-      return 'เปิดพิเศษ (แอดมินขยายเวลา)';
+      return status.userForced
+        ? 'เปิดพิเศษ (แอดมินอนุญาตรายบุคคล)'
+        : 'เปิดพิเศษ (แอดมินขยายเวลา)';
     case 'not_started':
       return 'ยังไม่ถึงเวลาทำแบบประเมิน';
     case 'expired':

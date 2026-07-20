@@ -372,6 +372,8 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         ...existing,
         displayName: firebaseUser.displayName || existing.displayName,
         photoURL: firebaseUser.photoURL || existing.photoURL,
+        userType: (existing as any).userType || 'university',
+        authProvider: 'microsoft',
         updatedAt: serverTimestamp(),
         lastLoginAt: serverTimestamp(),
       } as UniversityUserData;
@@ -387,6 +389,8 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         degreeLevel,
         department,
         faculty,
+        userType: 'university',
+        authProvider: 'microsoft',
         photoURL: firebaseUser.photoURL || '',
         isActive: true,
         isVerified: true,
