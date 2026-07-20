@@ -174,34 +174,25 @@ const checkIPRestriction = async (
 ): Promise<{ canLogin: boolean; message?: string; remainingTime?: number }> => {
   try {
     const userIP = await getUserIP();
+    // ไม่บล็อกการล็อกอินตาม IP — เครือข่ายมหาวิทยาลัยใช้ public IP ร่วมกัน
+    // เก็บประวัติไว้ติดตามเท่านั้น
     const now = new Date();
     const q = query(collection(db, 'ipLoginRecords'), where('ipAddress', '==', userIP), limit(1));
     const snapshot = await getDocs(q);
     if (!snapshot.empty) {
-      const rec = snapshot.docs[0].data() as IPLoginRecord;
-      const expiresAt = rec.expiresAt?.toDate?.() ?? new Date(rec.expiresAt);
-      if (now < expiresAt) {
-        if (rec.userEmail === userEmail) return { canLogin: true };
-        const min = Math.ceil((expiresAt.getTime() - now.getTime()) / 60000);
-        return {
-          canLogin: false,
-          message: `IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่น กรุณารออีก ${min} นาที`,
-          remainingTime: min,
-        };
-      }
       await updateDoc(snapshot.docs[0].ref, {
         userEmail,
         loginTime: now,
         expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
       });
-      return { canLogin: true };
+    } else {
+      await addDoc(collection(db, 'ipLoginRecords'), {
+        ipAddress: userIP,
+        userEmail,
+        loginTime: now,
+        expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+      });
     }
-    await addDoc(collection(db, 'ipLoginRecords'), {
-      ipAddress: userIP,
-      userEmail,
-      loginTime: now,
-      expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
-    });
     return { canLogin: true };
   } catch {
     return { canLogin: true };
