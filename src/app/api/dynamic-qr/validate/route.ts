@@ -4,7 +4,14 @@ import { getDynamicQrSecret, verifyDynamicQrToken } from '@/lib/dynamicQrToken';
 
 export const runtime = 'nodejs';
 
-async function resolveActivity(code: string) {
+type ActivityQrDoc = {
+  activityCode?: string;
+  dynamicQREnabled?: boolean;
+  dynamicToken?: string;
+  previousDynamicToken?: string;
+};
+
+async function resolveActivity(code: string): Promise<ActivityQrDoc | null> {
   const db = getAdminDb();
   const normalized = code.trim().toUpperCase();
 
@@ -23,7 +30,7 @@ async function resolveActivity(code: string) {
   }
 
   if (snap.empty) return null;
-  return snap.docs[0].data() as Record<string, unknown>;
+  return snap.docs[0].data() as ActivityQrDoc;
 }
 
 export async function GET(req: NextRequest) {
