@@ -14,7 +14,7 @@ import type { AdminProfile, AdminRole, AdminDepartment } from '../../types/admin
 import { ROLE_PERMISSIONS, normalizeDepartment } from '../../types/admin';
 
 import useAdminSession, { endSession, getSession } from '../../lib/useAdminSession';
-import { useSnackbar } from 'notistack';
+import { useSnackbar } from '@/lib/toast';
 
 // ✅ รายการหน้าที่อนุญาต
 const VALID_SECTIONS = [

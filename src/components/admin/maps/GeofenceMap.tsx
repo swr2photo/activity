@@ -1,10 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Box, Typography, Button, Stack, alpha, useTheme } from '@mui/material';
-import { MyLocation as LocationIcon, Map as MapIcon } from '@mui/icons-material';
-// สมมติว่าใช้ Google Maps หรือ Leaflet (ในที่นี้เขียนโครงสร้างแบบ Universal ให้)
-// หมายเหตุ: คุณต้องมี API Key หรือ Library เช่น @react-google-maps/api หรือ react-leaflet
+import React from 'react';
+import { MapPin, Map } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface GeofenceMapProps {
   center: { lat: number; lng: number };
@@ -15,76 +13,50 @@ interface GeofenceMapProps {
   title?: string;
 }
 
-export default function GeofenceMap({ 
-  center, 
-  radius, 
-  onCenterChange, 
-  onUseCurrentLocation, 
+export default function GeofenceMap({
+  center,
+  radius,
+  onUseCurrentLocation,
   editable = false,
-  title = "ตำแหน่งกิจกรรม"
+  title = 'ตำแหน่งกิจกรรม',
 }: GeofenceMapProps) {
-  const theme = useTheme();
+  const circleSize = Math.min(radius * 2, 250);
 
   return (
-    <Box sx={{ width: '100%', mb: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="subtitle2" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <MapIcon fontSize="small" color="primary" /> {title}
-        </Typography>
+    <div className="mb-4 w-full">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-sm font-bold">
+          <Map className="h-4 w-4 text-primary" /> {title}
+        </h3>
         {editable && onUseCurrentLocation && (
-          <Button 
-            size="small" 
-            startIcon={<LocationIcon />} 
-            onClick={onUseCurrentLocation}
-            sx={{ borderRadius: 2 }}
-          >
+          <Button size="sm" variant="ghost" onClick={onUseCurrentLocation}>
+            <MapPin className="h-4 w-4" />
             ใช้ตำแหน่งปัจจุบัน
           </Button>
         )}
-      </Stack>
+      </div>
 
-      {/* Map Container - ในที่นี้จำลองเป็น Placeholder */}
-      {/* ในการใช้งานจริง ให้เปลี่ยน Box นี้เป็น <GoogleMap> หรือ <MapContainer> */}
-      
-      <Box sx={{ 
-        height: 300, 
-        width: '100%', 
-        bgcolor: 'grey.100', 
-        borderRadius: 4, 
-        border: '1px solid',
-        borderColor: 'divider',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
-        <Box sx={{ textAlign: 'center', p: 3 }}>
-          <Typography variant="body2" color="text.secondary">
+      <div className="relative flex h-[300px] w-full items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted">
+        <div className="p-6 text-center">
+          <p className="text-sm text-muted-foreground">
             พิกัด: {center.lat.toFixed(6)}, {center.lng.toFixed(6)}
-          </Typography>
-          <Typography variant="caption" color="text.disabled">
+          </p>
+          <p className="text-xs text-muted-foreground/70">
             รัศมีการเช็คอิน: {radius} เมตร
-          </Typography>
+          </p>
           {editable && (
-            <Typography variant="caption" display="block" color="primary" sx={{ mt: 1 }}>
+            <p className="mt-2 block text-xs text-primary">
               * คลิกบนแผนที่หรือลากหมุดเพื่อเปลี่ยนตำแหน่ง
-            </Typography>
+            </p>
           )}
-        </Box>
-        
-        {/* จำลองวงกลม Geofence */}
-        <Box sx={{ 
-          position: 'absolute',
-          width: Math.min(radius * 2, 250), // จำลองขนาดวงกลมตามรัศมี
-          height: Math.min(radius * 2, 250),
-          borderRadius: '50%',
-          border: `2px solid ${theme.palette.primary.main}`,
-          bgcolor: alpha(theme.palette.primary.main, 0.1),
-          pointerEvents: 'none'
-        }} />
-        <LocationIcon color="primary" sx={{ position: 'absolute', fontSize: 40, mb: 5 }} />
-      </Box>
-    </Box>
+        </div>
+
+        <div
+          className="pointer-events-none absolute rounded-full border-2 border-primary bg-primary/10"
+          style={{ width: circleSize, height: circleSize }}
+        />
+        <MapPin className="absolute mb-12 h-10 w-10 text-primary" />
+      </div>
+    </div>
   );
 }

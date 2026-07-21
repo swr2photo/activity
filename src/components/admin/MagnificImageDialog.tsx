@@ -1,31 +1,28 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  Grid,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Paper,
-  Select,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material';
-import {
-  AutoAwesome as SparklesIcon,
-  Close as CloseIcon,
-  Image as ImageIcon,
-} from '@mui/icons-material';
+import { Sparkles, Image as ImageIcon } from 'lucide-react';
 import { adminAuth as auth } from '../../lib/firebase';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export type MagnificAspectRatio =
   | 'widescreen_16_9'
@@ -192,172 +189,144 @@ export const MagnificImageDialog: React.FC<MagnificImageDialogProps> = ({
   return (
     <Dialog
       open={open}
-      onClose={() => !loading && onClose()}
-      maxWidth="md"
-      fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: '24px',
-          boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
-          overflow: 'hidden',
-        },
+      onOpenChange={(v) => {
+        if (!v && !loading) onClose();
       }}
     >
-      <DialogTitle
-        sx={{
-          fontWeight: 700,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid rgba(0,0,0,0.08)',
-          py: 2,
-          px: 3,
-        }}
-      >
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <SparklesIcon sx={{ color: '#0071e3' }} />
-          <Typography variant="h6" fontWeight={700}>{title}</Typography>
-        </Stack>
-        {!loading && (
-          <IconButton onClick={onClose} size="small">
-            <CloseIcon />
-          </IconButton>
-        )}
-      </DialogTitle>
+      <DialogContent className="max-w-3xl overflow-hidden rounded-3xl p-0 gap-0">
+        <DialogHeader className="flex-row items-center justify-between space-y-0 border-b px-6 py-4">
+          <DialogTitle className="flex items-center gap-3 text-lg font-bold">
+            <Sparkles className="h-5 w-5 text-[#0071e3]" />
+            {title}
+          </DialogTitle>
+        </DialogHeader>
 
-      <DialogContent sx={{ px: 3, py: 3, bgcolor: '#f5f5f7' }}>
-        <Grid container spacing={3}>
-          {/* Left side: Inputs */}
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Stack spacing={2.5}>
-              <TextField
-                label="คำอธิบายรูปภาพ (Prompt) *เป็นภาษาอังกฤษจะดีที่สุด*"
-                multiline
-                rows={4}
-                fullWidth
-                required
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="เช่น A futuristic science lab with glowing holographic UI, widescreen, hyperrealistic..."
-                disabled={loading || busy}
-              />
+        <div className="bg-muted/30 px-6 py-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            {/* Left side: Inputs */}
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="magnific-prompt">
+                  คำอธิบายรูปภาพ (Prompt) *เป็นภาษาอังกฤษจะดีที่สุด*
+                </Label>
+                <Textarea
+                  id="magnific-prompt"
+                  rows={4}
+                  required
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="เช่น A futuristic science lab with glowing holographic UI, widescreen, hyperrealistic..."
+                  disabled={loading || busy}
+                />
+              </div>
 
-              <FormControl fullWidth disabled={loading || busy}>
-                <InputLabel>สัดส่วนภาพ (Aspect Ratio)</InputLabel>
+              <div className="space-y-2">
+                <Label>สัดส่วนภาพ (Aspect Ratio)</Label>
                 <Select
                   value={ratio}
-                  label="สัดส่วนภาพ (Aspect Ratio)"
-                  onChange={(e) => setRatio(e.target.value as MagnificAspectRatio)}
+                  onValueChange={(v) => setRatio(v as MagnificAspectRatio)}
+                  disabled={loading || busy}
                 >
-                  <MenuItem value="widescreen_16_9">16:9 (แนะนำสำหรับแบนเนอร์/จอแสดงผล)</MenuItem>
-                  <MenuItem value="square_1_1">1:1 (จัตุรัส)</MenuItem>
-                  <MenuItem value="classic_4_3">4:3 (คลาสสิก)</MenuItem>
-                  <MenuItem value="social_post_4_5">4:5 (โซเชียลแนวตั้ง)</MenuItem>
-                  <MenuItem value="social_story_9_16">9:16 (สตอรี่)</MenuItem>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="widescreen_16_9">16:9 (แนะนำสำหรับแบนเนอร์/จอแสดงผล)</SelectItem>
+                    <SelectItem value="square_1_1">1:1 (จัตุรัส)</SelectItem>
+                    <SelectItem value="classic_4_3">4:3 (คลาสสิก)</SelectItem>
+                    <SelectItem value="social_post_4_5">4:5 (โซเชียลแนวตั้ง)</SelectItem>
+                    <SelectItem value="social_story_9_16">9:16 (สตอรี่)</SelectItem>
+                  </SelectContent>
                 </Select>
-              </FormControl>
+              </div>
 
-              <FormControl fullWidth disabled={loading || busy}>
-                <InputLabel>โมเดล AI (Model)</InputLabel>
+              <div className="space-y-2">
+                <Label>โมเดล AI (Model)</Label>
                 <Select
                   value={model}
-                  label="โมเดล AI (Model)"
-                  onChange={(e) => setModel(e.target.value)}
+                  onValueChange={setModel}
+                  disabled={loading || busy}
                 >
-                  <MenuItem value="realism">Realism (ภาพถ่ายสมจริง)</MenuItem>
-                  <MenuItem value="fluid">Fluid (จินตนาการ/อิง Prompt ดีที่สุด)</MenuItem>
-                  <MenuItem value="zen">Zen (เรียบง่าย/สะอาดตา)</MenuItem>
-                  <MenuItem value="flexible">Flexible (สีสันสดใส/อาร์ต)</MenuItem>
-                  <MenuItem value="super_real">Super Real (เน้นความคมชัดสูงสุด)</MenuItem>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="realism">Realism (ภาพถ่ายสมจริง)</SelectItem>
+                    <SelectItem value="fluid">Fluid (จินตนาการ/อิง Prompt ดีที่สุด)</SelectItem>
+                    <SelectItem value="zen">Zen (เรียบง่าย/สะอาดตา)</SelectItem>
+                    <SelectItem value="flexible">Flexible (สีสันสดใส/อาร์ต)</SelectItem>
+                    <SelectItem value="super_real">Super Real (เน้นความคมชัดสูงสุด)</SelectItem>
+                  </SelectContent>
                 </Select>
-              </FormControl>
+              </div>
 
               {error && (
-                <Alert severity="error" sx={{ borderRadius: '12px' }}>
-                  {error}
+                <Alert variant="destructive" className="rounded-xl">
+                  <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
               <Button
-                variant="contained"
-                color="primary"
-                size="large"
+                size="lg"
                 disabled={!prompt.trim() || loading || busy}
                 onClick={handleGenerate}
-                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SparklesIcon />}
-                sx={{ py: 1.5, borderRadius: '12px', fontWeight: 600 }}
+                className="w-full gap-2 py-6 font-semibold"
               >
+                {loading ? <Spinner size="sm" className="text-primary-foreground" /> : <Sparkles className="h-4 w-4" />}
                 {busy ? 'กำลังส่งข้อมูล...' : 'เริ่มสร้างรูปภาพ'}
               </Button>
-            </Stack>
-          </Grid>
+            </div>
 
-          {/* Right side: Preview and status */}
-          <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-            <Paper
-              variant="outlined"
-              sx={{
-                width: '100%',
-                height: 320,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-                bgcolor: '#000000',
-                borderRadius: '16px',
-                overflow: 'hidden',
-                position: 'relative',
-                border: '1px solid rgba(0,0,0,0.08)',
-              }}
-            >
-              {resultUrl ? (
-                <img
-                  src={resultUrl}
-                  alt="Generated"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                />
-              ) : (
-                <Stack spacing={2} alignItems="center" sx={{ color: '#a1a1a6', px: 4, textAlign: 'center' }}>
-                  {busy ? (
-                    <>
-                      <CircularProgress size={48} sx={{ color: '#0071e3' }} />
-                      <Typography variant="body1" fontWeight={600} color="#ffffff">
-                        กำลังประมวลผลโดย Magnific AI...
-                      </Typography>
-                      <Typography variant="caption" color="grey.400">
-                        (อาจใช้เวลาประมาณ 10-30 วินาที ระบบกำลังอัปเดตสถานะอัตโนมัติ)
-                      </Typography>
-                    </>
-                  ) : (
-                    <>
-                      <ImageIcon sx={{ fontSize: 64, color: 'rgba(255,255,255,0.2)' }} />
-                      <Typography variant="body2">
-                        ยังไม่มีรูปภาพที่สร้างขึ้น กรุณากรอก Prompt และกดปุ่มเริ่มสร้างรูปภาพ
-                      </Typography>
-                    </>
-                  )}
-                </Stack>
-              )}
-            </Paper>
-          </Grid>
-        </Grid>
+            {/* Right side: Preview and status */}
+            <div className="flex flex-col items-center justify-center">
+              <div className="relative flex h-80 w-full flex-col items-center justify-center overflow-hidden rounded-2xl border border-border bg-black">
+                {resultUrl ? (
+                  <img
+                    src={resultUrl}
+                    alt="Generated"
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-3 px-8 text-center text-[#a1a1a6]">
+                    {busy ? (
+                      <>
+                        <Spinner size="lg" className="h-12 w-12 text-[#0071e3]" />
+                        <p className="font-semibold text-white">
+                          กำลังประมวลผลโดย Magnific AI...
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          (อาจใช้เวลาประมาณ 10-30 วินาที ระบบกำลังอัปเดตสถานะอัตโนมัติ)
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon className="h-16 w-16 text-white/20" />
+                        <p className="text-sm">
+                          ยังไม่มีรูปภาพที่สร้างขึ้น กรุณากรอก Prompt และกดปุ่มเริ่มสร้างรูปภาพ
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="border-t px-6 py-4 sm:justify-end">
+          <Button variant="outline" onClick={onClose} disabled={loading}>
+            ยกเลิก
+          </Button>
+          <Button
+            className="gap-2 bg-emerald-600 font-semibold hover:bg-emerald-700"
+            disabled={!resultUrl || loading}
+            onClick={handleUse}
+          >
+            {loading && <Spinner size="sm" className="text-white" />}
+            {useButtonLabel}
+          </Button>
+        </DialogFooter>
       </DialogContent>
-
-      <DialogActions sx={{ px: 3, py: 2.5, borderTop: '1px solid rgba(0,0,0,0.08)' }}>
-        <Button onClick={onClose} disabled={loading}>
-          ยกเลิก
-        </Button>
-        <Button
-          variant="contained"
-          color="success"
-          disabled={!resultUrl || loading}
-          onClick={handleUse}
-          startIcon={loading ? <CircularProgress size={18} color="inherit" /> : null}
-          sx={{ fontWeight: 600, borderRadius: '8px' }}
-        >
-          {useButtonLabel}
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 };

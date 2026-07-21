@@ -2,38 +2,35 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import {
-  Card,
-  CardContent,
-  Typography,
-  Stack,
-  Box,
-  Divider,
-  Alert,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  LinearProgress,
-  Badge,
-  CircularProgress
-} from '@mui/material';
-import {
-  EventNote as EventIcon,
-  Info as InfoIcon,
-  LocationOn as LocationIcon,
-  Schedule as ScheduleIcon,
-  Map as MapIcon,
-  MyLocation as MyLocationIcon,
-  Group as GroupIcon,
-  CheckCircle as CheckIcon,
-  Close as CloseIcon,
-  Warning as WarningIcon,
-  PersonOff as PersonOffIcon
-} from '@mui/icons-material';
+  CalendarDays,
+  Info,
+  MapPin,
+  Clock,
+  Map,
+  LocateFixed,
+  Users,
+  CheckCircle2,
+  AlertTriangle,
+  UserX,
+} from 'lucide-react';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import ActivityLocationMap from './ActivityLocationMap';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { glassCardClass } from '@/lib/uiTheme';
+import { cn } from '@/lib/utils';
 
 interface ActivityData {
   id: string;
@@ -72,10 +69,9 @@ const ParticipantCounter: React.FC<{
   const [realTimeCount, setRealTimeCount] = useState(currentParticipants);
 
   useEffect(() => {
-    // Real-time listener for participant count
-    const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityId), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
+    const unsubscribe = onSnapshot(doc(db, 'activityQRCodes', activityId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
         setRealTimeCount(data.currentParticipants || 0);
       }
     });
@@ -89,99 +85,92 @@ const ParticipantCounter: React.FC<{
   const isFull = realTimeCount >= maxParticipants;
   const isNearFull = percentage > 80;
 
+  const barGradient = isFull
+    ? 'bg-gradient-to-r from-[#f87171] to-[#ef4444]'
+    : isNearFull
+      ? 'bg-gradient-to-r from-[#fbbf24] to-[#f59e0b]'
+      : 'bg-gradient-to-r from-[#34d399] to-[#10b981]';
+
+  const countColor = isFull
+    ? 'text-destructive'
+    : isNearFull
+      ? 'text-amber-600 dark:text-amber-400'
+      : 'text-emerald-600 dark:text-emerald-400';
+
   return (
-    <Box sx={{ mt: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <GroupIcon fontSize="small" />
+    <div className="mt-4">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="flex items-center gap-2 text-sm font-semibold">
+          <Users className="h-4 w-4" />
           จำนวนผู้เข้าร่วม
-        </Typography>
-        <Badge
-          badgeContent={
-            isFull ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <PersonOffIcon fontSize="small" />
-                เต็มแล้ว
-              </Box>
-            ) : isNearFull ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <WarningIcon fontSize="small" />
-                ใกล้เต็ม
-              </Box>
-            ) : ""
-          }
-          color={isFull ? "error" : isNearFull ? "warning" : "default"}
-          sx={{
-            '& .MuiBadge-badge': {
-              fontSize: '0.6rem',
-              height: 16,
-              minWidth: 16
-            }
-          }}
-        >
-          <Typography 
-            variant="h6" 
-            sx={{ 
-              fontWeight: 'bold',
-              color: isFull ? 'error.main' : isNearFull ? 'warning.main' : 'success.main'
-            }}
-          >
+        </p>
+        <div className="relative flex items-center gap-2">
+          {(isFull || isNearFull) && (
+            <Badge
+              variant={isFull ? 'destructive' : 'warning'}
+              className="gap-1 text-[0.6rem]"
+            >
+              {isFull ? (
+                <>
+                  <UserX className="h-3 w-3" />
+                  เต็มแล้ว
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-3 w-3" />
+                  ใกล้เต็ม
+                </>
+              )}
+            </Badge>
+          )}
+          <span className={cn('text-lg font-bold', countColor)}>
             {realTimeCount}/{maxParticipants}
-          </Typography>
-        </Badge>
-      </Box>
-      
-      <LinearProgress
-        variant="determinate"
-        value={percentage}
-        sx={{
-          height: 12,
-          borderRadius: 6,
-          bgcolor: 'grey.200',
-          '& .MuiLinearProgress-bar': {
-            borderRadius: 6,
-            bgcolor: isFull ? 'error.main' : isNearFull ? 'warning.main' : 'success.main',
-            background: isFull 
-              ? 'linear-gradient(90deg, #f87171 0%, #ef4444 100%)'
-              : isNearFull 
-                ? 'linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%)'
-                : 'linear-gradient(90deg, #34d399 0%, #10b981 100%)'
-          }
-        }}
-      />
-      
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
-        <Typography variant="caption" color="text.secondary">
+          </span>
+        </div>
+      </div>
+
+      <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn('h-full rounded-full transition-all', barGradient)}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+
+      <div className="mt-2 flex justify-between">
+        <span className="text-xs text-muted-foreground">
           {percentage.toFixed(1)}% ของจำนวนที่รับ
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
+        </span>
+        <span className="text-xs text-muted-foreground">
           เหลือ {Math.max(0, maxParticipants - realTimeCount)} ที่นั่ง
-        </Typography>
-      </Box>
-    </Box>
+        </span>
+      </div>
+    </div>
   );
 };
 
-const ActivityInfoCard: React.FC<ActivityInfoCardProps> = ({ 
-  activity, 
-  showRegistrationButton = false 
+const ActivityInfoCard: React.FC<ActivityInfoCardProps> = ({
+  activity,
+  showRegistrationButton = false,
 }) => {
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationError, setLocationError] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
 
+  // preserve prop for API compatibility
+  void showRegistrationButton;
+
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3;
-    const φ1 = lat1 * Math.PI/180;
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c;
   };
@@ -190,12 +179,12 @@ const ActivityInfoCard: React.FC<ActivityInfoCardProps> = ({
     if (navigator.geolocation) {
       setLocationLoading(true);
       setLocationError('');
-      
+
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const userPos = {
             lat: position.coords.latitude,
-            lng: position.coords.longitude
+            lng: position.coords.longitude,
           };
           setUserLocation(userPos);
           setLocationLoading(false);
@@ -208,9 +197,13 @@ const ActivityInfoCard: React.FC<ActivityInfoCardProps> = ({
           );
 
           if (distance <= activity.checkInRadius) {
-            setLocationError(`คุณอยู่ในพื้นที่กิจกรรม (ห่างจากจุดกิจกรรม ${Math.round(distance)} เมตร)`);
+            setLocationError(
+              `คุณอยู่ในพื้นที่กิจกรรม (ห่างจากจุดกิจกรรม ${Math.round(distance)} เมตร)`
+            );
           } else {
-            setLocationError(`คุณอยู่นอกพื้นที่กิจกรรม (ห่างจากจุดกิจกรรม ${Math.round(distance)} เมตร - ต้องอยู่ในรัศมี ${activity.checkInRadius} เมตร)`);
+            setLocationError(
+              `คุณอยู่นอกพื้นที่กิจกรรม (ห่างจากจุดกิจกรรม ${Math.round(distance)} เมตร - ต้องอยู่ในรัศมี ${activity.checkInRadius} เมตร)`
+            );
           }
         },
         (error) => {
@@ -218,7 +211,8 @@ const ActivityInfoCard: React.FC<ActivityInfoCardProps> = ({
           let errorMessage = 'ไม่สามารถดึงตำแหน่งปัจจุบันได้: ';
           switch (error.code) {
             case error.PERMISSION_DENIED:
-              errorMessage += 'ผู้ใช้ปฏิเสธการเข้าถึงตำแหน่ง กรุณาอนุญาตการเข้าถึงตำแหน่งในเบราว์เซอร์';
+              errorMessage +=
+                'ผู้ใช้ปฏิเสธการเข้าถึงตำแหน่ง กรุณาอนุญาตการเข้าถึงตำแหน่งในเบราว์เซอร์';
               break;
             case error.POSITION_UNAVAILABLE:
               errorMessage += 'ไม่สามารถระบุตำแหน่งได้ กรุณาตรวจสอบการเชื่อมต่อ GPS';
@@ -235,7 +229,7 @@ const ActivityInfoCard: React.FC<ActivityInfoCardProps> = ({
         {
           enableHighAccuracy: true,
           timeout: 15000,
-          maximumAge: 30000
+          maximumAge: 30000,
         }
       );
     } else {
@@ -243,231 +237,172 @@ const ActivityInfoCard: React.FC<ActivityInfoCardProps> = ({
     }
   };
 
+  const locationAlertVariant = locationError.includes('อยู่ในพื้นที่กิจกรรม')
+    ? 'success'
+    : locationError.includes('อยู่นอกพื้นที่กิจกรรม')
+      ? 'destructive'
+      : 'warning';
+
   return (
     <>
-      <Card sx={{ 
-        mb: 4,
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-        border: '1px solid rgba(255,255,255,0.2)'
-      }}>
-        <CardContent>
-          <Typography variant="h5" gutterBottom sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 1,
-            color: 'primary.main',
-            fontWeight: 'bold'
-          }}>
-            <EventIcon />
+      <Card className={cn(glassCardClass, 'mb-8 shadow-[var(--page-shadow)]')}>
+        <CardContent className="p-6">
+          <h2 className="flex items-center gap-2 text-xl font-bold text-primary">
+            <CalendarDays className="h-5 w-5" />
             รายละเอียดกิจกรรม
-          </Typography>
+          </h2>
 
-          <Divider sx={{ my: 2 }} />
+          <Separator className="my-4" />
 
-          <Stack spacing={3}>
+          <div className="flex flex-col gap-6">
             {activity.description && (
-              <Box sx={{ 
-                p: 2, 
-                bgcolor: 'grey.50', 
-                borderRadius: 2,
-                borderLeft: '4px solid',
-                borderLeftColor: 'primary.main'
-              }}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                  <InfoIcon color="primary" fontSize="small" sx={{ mt: 0.5 }} />
-                  <Box>
-                    <Typography variant="subtitle2" gutterBottom color="primary.main">
+              <div className="rounded-lg border-l-4 border-primary bg-muted/50 p-4 dark:bg-muted/20">
+                <div className="flex items-start gap-2">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <div>
+                    <p className="mb-1 text-sm font-semibold text-primary">
                       รายละเอียดกิจกรรม
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {activity.description}
-                    </Typography>
-                  </Box>
-                </Box>
-              </Box>
+                    </p>
+                    <p className="text-sm text-muted-foreground">{activity.description}</p>
+                  </div>
+                </div>
+              </div>
             )}
-            
+
             {activity.location && (
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <LocationIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-                <Box>
-                  <Typography variant="subtitle2" gutterBottom>สถานที่</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {activity.location}
-                  </Typography>
-                </Box>
-              </Box>
+              <div className="flex items-start gap-2">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="mb-1 text-sm font-semibold">สถานที่</p>
+                  <p className="text-sm text-muted-foreground">{activity.location}</p>
+                </div>
+              </div>
             )}
 
             {/* ตำแหน่งที่ตั้งและการเช็คอิน */}
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-              <MapIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-              <Box sx={{ width: '100%' }}>
-                <Typography variant="subtitle2" gutterBottom>ตำแหน่งกิจกรรม</Typography>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
+            <div className="flex items-start gap-2">
+              <Map className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="w-full">
+                <p className="mb-1 text-sm font-semibold">ตำแหน่งกิจกรรม</p>
+                <p className="mb-1 text-sm text-muted-foreground">
                   พิกัด: {activity.latitude.toFixed(6)}, {activity.longitude.toFixed(6)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
+                </p>
+                <p className="mb-1 text-sm text-muted-foreground">
                   รัศมีเช็คอิน: {activity.checkInRadius} เมตร
-                </Typography>
-                
-                <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-2">
                   <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<MapIcon />}
+                    variant="outline"
+                    size="sm"
                     onClick={() => setShowLocationDialog(true)}
-                    sx={{
-                      borderColor: 'primary.main',
-                      '&:hover': {
-                        background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)'
-                      }
-                    }}
+                    className="border-primary hover:bg-blue-50 dark:hover:bg-blue-950/30"
                   >
+                    <Map className="h-4 w-4" />
                     ดูแผนที่
                   </Button>
                   <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={locationLoading ? <CircularProgress size={16} /> : <MyLocationIcon />}
+                    variant="outline"
+                    size="sm"
                     onClick={getCurrentLocation}
                     disabled={locationLoading}
-                    sx={{
-                      borderColor: 'success.main',
-                      color: 'success.main',
-                      '&:hover': {
-                        background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)'
-                      }
-                    }}
+                    className="border-emerald-500 text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
                   >
+                    {locationLoading ? (
+                      <Spinner size="sm" />
+                    ) : (
+                      <LocateFixed className="h-4 w-4" />
+                    )}
                     {locationLoading ? 'กำลังค้นหา...' : 'ตรวจสอบตำแหน่งของฉัน'}
                   </Button>
-                </Box>
+                </div>
 
                 {locationError && (
-                  <Alert 
-                    severity={locationError.includes('อยู่ในพื้นที่กิจกรรม') ? 'success' : locationError.includes('อยู่นอกพื้นที่กิจกรรม') ? 'error' : 'warning'} 
-                    sx={{ 
-                      mt: 2,
-                      background: locationError.includes('อยู่ในพื้นที่กิจกรรม') 
-                        ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)'
-                        : locationError.includes('อยู่นอกพื้นที่กิจกรรม')
-                          ? 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)'
-                          : 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
-                    }}
-                    icon={
-                      locationError.includes('อยู่ในพื้นที่กิจกรรม') ? <CheckIcon /> :
-                      locationError.includes('อยู่นอกพื้นที่กิจกรรม') ? <CloseIcon /> :
-                      <WarningIcon />
-                    }
+                  <Alert
+                    variant={locationAlertVariant}
+                    className={cn(
+                      'mt-4',
+                      locationAlertVariant === 'success' &&
+                        'bg-gradient-to-br from-[#dcfce7] to-[#bbf7d0] dark:from-emerald-950/40 dark:to-emerald-900/30',
+                      locationAlertVariant === 'destructive' &&
+                        'bg-gradient-to-br from-[#fee2e2] to-[#fecaca] dark:from-red-950/40 dark:to-red-900/30',
+                      locationAlertVariant === 'warning' &&
+                        'bg-gradient-to-br from-[#fef3c7] to-[#fde68a] dark:from-amber-950/40 dark:to-amber-900/30'
+                    )}
                   >
-                    {locationError}
+                    <AlertDescription>{locationError}</AlertDescription>
                   </Alert>
                 )}
-              </Box>
-            </Box>
-            
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-              <ScheduleIcon color="action" fontSize="small" sx={{ mt: 0.5 }} />
-              <Box>
-                <Typography variant="subtitle2" gutterBottom>วันเวลา</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Box sx={{ 
-                    p: 1.5, 
-                    bgcolor: 'success.50', 
-                    borderRadius: 1,
-                    border: '1px solid',
-                    borderColor: 'success.200',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1
-                  }}>
-                    <ScheduleIcon color="success" fontSize="small" />
-                    <Typography variant="body2" color="success.dark" fontWeight="medium">
-                      เริ่ม: {activity.startDateTime?.toDate()?.toLocaleString('th-TH') || 'ไม่ระบุ'}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ 
-                    p: 1.5, 
-                    bgcolor: 'error.50', 
-                    borderRadius: 1,
-                    border: '1px solid',
-                    borderColor: 'error.200',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1
-                  }}>
-                    <ScheduleIcon color="error" fontSize="small" />
-                    <Typography variant="body2" color="error.dark" fontWeight="medium">
-                      สิ้นสุด: {activity.endDateTime?.toDate()?.toLocaleString('th-TH') || 'ไม่ระบุ'}
-                    </Typography>
-                  </Box>
-                </Box>
-              </Box>
-            </Box>
-            
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div>
+                <p className="mb-2 text-sm font-semibold">วันเวลา</p>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-950/30">
+                    <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                      เริ่ม:{' '}
+                      {activity.startDateTime?.toDate()?.toLocaleString('th-TH') ||
+                        'ไม่ระบุ'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/30">
+                    <Clock className="h-4 w-4 text-red-600 dark:text-red-400" />
+                    <p className="text-sm font-medium text-red-800 dark:text-red-300">
+                      สิ้นสุด:{' '}
+                      {activity.endDateTime?.toDate()?.toLocaleString('th-TH') ||
+                        'ไม่ระบุ'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Enhanced Participant Counter */}
             {activity.maxParticipants > 0 && (
-              <Box sx={{ 
-                p: 2, 
-                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-                borderRadius: 2,
-                border: '1px solid #0ea5e9'
-              }}>
+              <div className="rounded-lg border border-[#0ea5e9] bg-gradient-to-br from-[#f0f9ff] to-[#e0f2fe] p-4 dark:from-sky-950/40 dark:to-sky-900/30">
                 <ParticipantCounter
                   currentParticipants={activity.currentParticipants}
                   maxParticipants={activity.maxParticipants}
                   activityId={activity.id}
                 />
-              </Box>
+              </div>
             )}
-          </Stack>
+          </div>
         </CardContent>
       </Card>
 
       {/* Location Dialog */}
-      <Dialog 
-        open={showLocationDialog} 
-        onClose={() => setShowLocationDialog(false)}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: {
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.2)'
-          }
-        }}
-      >
-        <DialogTitle sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 1,
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          color: 'white'
-        }}>
-          <MapIcon />
-          ตำแหน่งกิจกรรม: {activity.activityName}
-        </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <Box>
-            <Stack spacing={1} sx={{ mb: 2 }}>
-              <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <CheckIcon fontSize="small" color="success" />
-                วงกลมสีเขียวแสดงพื้นที่ที่สามารถเช็คอินได้ (รัศมี {activity.checkInRadius} เมตร)
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <LocationIcon fontSize="small" color="error" />
+      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
+        <DialogContent className={cn(glassCardClass, 'max-w-3xl gap-0 overflow-hidden p-0')}>
+          <DialogHeader className="bg-gradient-to-br from-[#667eea] to-[#764ba2] p-4 text-white sm:rounded-t-xl">
+            <DialogTitle className="flex items-center gap-2 text-white">
+              <Map className="h-5 w-5" />
+              ตำแหน่งกิจกรรม: {activity.activityName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-4 pt-6 sm:p-6">
+            <div className="mb-4 flex flex-col gap-1">
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                วงกลมสีเขียวแสดงพื้นที่ที่สามารถเช็คอินได้ (รัศมี {activity.checkInRadius}{' '}
+                เมตร)
+              </p>
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <MapPin className="h-4 w-4 text-destructive" />
                 หมุดสีแดงแสดงจุดกิจกรรม
-              </Typography>
+              </p>
               {userLocation && (
-                <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <MyLocationIcon fontSize="small" color="primary" />
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <LocateFixed className="h-4 w-4 text-primary" />
                   จุดสีน้ำเงินแสดงตำแหน่งของคุณ
-                </Typography>
+                </p>
               )}
-            </Stack>
-            
+            </div>
+
             <ActivityLocationMap
               latitude={activity.latitude}
               longitude={activity.longitude}
@@ -475,27 +410,25 @@ const ActivityInfoCard: React.FC<ActivityInfoCardProps> = ({
               activityName={activity.activityName}
               userLocation={userLocation}
             />
-          </Box>
+          </div>
+          <DialogFooter className="gap-2 border-t border-border p-4">
+            <Button variant="outline" onClick={() => setShowLocationDialog(false)}>
+              ปิด
+            </Button>
+            <Button
+              onClick={getCurrentLocation}
+              disabled={locationLoading}
+              className="bg-gradient-to-br from-[#10b981] to-[#059669] text-white hover:from-[#059669] hover:to-[#047857]"
+            >
+              {locationLoading ? (
+                <Spinner size="sm" className="text-white" />
+              ) : (
+                <LocateFixed className="h-4 w-4" />
+              )}
+              {locationLoading ? 'กำลังค้นหา...' : 'ค้นหาตำแหน่งของฉัน'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions sx={{ p: 2, gap: 1 }}>
-          <Button onClick={() => setShowLocationDialog(false)}>
-            ปิด
-          </Button>
-          <Button 
-            onClick={getCurrentLocation} 
-            variant="contained" 
-            startIcon={locationLoading ? <CircularProgress size={16} /> : <MyLocationIcon />}
-            disabled={locationLoading}
-            sx={{
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              '&:hover': {
-                background: 'linear-gradient(135deg, #059669 0%, #047857 100%)'
-              }
-            }}
-          >
-            {locationLoading ? 'กำลังค้นหา...' : 'ค้นหาตำแหน่งของฉัน'}
-          </Button>
-        </DialogActions>
       </Dialog>
     </>
   );

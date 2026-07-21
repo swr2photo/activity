@@ -210,10 +210,22 @@ html.dark .text-slate-800 { color: rgb(241 245 249); }
 html.dark .text-slate-700 { color: rgb(226 232 240); }
 html.dark .text-slate-600 { color: rgb(203 213 225); }
 html.dark .bg-white { background-color: rgb(15 23 42); }
+html.dark .bg-white\/60 { background-color: rgb(15 23 42 / 0.6); }
+html.dark .bg-white\/80 { background-color: rgb(15 23 42 / 0.8); }
+html.dark .bg-white\/10 { background-color: rgb(255 255 255 / 0.08); }
+html.dark .bg-white\/20 { background-color: rgb(255 255 255 / 0.12); }
+html.dark .border-white\/40 { border-color: rgb(51 65 85 / 0.7); }
+html.dark .border-white\/50 { border-color: rgb(51 65 85 / 0.8); }
 html.dark .bg-slate-50 { background-color: rgb(2 6 23); }
 html.dark .bg-slate-50\/50 { background-color: rgb(15 23 42 / 0.5); }
+html.dark .bg-slate-50\/60 { background-color: rgb(15 23 42 / 0.6); }
+html.dark .bg-slate-50\/70 { background-color: rgb(15 23 42 / 0.7); }
 html.dark .bg-slate-50\/80 { background-color: rgb(15 23 42 / 0.8); }
 html.dark .bg-slate-100 { background-color: rgb(30 41 59); }
+html.dark .bg-slate-200 { background-color: rgb(51 65 85); }
+html.dark .bg-indigo-50 { background-color: rgb(30 27 75 / 0.55); }
+html.dark .bg-amber-100 { background-color: rgb(120 53 15 / 0.45); }
+html.dark .bg-rose-50 { background-color: rgb(76 5 25 / 0.45); }
 html.dark .border-slate-100 { border-color: rgb(30 41 59); }
 html.dark .border-slate-200 { border-color: rgb(51 65 85); }
 html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: rgb(30 41 59); }

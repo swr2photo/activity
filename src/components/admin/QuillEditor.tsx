@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import 'quill/dist/quill.snow.css';
-import { Button, CircularProgress, Stack, Typography } from '@mui/material';
-import { AutoAwesome as SparklesIcon } from '@mui/icons-material';
+import { Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import MagnificImageDialog from './MagnificImageDialog';
 
 interface QuillEditorProps {
@@ -113,29 +114,26 @@ export const QuillEditor: React.FC<QuillEditorProps> = ({ value, onChange, place
 
   return (
     <div>
-      <div style={{ backgroundColor: '#ffffff', borderRadius: '4px', border: '1px solid rgba(0, 0, 0, 0.23)' }}>
-        <div ref={containerRef} style={{ minHeight: '150px' }} />
+      <div className="rounded border border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)]">
+        <div ref={containerRef} className="min-h-[150px]" />
       </div>
 
       {onUploadImage && (
-        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 1 }}>
+        <div className="mt-2 flex items-center gap-3">
           <Button
-            size="small"
-            variant="outlined"
-            color="secondary"
-            startIcon={inserting ? <CircularProgress size={14} color="inherit" /> : <SparklesIcon sx={{ fontSize: 16 }} />}
+            size="sm"
+            variant="outline"
             disabled={inserting || !quillLoaded}
             onClick={() => setAiDialogOpen(true)}
-            sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 600 }}
+            className="gap-1.5 font-semibold"
           >
+            {inserting ? <Spinner size="sm" /> : <Sparkles className="h-4 w-4" />}
             {inserting ? 'กำลังอัปโหลดรูป...' : 'แทรกรูปประกอบด้วย Magnific AI'}
           </Button>
           {insertError && (
-            <Typography variant="caption" color="error">
-              {insertError}
-            </Typography>
+            <span className="text-xs text-destructive">{insertError}</span>
           )}
-        </Stack>
+        </div>
       )}
 
       {onUploadImage && (

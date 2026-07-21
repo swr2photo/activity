@@ -6,53 +6,26 @@ import { doc, onSnapshot, query, collection, where, getDocs } from 'firebase/fir
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { adminDb as db, adminAuth } from '../../../../lib/firebase';
 import QRCode from 'qrcode';
-import { Button, CircularProgress, Typography, Box, Stack } from '@mui/material';
 import { ArrowLeft, Maximize2, ScanLine } from 'lucide-react';
 import { Activity } from '../../../../lib/adminFirebase';
 import { DYNAMIC_QR_WINDOW_SECONDS } from '@/lib/dynamicQrConstants';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils';
 
 /* ============================= Liquid Glass styles ============================= */
 
-const glassPillSx = {
-  color: 'rgba(255,255,255,0.92)',
-  px: 2.5,
-  py: 1,
-  borderRadius: '999px',
-  textTransform: 'none' as const,
-  fontWeight: 600,
-  fontSize: '0.9rem',
-  bgcolor: 'rgba(255,255,255,0.10)',
-  border: '1px solid rgba(255,255,255,0.22)',
-  backdropFilter: 'blur(24px) saturate(180%)',
-  WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.35), 0 8px 24px rgba(0,0,0,0.25)',
-  transition: 'all .25s ease',
-  '&:hover': {
-    bgcolor: 'rgba(255,255,255,0.20)',
-    transform: 'translateY(-1px)',
-  },
-} as const;
+const glassPillClass =
+  'rounded-full border border-white/20 bg-white/10 px-5 py-2 text-sm font-semibold text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_8px_24px_rgba(0,0,0,0.25)] backdrop-blur-xl transition-all hover:bg-white/20 hover:-translate-y-px';
 
 /** ฉากหลัง + แผงกระจกกลางจอ ใช้ร่วมกันทั้งหน้า QR และหน้าสถานะ/ข้อผิดพลาด */
 const GlassShell: React.FC<{ bgUrl?: string; children: React.ReactNode }> = ({ bgUrl, children }) => (
-  <Box
-    sx={{
-      minHeight: '100vh',
-      position: 'relative',
-      overflow: 'hidden',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      p: { xs: 2, md: 4 },
-      bgcolor: '#070b18',
-    }}
-  >
+  <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#070b18] p-4 md:p-8">
     {/* พื้นหลัง: รูปที่ตั้งไว้ หรือ gradient mesh */}
-    <Box
-      sx={{
-        position: 'absolute',
-        inset: 0,
-        ...(bgUrl
+    <div
+      className="absolute inset-0"
+      style={
+        bgUrl
           ? {
               backgroundImage: `url(${bgUrl})`,
               backgroundSize: 'cover',
@@ -65,33 +38,26 @@ const GlassShell: React.FC<{ bgUrl?: string; children: React.ReactNode }> = ({ b
                 'radial-gradient(1000px 700px at 85% 20%, rgba(168,85,247,0.28), transparent 60%),' +
                 'radial-gradient(900px 900px at 50% 100%, rgba(14,165,233,0.22), transparent 55%),' +
                 '#070b18',
-            }),
-      }}
+            }
+      }
     />
     {/* ม่านมืดให้กระจกอ่านง่าย */}
-    <Box
-      sx={{
-        position: 'absolute',
-        inset: 0,
+    <div
+      className="absolute inset-0"
+      style={{
         background:
           'linear-gradient(180deg, rgba(2,6,23,0.55) 0%, rgba(2,6,23,0.30) 45%, rgba(2,6,23,0.60) 100%)',
       }}
     />
     {/* แสงเลนส์จาง ๆ ด้านบน */}
-    <Box
-      sx={{
-        position: 'absolute',
-        top: '-30%',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        width: '80vw',
-        height: '60vh',
+    <div
+      className="pointer-events-none absolute left-1/2 top-[-30%] h-[60vh] w-[80vw] -translate-x-1/2"
+      style={{
         background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.10), transparent 65%)',
-        pointerEvents: 'none',
       }}
     />
     {children}
-  </Box>
+  </div>
 );
 
 export default function DynamicQrPage() {
@@ -259,40 +225,26 @@ export default function DynamicQrPage() {
   if (loading || authLoading) {
     return (
       <GlassShell>
-        <CircularProgress sx={{ color: 'rgba(255,255,255,0.85)' }} />
+        <Spinner size="lg" className="h-10 w-10 text-white/85" />
       </GlassShell>
     );
   }
 
   const statusPanel = (title: string, subtitle: string | null, buttonLabel: string) => (
     <GlassShell>
-      <Box
-        sx={{
-          position: 'relative',
-          textAlign: 'center',
-          px: { xs: 4, md: 8 },
-          py: { xs: 5, md: 7 },
-          borderRadius: '32px',
-          bgcolor: 'rgba(255,255,255,0.10)',
-          border: '1px solid rgba(255,255,255,0.22)',
-          backdropFilter: 'blur(40px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.35), 0 32px 64px rgba(0,0,0,0.45)',
-          maxWidth: 560,
-        }}
-      >
-        <Typography variant="h5" fontWeight={700} sx={{ color: 'rgba(255,255,255,0.95)' }}>
-          {title}
-        </Typography>
+      <div className="relative max-w-[560px] rounded-[32px] border border-white/20 bg-white/10 px-8 py-10 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_32px_64px_rgba(0,0,0,0.45)] backdrop-blur-2xl md:px-16 md:py-14">
+        <h2 className="text-xl font-bold text-white/95">{title}</h2>
         {subtitle && (
-          <Typography variant="body1" sx={{ mt: 1.5, color: 'rgba(255,255,255,0.65)' }}>
-            {subtitle}
-          </Typography>
+          <p className="mt-3 text-base text-white/65">{subtitle}</p>
         )}
-        <Button startIcon={<ArrowLeft size={18} />} onClick={() => router.push('/admin')} sx={{ ...glassPillSx, mt: 4 }}>
+        <Button
+          className={cn(glassPillClass, 'mt-8 gap-2')}
+          onClick={() => router.push('/admin')}
+        >
+          <ArrowLeft className="h-[18px] w-[18px]" />
           {buttonLabel}
         </Button>
-      </Box>
+      </div>
     </GlassShell>
   );
 
@@ -314,184 +266,116 @@ export default function DynamicQrPage() {
 
   const bgUrl = (activity as any).dynamicQrBgUrl as string | undefined;
   const urgent = timeRemaining <= 8;
+  const progressPct = (timeRemaining / WINDOW_SECONDS) * 100;
 
   return (
     <GlassShell bgUrl={bgUrl}>
       {/* ปุ่มควบคุมลอยมุมจอ */}
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        sx={{ position: 'absolute', top: { xs: 16, md: 28 }, left: { xs: 16, md: 28 }, right: { xs: 16, md: 28 }, zIndex: 2 }}
-      >
-        <Button startIcon={<ArrowLeft size={18} />} onClick={() => router.push('/admin')} sx={glassPillSx}>
+      <div className="absolute left-4 right-4 top-4 z-20 flex justify-between md:left-7 md:right-7 md:top-7">
+        <Button className={cn(glassPillClass, 'gap-2')} onClick={() => router.push('/admin')}>
+          <ArrowLeft className="h-[18px] w-[18px]" />
           กลับ
         </Button>
-        <Button startIcon={<Maximize2 size={18} />} onClick={toggleFullScreen} sx={glassPillSx}>
+        <Button className={cn(glassPillClass, 'gap-2')} onClick={toggleFullScreen}>
+          <Maximize2 className="h-[18px] w-[18px]" />
           เต็มจอ
         </Button>
-      </Stack>
+      </div>
 
       {/* แผงกระจกหลัก */}
-      <Box
-        sx={{
-          position: 'relative',
-          zIndex: 1,
-          width: '100%',
-          maxWidth: 640,
-          textAlign: 'center',
-          px: { xs: 3, md: 6 },
-          py: { xs: 4, md: 5 },
-          borderRadius: { xs: '32px', md: '44px' },
-          bgcolor: 'rgba(255,255,255,0.10)',
-          border: '1px solid rgba(255,255,255,0.24)',
-          backdropFilter: 'blur(44px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(44px) saturate(180%)',
-          boxShadow:
-            'inset 0 1px 0 rgba(255,255,255,0.40), inset 0 -1px 0 rgba(255,255,255,0.08), 0 40px 80px rgba(0,0,0,0.50)',
-          // ประกายเหลือบบนขอบกระจก
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            inset: 0,
-            borderRadius: 'inherit',
+      <div
+        className="relative z-10 w-full max-w-[640px] rounded-[32px] border border-white/25 bg-white/10 px-6 py-8 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.40),inset_0_-1px_0_rgba(255,255,255,0.08),0_40px_80px_rgba(0,0,0,0.50)] backdrop-blur-[44px] md:rounded-[44px] md:px-12 md:py-10"
+      >
+        <div
+          className="pointer-events-none absolute inset-0 rounded-[inherit]"
+          style={{
             background:
               'linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.02) 35%, transparent 60%)',
-            pointerEvents: 'none',
-          },
-        }}
-      >
-        {/* ชื่อกิจกรรม */}
-        <Typography
-          sx={{
-            fontWeight: 700,
-            fontSize: { xs: '1.6rem', md: '2.2rem' },
-            lineHeight: 1.2,
-            letterSpacing: '-0.02em',
-            color: 'rgba(255,255,255,0.97)',
-            textShadow: '0 2px 20px rgba(0,0,0,0.35)',
           }}
+        />
+
+        {/* ชื่อกิจกรรม */}
+        <h1
+          className="relative text-[1.6rem] font-bold leading-tight tracking-tight text-white/97 md:text-[2.2rem]"
+          style={{ textShadow: '0 2px 20px rgba(0,0,0,0.35)' }}
         >
           {activity.activityName}
-        </Typography>
-        <Typography
-          sx={{
-            mt: 1,
-            fontSize: '0.8rem',
-            fontWeight: 500,
-            letterSpacing: '0.08em',
-            color: 'rgba(255,255,255,0.55)',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          }}
-        >
+        </h1>
+        <p className="relative mt-2 font-mono text-xs font-medium tracking-widest text-white/55">
           {activity.activityCode}
-        </Typography>
+        </p>
 
         {/* QR ในกรอบกระจกซ้อน */}
-        <Box
-          sx={{
-            mt: { xs: 3, md: 4 },
-            mx: 'auto',
-            width: 'min(400px, 78vw)',
-            p: { xs: 1.5, md: 2 },
-            borderRadius: { xs: '28px', md: '36px' },
-            bgcolor: 'rgba(255,255,255,0.85)',
-            border: '1px solid rgba(255,255,255,0.9)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,1), 0 24px 48px rgba(0,0,0,0.35)',
-          }}
-        >
+        <div className="relative mx-auto mt-6 w-[min(400px,78vw)] rounded-[28px] border border-white/90 bg-white/85 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,1),0_24px_48px_rgba(0,0,0,0.35)] md:mt-8 md:rounded-[36px] md:p-4">
           {qrSrc ? (
-            <Box
-              component="img"
+            <img
               src={qrSrc}
               alt="Dynamic QR"
-              sx={{
-                display: 'block',
-                width: '100%',
-                aspectRatio: '1 / 1',
-                borderRadius: { xs: '20px', md: '26px' },
-                bgcolor: '#fff',
-              }}
+              className="block aspect-square w-full rounded-[20px] bg-white md:rounded-[26px]"
             />
           ) : (
-            <Box
-              sx={{
-                width: '100%',
-                aspectRatio: '1 / 1',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: { xs: '20px', md: '26px' },
-                bgcolor: 'rgba(255,255,255,0.6)',
-              }}
-            >
-              <CircularProgress size={36} />
-            </Box>
+            <div className="flex aspect-square w-full items-center justify-center rounded-[20px] bg-white/60 md:rounded-[26px]">
+              <Spinner size="lg" className="h-9 w-9" />
+            </div>
           )}
-        </Box>
+        </div>
 
         {/* คำสั่งสแกน */}
-        <Stack direction="row" spacing={1.2} alignItems="center" justifyContent="center" sx={{ mt: { xs: 3, md: 3.5 } }}>
+        <div className="relative mt-6 flex items-center justify-center gap-3 md:mt-7">
           <ScanLine size={22} color="rgba(255,255,255,0.9)" />
-          <Typography sx={{ fontWeight: 600, fontSize: { xs: '1.05rem', md: '1.25rem' }, color: 'rgba(255,255,255,0.92)' }}>
+          <p className="text-[1.05rem] font-semibold text-white/92 md:text-[1.25rem]">
             สแกนเพื่อเช็คอิน
-          </Typography>
-        </Stack>
+          </p>
+        </div>
 
         {/* ตัวนับถอยหลังแบบแคปซูลกระจก */}
-        <Stack
-          direction="row"
-          spacing={1.5}
-          alignItems="center"
-          justifyContent="center"
-          sx={{
-            mt: 2,
-            mx: 'auto',
-            width: 'fit-content',
-            px: 2.5,
-            py: 1,
-            borderRadius: '999px',
-            bgcolor: urgent ? 'rgba(255,69,58,0.18)' : 'rgba(255,255,255,0.10)',
-            border: `1px solid ${urgent ? 'rgba(255,69,58,0.45)' : 'rgba(255,255,255,0.20)'}`,
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            transition: 'all .4s ease',
-          }}
+        <div
+          className={cn(
+            'relative mx-auto mt-4 flex w-fit items-center justify-center gap-3 rounded-full border px-5 py-2 backdrop-blur-xl transition-all duration-400',
+            urgent
+              ? 'border-[rgba(255,69,58,0.45)] bg-[rgba(255,69,58,0.18)]'
+              : 'border-white/20 bg-white/10'
+          )}
         >
-          <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-            <CircularProgress
-              variant="determinate"
-              value={(timeRemaining / WINDOW_SECONDS) * 100}
-              size={34}
-              thickness={4.5}
-              sx={{
-                color: urgent ? '#ff453a' : 'rgba(255,255,255,0.9)',
-                '& .MuiCircularProgress-circle': { transition: 'stroke-dashoffset .9s linear' },
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+          <div className="relative inline-flex h-[34px] w-[34px] items-center justify-center">
+            <svg className="absolute inset-0 -rotate-90" viewBox="0 0 36 36">
+              <circle
+                cx="18"
+                cy="18"
+                r="14"
+                fill="none"
+                stroke="rgba(255,255,255,0.15)"
+                strokeWidth="3.5"
+              />
+              <circle
+                cx="18"
+                cy="18"
+                r="14"
+                fill="none"
+                stroke={urgent ? '#ff453a' : 'rgba(255,255,255,0.9)'}
+                strokeWidth="3.5"
+                strokeLinecap="round"
+                strokeDasharray={`${(progressPct / 100) * 88} 88`}
+                className="transition-[stroke-dasharray] duration-900 linear"
+              />
+            </svg>
+            <span
+              className={cn(
+                'relative text-[0.72rem] font-bold',
+                urgent ? 'text-[#ff6961]' : 'text-white/90'
+              )}
             >
-              <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: urgent ? '#ff6961' : 'rgba(255,255,255,0.9)' }}>
-                {timeRemaining}
-              </Typography>
-            </Box>
-          </Box>
-          <Typography sx={{ fontSize: '0.92rem', fontWeight: 500, color: 'rgba(255,255,255,0.75)' }}>
+              {timeRemaining}
+            </span>
+          </div>
+          <p className="text-[0.92rem] font-medium text-white/75">
             เปลี่ยน QR ใหม่ในอีก {timeRemaining} วินาที
-          </Typography>
-        </Stack>
+          </p>
+        </div>
         {tokenError && (
-          <Typography sx={{ mt: 1.5, fontSize: '0.85rem', color: '#ff6961' }}>
-            {tokenError}
-          </Typography>
+          <p className="relative mt-3 text-sm text-[#ff6961]">{tokenError}</p>
         )}
-      </Box>
+      </div>
     </GlassShell>
   );
 }

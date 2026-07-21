@@ -5,6 +5,7 @@ import "./globals.css";
 import ToastProvider from "@/components/common/ToastProvider";
 import AppThemeProvider from "@/components/providers/AppThemeProvider";
 import { ConfirmDialogProvider } from "@/components/providers/ConfirmDialogProvider";
+import { themeInitScript } from "@/lib/themeInitScript";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,7 +27,13 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="th" className="h-full w-full" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased h-full w-full overflow-x-hidden bg-background text-foreground`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased h-full w-full overflow-x-hidden bg-background text-foreground`}
+        suppressHydrationWarning
+      >
         <AppThemeProvider>
           <ConfirmDialogProvider>
             <ToastProvider>

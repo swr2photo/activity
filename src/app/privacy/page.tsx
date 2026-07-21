@@ -3,17 +3,13 @@
 
 import React from 'react';
 import Link from 'next/link';
-import {
-  Box,
-  Container,
-  Typography,
-  Stack,
-  Divider,
-  Button,
-} from '@mui/material';
-import { ArrowBack } from '@mui/icons-material';
+import { ArrowLeft } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { pageLayoutClass, glassCardClass } from '@/lib/uiTheme';
+import { cn } from '@/lib/utils';
 
 const sections: { title: string; body: React.ReactNode }[] = [
   {
@@ -75,7 +71,10 @@ const sections: { title: string; body: React.ReactNode }[] = [
     body: (
       <>
         หากมีคำถามเกี่ยวกับนโยบายความเป็นส่วนตัว กรุณาติดต่อ{' '}
-        <a href="mailto:psuscc@psu.ac.th">psuscc@psu.ac.th</a> หรือช่องทางของคณะวิทยาศาสตร์ ม.อ.
+        <a href="mailto:psuscc@psu.ac.th" className="text-primary hover:underline">
+          psuscc@psu.ac.th
+        </a>{' '}
+        หรือช่องทางของคณะวิทยาศาสตร์ ม.อ.
       </>
     ),
   },
@@ -83,80 +82,56 @@ const sections: { title: string; body: React.ReactNode }[] = [
 
 export default function PrivacyPage() {
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: '100vh',
-        bgcolor: 'var(--page-bg)',
-        color: 'var(--page-text)',
-      }}
-    >
+    <div className={pageLayoutClass}>
       <Navbar />
-      <Container maxWidth="md" sx={{ flex: 1, py: { xs: 4, md: 6 }, px: 2 }}>
+      <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 md:py-12">
         <Button
-          component={Link}
-          href="/"
-          startIcon={<ArrowBack />}
-          sx={{ mb: 2, fontWeight: 700, textTransform: 'none', color: 'text.secondary' }}
+          asChild
+          variant="ghost"
+          className="mb-2 font-bold text-muted-foreground"
         >
-          กลับหน้าแรก
+          <Link href="/">
+            <ArrowLeft className="h-4 w-4" />
+            กลับหน้าแรก
+          </Link>
         </Button>
 
-        <Typography
-          component="h1"
-          sx={{
-            fontWeight: 900,
-            fontSize: { xs: '1.75rem', md: '2.25rem' },
-            letterSpacing: '-0.03em',
-            mb: 1,
-          }}
-        >
+        <h1 className="mb-1 text-3xl font-black tracking-tight text-[var(--page-text)] md:text-4xl">
           นโยบายความเป็นส่วนตัว
-        </Typography>
-        <Typography variant="body2" sx={{ color: 'var(--page-text-secondary)', mb: 3 }}>
-          อัปเดตล่าสุด: {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
-        </Typography>
+        </h1>
+        <p className="mb-6 text-sm text-[var(--page-text-secondary)]">
+          อัปเดตล่าสุด:{' '}
+          {new Date().toLocaleDateString('th-TH', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })}
+        </p>
 
-        <Box
-          sx={{
-            p: { xs: 2.5, sm: 3.5 },
-            borderRadius: '20px',
-            bgcolor: 'var(--page-card-solid)',
-            border: '1px solid var(--page-border)',
-            boxShadow: 'var(--page-shadow)',
-          }}
-        >
-          <Typography variant="body1" sx={{ mb: 3, lineHeight: 1.7, color: 'text.secondary' }}>
+        <div className={cn(glassCardClass, 'p-5 sm:p-7')}>
+          <p className="mb-6 text-base leading-relaxed text-muted-foreground">
             เอกสารนี้อธิบายวิธีที่ระบบ PSU REGISTER เก็บ ใช้ และคุ้มครองข้อมูลส่วนบุคคลของนักศึกษาและผู้ใช้งาน
             เมื่อเข้าใช้งานเว็บไซต์และบริการที่เกี่ยวข้อง
-          </Typography>
+          </p>
 
-          <Stack spacing={3} divider={<Divider flexItem />}>
-            {sections.map((s) => (
-              <Box key={s.title}>
-                <Typography variant="h6" fontWeight={800} sx={{ mb: 1, fontSize: '1.05rem' }}>
-                  {s.title}
-                </Typography>
-                <Typography
-                  component="div"
-                  variant="body2"
-                  sx={{
-                    lineHeight: 1.75,
-                    color: 'text.secondary',
-                    '& ul': { pl: 2.5, mt: 1, mb: 0 },
-                    '& li': { mb: 0.5 },
-                    '& a': { color: 'primary.main' },
-                  }}
-                >
-                  {s.body}
-                </Typography>
-              </Box>
+          <div className="flex flex-col gap-6">
+            {sections.map((s, i) => (
+              <React.Fragment key={s.title}>
+                {i > 0 && <Separator />}
+                <div>
+                  <h2 className="mb-2 text-[1.05rem] font-extrabold text-foreground">
+                    {s.title}
+                  </h2>
+                  <div className="text-sm leading-relaxed text-muted-foreground [&_ul]:mt-2 [&_ul]:mb-0 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:mb-1">
+                    {s.body}
+                  </div>
+                </div>
+              </React.Fragment>
             ))}
-          </Stack>
-        </Box>
-      </Container>
+          </div>
+        </div>
+      </div>
       <Footer />
-    </Box>
+    </div>
   );
 }

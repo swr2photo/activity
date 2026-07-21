@@ -3,26 +3,30 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Box, Button, Card, CardContent, Typography, Stack, Divider,
-  Chip, Alert, IconButton, Collapse, Tooltip
-} from '@mui/material';
-import { alpha, keyframes, useTheme } from '@mui/material/styles';
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import HomeIcon from '@mui/icons-material/Home';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import ReportIcon from '@mui/icons-material/Report';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import CloseIcon from '@mui/icons-material/Close';
+  RotateCcw,
+  Home,
+  Copy,
+  TriangleAlert,
+  ChevronDown,
+  X,
+} from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { glassCardClass } from '@/lib/uiTheme';
+import { cn } from '@/lib/utils';
 
-// ใช้ relative path
 import { reportError } from '../lib/errorReporter';
 import { auth } from '../lib/firebase';
-
-const float = keyframes`
-  0%,100% { transform: translateY(0) }
-  50% { transform: translateY(-6px) }
-`;
 
 export default function GlobalError({
   error,
@@ -31,7 +35,6 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
   const [showDetails, setShowDetails] = useState(false);
@@ -46,14 +49,13 @@ export default function GlobalError({
   }, [error.digest]);
 
   useEffect(() => {
-    // If it's a chunk loading failure (deployment update/cache mismatch), force page reload to load new files
-    const isChunkError = 
-      /chunk/i.test(error.message) || 
+    const isChunkError =
+      /chunk/i.test(error.message) ||
       /loading.*failed/i.test(error.message) ||
       /load.*chunk/i.test(error.message);
 
     if (isChunkError) {
-      console.warn("Chunk load failure detected. Reloading page...");
+      console.warn('Chunk load failure detected. Reloading page...');
       window.location.reload();
       return;
     }
@@ -73,9 +75,13 @@ export default function GlobalError({
         });
         if (mounted) setErrorId(id);
         console.error('Captured error:', { error, errorId: id, refCode });
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [error, pathname, refCode]);
 
   const copyInfo = async () => {
@@ -85,136 +91,134 @@ export default function GlobalError({
         `Path: ${pathname}`,
         `Message: ${error.message}`,
         error.stack ? `Stack: ${error.stack}` : '',
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
       await navigator.clipboard.writeText(info);
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
-    } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
   };
 
   if (dismissed) return null;
 
   return (
-    <Box
-      sx={{
-        minHeight: '70vh',
-        display: 'grid',
-        placeItems: 'center',
-        px: 2,
-        py: { xs: 4, md: 8 },
-        background: `radial-gradient(1200px 400px at -20% -20%, ${alpha(theme.palette.error.main, 0.08)}, transparent),
-                     linear-gradient(180deg, ${alpha(theme.palette.background.default, 0.6)}, ${theme.palette.background.default})`,
-      }}
-    >
+    <div className="grid min-h-[70vh] place-items-center bg-[radial-gradient(1200px_400px_at_-20%_-20%,rgba(239,68,68,0.08),transparent),linear-gradient(180deg,var(--page-bg),var(--page-bg))] px-2 py-8 md:py-16">
       <Card
-        elevation={0}
-        sx={{
-          width: '100%',
-          maxWidth: 760,
-          borderRadius: 3,
-          overflow: 'hidden',
-          border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
-          boxShadow: `0 24px 64px ${alpha('#000', 0.12)}`,
-          backdropFilter: 'blur(10px)', // liquid glass
-          background: alpha(theme.palette.background.paper, 0.7),
-        }}
+        className={cn(
+          glassCardClass,
+          'w-full max-w-[760px] overflow-hidden shadow-[0_24px_64px_rgba(0,0,0,0.12)]'
+        )}
       >
-        <Box
-          sx={{
-            p: { xs: 2, md: 3 },
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
-            background: `linear-gradient(135deg, ${alpha(theme.palette.error.light, 0.15)}, ${alpha(theme.palette.background.paper, 0.7)})`,
-          }}
-        >
-          <Box sx={{
-            width: 56, height: 56, borderRadius: 2, display: 'grid', placeItems: 'center',
-            bgcolor: alpha(theme.palette.error.main, 0.1),
-            boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.error.main, 0.12)}`,
-            animation: `${float} 5s ease-in-out infinite`,
-          }}>
-            <ReportIcon sx={{ color: 'error.main' }} />
-          </Box>
+        <div className="flex items-center gap-4 border-b border-border/50 bg-gradient-to-br from-destructive/15 to-[var(--page-card)] p-4 md:p-6">
+          <div className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-destructive/10 shadow-[inset_0_0_0_1px_rgba(239,68,68,0.12)] animate-[float_5s_ease-in-out_infinite]">
+            <TriangleAlert className="h-6 w-6 text-destructive" />
+          </div>
 
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="h6" fontWeight={800}>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-extrabold text-foreground">
               เกิดข้อผิดพลาดในการทำงาน
-            </Typography>
-            <Typography variant="body2" color="text.secondary" noWrap>
+            </h2>
+            <p className="truncate text-sm text-muted-foreground">
               เราขออภัยในความไม่สะดวก — คุณสามารถลองใหม่หรือกลับไปหน้าหลักได้
-            </Typography>
-          </Box>
+            </p>
+          </div>
 
-          <Tooltip title="ปิดกล่องนี้">
-            <IconButton onClick={() => setDismissed(true)} size="small">
-              <CloseIcon />
-            </IconButton>
-          </Tooltip>
-        </Box>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => setDismissed(true)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>ปิดกล่องนี้</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
 
-        <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-          <Stack spacing={2}>
-            <Alert severity="error" variant="outlined" sx={{ borderColor: alpha(theme.palette.error.main, 0.3) }}>
-              <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
-                <Typography variant="body2" fontWeight={700}>Reference</Typography>
-                <Chip size="small" label={refCode} color="error" variant="outlined" sx={{ fontWeight: 700 }} />
-                {errorId && (<Chip size="small" label={`ID: ${errorId}`} variant="outlined" sx={{ ml: 0.5 }} />)}
-              </Stack>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+        <CardContent className="p-4 md:p-6">
+          <div className="flex flex-col gap-4">
+            <Alert variant="destructive" className="border-destructive/30">
+              <AlertTitle className="flex flex-wrap items-center gap-2">
+                <span className="font-bold">Reference</span>
+                <Badge variant="destructive" className="font-bold">
+                  {refCode}
+                </Badge>
+                {errorId && (
+                  <Badge variant="outline">ID: {errorId}</Badge>
+                )}
+              </AlertTitle>
+              <AlertDescription className="mt-1 text-muted-foreground">
                 หากต้องการติดต่อผู้ดูแล โปรดแจ้งรหัสอ้างอิงนี้เพื่อช่วยตรวจสอบปัญหาได้เร็วขึ้น
-              </Typography>
+              </AlertDescription>
             </Alert>
 
-            {/* ปรับให้ปุ่มเต็มความกว้างบนมือถือ */}
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1}
-              sx={{ '& button': { flex: { xs: '1 1 100%', sm: 1 } } }}
-            >
-              <Button variant="contained" color="error" startIcon={<RestartAltIcon />} onClick={reset}>
+            <div className="flex flex-col gap-2 sm:flex-row [&_button]:flex-1">
+              <Button variant="destructive" onClick={reset}>
+                <RotateCcw className="h-4 w-4" />
                 ลองใหม่
               </Button>
-              <Button variant="outlined" startIcon={<HomeIcon />} onClick={() => router.push('/')}>
+              <Button variant="outline" onClick={() => router.push('/')}>
+                <Home className="h-4 w-4" />
                 กลับหน้าหลัก
               </Button>
-              <Button variant="text" startIcon={<ContentCopyIcon />} onClick={copyInfo}>
+              <Button variant="ghost" onClick={copyInfo}>
+                <Copy className="h-4 w-4" />
                 {copied ? 'คัดลอกแล้ว' : 'คัดลอกรายละเอียด'}
               </Button>
-            </Stack>
+            </div>
 
-            <Divider />
+            <Separator />
 
             <Button
-              onClick={() => setShowDetails(v => !v)}
-              endIcon={<ExpandMoreIcon sx={{ transform: showDetails ? 'rotate(180deg)' : 'rotate(0deg)', transition: '200ms' }} />}
-              sx={{ alignSelf: 'flex-start' }}
+              variant="ghost"
+              className="self-start"
+              onClick={() => setShowDetails((v) => !v)}
             >
               รายละเอียดทางเทคนิค
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 transition-transform duration-200',
+                  showDetails && 'rotate-180'
+                )}
+              />
             </Button>
-            <Collapse in={showDetails} unmountOnExit>
-              <Box
-                component="pre"
-                sx={{
-                  p: 2, m: 0, borderRadius: 2, overflow: 'auto',
-                  fontSize: 12, lineHeight: 1.6,
-                  bgcolor: alpha(theme.palette.grey[900], theme.palette.mode === 'dark' ? 0.3 : 0.08),
-                  border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
-                }}
-              >
+
+            {showDetails && (
+              <pre className="m-0 overflow-auto rounded-lg border border-border/50 bg-muted/40 p-4 text-xs leading-relaxed dark:bg-muted/20">
                 {[
                   `Path: ${pathname}`,
                   `Message: ${error.message}`,
                   error.digest ? `Digest: ${error.digest}` : '',
                   '',
                   error.stack || '',
-                ].filter(Boolean).join('\n')}
-              </Box>
-            </Collapse>
-          </Stack>
+                ]
+                  .filter(Boolean)
+                  .join('\n')}
+              </pre>
+            )}
+          </div>
         </CardContent>
       </Card>
-    </Box>
+
+      <style jsx global>{`
+        @keyframes float {
+          0%,
+          100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-6px);
+          }
+        }
+      `}</style>
+    </div>
   );
 }

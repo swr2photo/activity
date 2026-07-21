@@ -1,40 +1,42 @@
 // components/admin/EnhancedAdminPanel.tsx
+'use client';
+
 import React, { useEffect, useState } from 'react';
-import Grid from '@mui/material/Grid';
 import {
-  Box,
-  Typography,
-  TextField,
-  Button,
-  IconButton,
-  Tooltip,
-  InputAdornment,
-  ButtonGroup,
-  Fab,
-  useTheme,
-  useMediaQuery,
-  Chip,
-} from '@mui/material';
-import {
-  Download as DownloadIcon,
-  Refresh as RefreshIcon,
-  Delete as DeleteIcon,
-  Visibility as ViewIcon,
-  Search as SearchIcon,
-  Clear as ClearIcon,
-  Event as EventIcon,
-  People as PeopleIcon,
-  Today as TodayIcon,
-} from '@mui/icons-material';
+  Download,
+  RefreshCw,
+  Trash2,
+  Eye,
+  Search,
+  X,
+  Calendar,
+  Users,
+} from 'lucide-react';
 import { AdminProfile, DEPARTMENT_LABELS } from '../../types/admin';
 import { getAllActivityRecords, getActivityRecordsByDepartment, ActivityRecord } from '../../lib/adminFirebase';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 const ResponsiveContainer: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: '100%' }}>{children}</Box>
+  <div className="max-w-full p-4 md:p-6">{children}</div>
 );
-const ResponsiveCard: React.FC<{ children: React.ReactNode; sx?: any }> = ({ children, sx }) => (
-  <Box sx={{ bgcolor: 'background.paper', borderRadius: 2, p: 3, boxShadow: 1, ...sx }}>{children}</Box>
+
+const ResponsiveCard: React.FC<{ children: React.ReactNode; className?: string }> = ({
+  children,
+  className,
+}) => (
+  <div className={cn('rounded-lg bg-card p-6 shadow-sm border', className)}>{children}</div>
 );
+
 const ResponsiveTable: React.FC<{
   columns: any[];
   data: any[];
@@ -42,107 +44,77 @@ const ResponsiveTable: React.FC<{
   actions?: (row: any) => React.ReactNode;
   emptyMessage?: string;
 }> = ({ columns, data, keyField, actions, emptyMessage }) => (
-  <Box sx={{ overflowX: 'auto' }}>
+  <div className="overflow-x-auto">
     {data.length === 0 ? (
-      <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+      <p className="py-8 text-center text-sm text-muted-foreground">
         {emptyMessage || 'ไม่มีข้อมูล'}
-      </Typography>
+      </p>
     ) : (
-      <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
-        <Box component="thead">
-          <Box component="tr">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr>
             {columns.map((col) => (
-              <Box
-                component="th"
+              <th
                 key={col.id}
-                sx={{
-                  p: 2,
-                  textAlign: 'left',
-                  borderBottom: '1px solid',
-                  borderColor: 'divider',
-                  display: { xs: col.hideOnMobile ? 'none' : 'table-cell', md: 'table-cell' },
-                }}
+                className={cn(
+                  'border-b p-4 text-left text-sm font-bold',
+                  col.hideOnMobile && 'hidden md:table-cell'
+                )}
               >
-                <Typography variant="subtitle2" fontWeight="bold">
-                  {col.label}
-                </Typography>
-              </Box>
+                {col.label}
+              </th>
             ))}
             {actions && (
-              <Box component="th" sx={{ p: 2, textAlign: 'center', borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="subtitle2" fontWeight="bold">
-                  การดำเนินการ
-                </Typography>
-              </Box>
+              <th className="border-b p-4 text-center text-sm font-bold">การดำเนินการ</th>
             )}
-          </Box>
-        </Box>
-        <Box component="tbody">
+          </tr>
+        </thead>
+        <tbody>
           {data.map((row) => (
-            <Box component="tr" key={row[keyField]}>
+            <tr key={row[keyField]}>
               {columns.map((col) => (
-                <Box
-                  component="td"
+                <td
                   key={col.id}
-                  sx={{
-                    p: 2,
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                    display: { xs: col.hideOnMobile ? 'none' : 'table-cell', md: 'table-cell' },
-                  }}
+                  className={cn(
+                    'border-b p-4',
+                    col.hideOnMobile && 'hidden md:table-cell'
+                  )}
                 >
                   {col.format ? col.format(row[col.id], row) : row[col.id]}
-                </Box>
+                </td>
               ))}
-              {actions && (
-                <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                  {actions(row)}
-                </Box>
-              )}
-            </Box>
+              {actions && <td className="border-b p-4">{actions(row)}</td>}
+            </tr>
           ))}
-        </Box>
-      </Box>
+        </tbody>
+      </table>
     )}
-  </Box>
+  </div>
 );
 
-const StatsCard: React.FC<{ title: string; value: number; icon: React.ReactNode; color: string; subtitle?: string }> = ({
-  title,
-  value,
-  icon,
-  color,
-  subtitle,
-}) => (
+const StatsCard: React.FC<{
+  title: string;
+  value: number;
+  icon: React.ReactNode;
+  color: string;
+  subtitle?: string;
+}> = ({ title, value, icon, color, subtitle }) => (
   <ResponsiveCard>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-      <Box
-        sx={{
-          bgcolor: color,
-          color: 'white',
-          p: 1.5,
-          borderRadius: 2,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+    <div className="flex items-center gap-4">
+      <div
+        className="flex items-center justify-center rounded-lg p-3 text-white"
+        style={{ backgroundColor: color }}
       >
         {icon}
-      </Box>
-      <Box>
-        <Typography variant="h4" fontWeight="bold" color={color}>
+      </div>
+      <div>
+        <p className="text-3xl font-bold" style={{ color }}>
           {value.toLocaleString()}
-        </Typography>
-        <Typography variant="subtitle2" fontWeight="600">
-          {title}
-        </Typography>
-        {subtitle && (
-          <Typography variant="caption" color="text.secondary">
-            {subtitle}
-          </Typography>
-        )}
-      </Box>
-    </Box>
+        </p>
+        <p className="text-sm font-semibold">{title}</p>
+        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      </div>
+    </div>
   </ResponsiveCard>
 );
 
@@ -151,14 +123,25 @@ interface Props {
 }
 
 export const EnhancedAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-
+  const [isMobile, setIsMobile] = useState(false);
   const [records, setRecords] = useState<ActivityRecord[]>([]);
   const [filtered, setFiltered] = useState<ActivityRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterText, setFilterText] = useState('');
-  const [stats, setStats] = useState({ totalRecords: 0, uniqueStudents: 0, uniqueActivities: 0, todayRecords: 0 });
+  const [stats, setStats] = useState({
+    totalRecords: 0,
+    uniqueStudents: 0,
+    uniqueActivities: 0,
+    todayRecords: 0,
+  });
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   useEffect(() => {
     loadRecords();
@@ -175,7 +158,9 @@ export const EnhancedAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
     setLoading(true);
     try {
       const data =
-        currentAdmin.department === 'all' ? await getAllActivityRecords() : await getActivityRecordsByDepartment(currentAdmin.department);
+        currentAdmin.department === 'all'
+          ? await getAllActivityRecords()
+          : await getActivityRecordsByDepartment(currentAdmin.department);
       setRecords(data);
     } finally {
       setLoading(false);
@@ -232,141 +217,170 @@ export const EnhancedAdminPanel: React.FC<Props> = ({ currentAdmin }) => {
       id: 'timestamp',
       label: 'วันที่/เวลา',
       format: (v: Date) => (
-        <Box>
-          <Typography variant="body2" fontWeight="medium">
-            {v.toLocaleDateString('th-TH')}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {v.toLocaleTimeString('th-TH')}
-          </Typography>
-        </Box>
+        <div>
+          <p className="text-sm font-medium">{v.toLocaleDateString('th-TH')}</p>
+          <p className="text-xs text-muted-foreground">{v.toLocaleTimeString('th-TH')}</p>
+        </div>
       ),
     },
     {
       id: 'studentId',
       label: 'รหัสผู้เข้าร่วม',
       format: (v: string) => (
-        <Typography variant="body2" fontWeight="600" color="primary.main" sx={{ fontFamily: 'monospace' }}>
-          {v}
-        </Typography>
+        <p className="font-mono text-sm font-semibold text-primary">{v}</p>
       ),
     },
-    { id: 'fullName', label: 'ชื่อ-นามสกุล', format: (_: any, row: any) => <Typography variant="body2" fontWeight="medium">{row.firstName} {row.lastName}</Typography> },
+    {
+      id: 'fullName',
+      label: 'ชื่อ-นามสกุล',
+      format: (_: any, row: any) => (
+        <p className="text-sm font-medium">
+          {row.firstName} {row.lastName}
+        </p>
+      ),
+    },
     {
       id: 'department',
       label: 'สังกัด',
-      format: (v: string) => <Chip label={v} size="small" variant="outlined" color="secondary" />,
+      format: (v: string) => (
+        <Badge variant="outline">{v}</Badge>
+      ),
       hideOnMobile: true,
     },
-    { id: 'activityCode', label: 'รหัสกิจกรรม', format: (v: string) => <Chip label={v} color="primary" size="small" sx={{ fontWeight: 700 }} /> },
+    {
+      id: 'activityCode',
+      label: 'รหัสกิจกรรม',
+      format: (v: string) => (
+        <Badge className="font-bold">{v}</Badge>
+      ),
+    },
   ];
 
   const renderActions = (_row: any) => (
-    <Box sx={{ display: 'flex', gap: 1, justifyContent: isMobile ? 'flex-start' : 'center' }}>
-      <Tooltip title="ดูรายละเอียด">
-        <IconButton size="small" color="info">
-          <ViewIcon />
-        </IconButton>
+    <div className={cn('flex gap-1', isMobile ? 'justify-start' : 'justify-center')}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="icon" variant="ghost" className="h-8 w-8 text-sky-600">
+            <Eye className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>ดูรายละเอียด</TooltipContent>
       </Tooltip>
-      <Tooltip title="ลบ">
-        <IconButton size="small" color="error">
-          <DeleteIcon />
-        </IconButton>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>ลบ</TooltipContent>
       </Tooltip>
-    </Box>
+    </div>
   );
 
   return (
-    <ResponsiveContainer>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          จัดการข้อมูลการเข้าร่วมกิจกรรม
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          ดูและจัดการข้อมูลในสังกัด {DEPARTMENT_LABELS[currentAdmin.department] || currentAdmin.department}
-        </Typography>
-      </Box>
+    <TooltipProvider>
+      <ResponsiveContainer>
+        <div className="mb-8">
+          <h1 className="mb-1 text-3xl font-bold">จัดการข้อมูลการเข้าร่วมกิจกรรม</h1>
+          <p className="text-muted-foreground">
+            ดูและจัดการข้อมูลในสังกัด{' '}
+            {DEPARTMENT_LABELS[currentAdmin.department] || currentAdmin.department}
+          </p>
+        </div>
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatsCard title="รายการทั้งหมด" value={stats.totalRecords} icon={<EventIcon />} color="#1976d2" subtitle="บันทึกการเข้าร่วม" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatsCard title="ผู้เข้าร่วม" value={stats.uniqueStudents} icon={<PeopleIcon />} color="#9c27b0" subtitle="คนที่เข้าร่วม" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatsCard title="กิจกรรม" value={stats.uniqueActivities} icon={<EventIcon />} color="#2e7d32" subtitle="กิจกรรมทั้งหมด" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatsCard title="วันนี้" value={stats.todayRecords} icon={<TodayIcon />} color="#ed6c02" subtitle="เข้าร่วมวันนี้" />
-        </Grid>
-      </Grid>
-
-      <ResponsiveCard sx={{ mb: 3 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: { xs: 'stretch', md: 'center' },
-            flexDirection: { xs: 'column', md: 'row' },
-            gap: 2,
-          }}
-        >
-          <TextField
-            size="small"
-            label="ค้นหา"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder="รหัสกิจกรรม, ผู้เข้าร่วม, ชื่อ..."
-            sx={{ minWidth: { xs: '100%', md: 300 } }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-              endAdornment: filterText && (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setFilterText('')}>
-                    <ClearIcon />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
+          <StatsCard
+            title="รายการทั้งหมด"
+            value={stats.totalRecords}
+            icon={<Calendar className="h-5 w-5" />}
+            color="#1976d2"
+            subtitle="บันทึกการเข้าร่วม"
           />
-          <ButtonGroup variant="contained" size={isMobile ? 'medium' : 'small'}>
-            <Button onClick={loadRecords} disabled={loading} startIcon={<RefreshIcon />}>
-              รีเฟรช
-            </Button>
-            <Button onClick={exportToCSV} startIcon={<DownloadIcon />} color="success">
-              ส่งออก
-            </Button>
-          </ButtonGroup>
-        </Box>
-      </ResponsiveCard>
+          <StatsCard
+            title="ผู้เข้าร่วม"
+            value={stats.uniqueStudents}
+            icon={<Users className="h-5 w-5" />}
+            color="#9c27b0"
+            subtitle="คนที่เข้าร่วม"
+          />
+          <StatsCard
+            title="กิจกรรม"
+            value={stats.uniqueActivities}
+            icon={<Calendar className="h-5 w-5" />}
+            color="#2e7d32"
+            subtitle="กิจกรรมทั้งหมด"
+          />
+          <StatsCard
+            title="วันนี้"
+            value={stats.todayRecords}
+            icon={<Calendar className="h-5 w-5" />}
+            color="#ed6c02"
+            subtitle="เข้าร่วมวันนี้"
+          />
+        </div>
 
-      <ResponsiveCard>
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <EventIcon /> รายการลงทะเบียน
-            <Chip label={`${filtered.length} รายการ`} color="primary" size="small" />
-          </Typography>
-        </Box>
+        <ResponsiveCard className="mb-6">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+            <div className="relative w-full md:min-w-[300px] md:max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9 pr-9"
+                placeholder="รหัสกิจกรรม, ผู้เข้าร่วม, ชื่อ..."
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+              />
+              {filterText && (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"
+                  onClick={() => setFilterText('')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={loadRecords} disabled={loading} variant="outline" className="gap-2">
+                <RefreshCw className="h-4 w-4" />
+                รีเฟรช
+              </Button>
+              <Button
+                onClick={exportToCSV}
+                className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+              >
+                <Download className="h-4 w-4" />
+                ส่งออก
+              </Button>
+            </div>
+          </div>
+        </ResponsiveCard>
 
-        <ResponsiveTable
-          columns={columns}
-          data={filtered.map((r) => ({ ...r, fullName: `${r.firstName} ${r.lastName}` }))}
-          keyField="id"
-          actions={renderActions}
-          emptyMessage="ไม่มีข้อมูลการลงทะเบียน"
-        />
-      </ResponsiveCard>
+        <ResponsiveCard>
+          <div className="mb-4 flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            <h2 className="text-lg font-semibold">รายการลงทะเบียน</h2>
+            <Badge>{filtered.length} รายการ</Badge>
+          </div>
 
-      {isMobile && (
-        <Fab color="primary" onClick={loadRecords} sx={{ position: 'fixed', bottom: 16, right: 16, zIndex: 1000 }}>
-          <RefreshIcon />
-        </Fab>
-      )}
-    </ResponsiveContainer>
+          <ResponsiveTable
+            columns={columns}
+            data={filtered.map((r) => ({ ...r, fullName: `${r.firstName} ${r.lastName}` }))}
+            keyField="id"
+            actions={renderActions}
+            emptyMessage="ไม่มีข้อมูลการลงทะเบียน"
+          />
+        </ResponsiveCard>
+
+        {isMobile && (
+          <Button
+            size="icon"
+            className="fixed bottom-4 right-4 z-50 h-14 w-14 rounded-full shadow-lg"
+            onClick={loadRecords}
+          >
+            <RefreshCw className="h-5 w-5" />
+          </Button>
+        )}
+      </ResponsiveContainer>
+    </TooltipProvider>
   );
 };

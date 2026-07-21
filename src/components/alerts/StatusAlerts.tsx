@@ -1,40 +1,27 @@
 // components/alerts/StatusAlerts.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
-import {
-  Alert,
-  Typography,
-  Box,
-  Card,
-  CardContent,
-  Button,
-  LinearProgress
-} from '@mui/material';
-import {
-  Block as BlockIcon,
-  Info as InfoIcon,
-  Person as PersonIcon,
-  Edit as EditIcon,
-  Warning as WarningIcon,
-  PersonOff as PersonOffIcon,
-  AccessTime as AccessTimeIcon
-} from '@mui/icons-material';
+import { User, Pencil, X } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 // IP Restriction Alert Component
 interface IPRestrictionAlertProps {
-  remainingTime: number; 
+  remainingTime: number;
   onClose: () => void;
 }
 
-export const IPRestrictionAlert: React.FC<IPRestrictionAlertProps> = ({ 
-  remainingTime, 
-  onClose 
+export const IPRestrictionAlert: React.FC<IPRestrictionAlertProps> = ({
+  remainingTime,
+  onClose,
 }) => {
   const [timeLeft, setTimeLeft] = useState(remainingTime);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setTimeLeft(prev => {
+      setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
           onClose();
@@ -50,51 +37,36 @@ export const IPRestrictionAlert: React.FC<IPRestrictionAlertProps> = ({
   const progressValue = ((remainingTime - timeLeft) / remainingTime) * 100;
 
   return (
-    <Alert 
-      severity="error" 
-      sx={{ 
-        mb: 3,
-        background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-        border: '1px solid #fca5a5'
-      }}
-      icon={<BlockIcon />}
+    <Alert
+      variant="destructive"
+      className="mb-6 border-[#fca5a5] bg-gradient-to-br from-[#fee2e2] to-[#fecaca] dark:from-red-950/40 dark:to-red-900/30"
     >
-      <Typography variant="body1" gutterBottom sx={{ fontWeight: 'bold' }}>
-        ไม่สามารถเข้าสู่ระบบได้
-      </Typography>
-      
-      <Typography variant="body2" gutterBottom>
-        IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่นแล้ว เพื่อความปลอดภัย 
-        คุณต้องรออีก <strong>{timeLeft} นาที</strong> ก่อนที่จะสามารถเข้าสู่ระบบได้
-      </Typography>
-      
-      <Box sx={{ mt: 2, mb: 1 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-          <Typography variant="caption" color="text.secondary">
-            เวลาที่เหลือ
-          </Typography>
-          <Typography variant="caption" color="error.main" fontWeight="medium">
-            {timeLeft} นาที
-          </Typography>
-        </Box>
-        <LinearProgress 
-          variant="determinate" 
-          value={progressValue}
-          sx={{
-            height: 6,
-            borderRadius: 3,
-            backgroundColor: 'rgba(239, 68, 68, 0.2)',
-            '& .MuiLinearProgress-bar': {
-              borderRadius: 3,
-              backgroundColor: '#ef4444'
-            }
-          }}
-        />
-      </Box>
-      
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-        มาตรการนี้ป้องกันการใช้งานบัญชีหลายบัญชีจาก IP เดียวกันในช่วงเวลาสั้นๆ
-      </Typography>
+      <AlertTitle className="font-bold">ไม่สามารถเข้าสู่ระบบได้</AlertTitle>
+      <AlertDescription>
+        <p className="mb-2">
+          IP นี้เพิ่งมีการเข้าสู่ระบบด้วยบัญชีอื่นแล้ว เพื่อความปลอดภัย คุณต้องรออีก{' '}
+          <strong>{timeLeft} นาที</strong> ก่อนที่จะสามารถเข้าสู่ระบบได้
+        </p>
+
+        <div className="mb-1 mt-4">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">เวลาที่เหลือ</span>
+            <span className="text-xs font-medium text-destructive">
+              {timeLeft} นาที
+            </span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-red-500/20">
+            <div
+              className="h-full rounded-full bg-[#ef4444] transition-all"
+              style={{ width: `${progressValue}%` }}
+            />
+          </div>
+        </div>
+
+        <p className="mt-4 text-sm text-muted-foreground">
+          มาตรการนี้ป้องกันการใช้งานบัญชีหลายบัญชีจาก IP เดียวกันในช่วงเวลาสั้นๆ
+        </p>
+      </AlertDescription>
     </Alert>
   );
 };
@@ -102,27 +74,19 @@ export const IPRestrictionAlert: React.FC<IPRestrictionAlertProps> = ({
 // Duplicate Registration Alert Component
 export const DuplicateRegistrationAlert: React.FC = () => {
   return (
-    <Alert 
-      severity="success" 
-      sx={{ 
-        mb: 3,
-        background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
-        border: '1px solid #10b981'
-      }}
-      icon={<PersonIcon />}
+    <Alert
+      variant="success"
+      className="mb-6 border-[#10b981] bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] dark:from-emerald-950/40 dark:to-emerald-900/30"
     >
-      <Typography variant="body1" gutterBottom sx={{ fontWeight: 'bold' }}>
-        ลงทะเบียนเรียบร้อยแล้ว
-      </Typography>
-      <Typography variant="body2">
-        บัญชีนี้บันทึกการเข้าร่วมกิจกรรมนี้ไว้แล้ว ไม่ต้องลงทะเบียนซ้ำ
-      </Typography>
-      
-      <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(16, 185, 129, 0.1)', borderRadius: 1 }}>
-        <Typography variant="caption" color="text.secondary">
-          ดูประวัติได้ที่เมนู «ประวัติ» — หากข้อมูลไม่ถูกต้อง กรุณาติดต่อผู้ดูแลกิจกรรม
-        </Typography>
-      </Box>
+      <AlertTitle className="font-bold">ลงทะเบียนเรียบร้อยแล้ว</AlertTitle>
+      <AlertDescription>
+        <p>บัญชีนี้บันทึกการเข้าร่วมกิจกรรมนี้ไว้แล้ว ไม่ต้องลงทะเบียนซ้ำ</p>
+        <div className="mt-4 rounded-md bg-emerald-500/10 p-4">
+          <p className="text-xs text-muted-foreground">
+            ดูประวัติได้ที่เมนู «ประวัติ» — หากข้อมูลไม่ถูกต้อง กรุณาติดต่อผู้ดูแลกิจกรรม
+          </p>
+        </div>
+      </AlertDescription>
     </Alert>
   );
 };
@@ -132,63 +96,37 @@ interface ProfileSetupAlertProps {
   onEditProfile: () => void;
 }
 
-export const ProfileSetupAlert: React.FC<ProfileSetupAlertProps> = ({ 
-  onEditProfile 
+export const ProfileSetupAlert: React.FC<ProfileSetupAlertProps> = ({
+  onEditProfile,
 }) => {
   return (
-    <Card sx={{ 
-      mb: 4,
-      background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-      border: '2px solid #f59e0b',
-      boxShadow: '0 8px 32px rgba(245, 158, 11, 0.2)'
-    }}>
-      <CardContent sx={{ textAlign: 'center', p: 4 }}>
-        <PersonIcon sx={{ 
-          fontSize: 64, 
-          color: 'warning.main', 
-          mb: 2,
-          filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.1))'
-        }} />
-        
-        <Typography variant="h5" gutterBottom sx={{ 
-          color: 'warning.dark',
-          fontWeight: 'bold'
-        }}>
+    <Card className="mb-8 border-2 border-[#f59e0b] bg-gradient-to-br from-[#fef3c7] to-[#fde68a] shadow-[0_8px_32px_rgba(245,158,11,0.2)] dark:from-amber-950/50 dark:to-amber-900/40">
+      <CardContent className="p-8 text-center">
+        <User className="mx-auto mb-4 h-16 w-16 text-amber-600 drop-shadow-md dark:text-amber-400" />
+
+        <h2 className="mb-2 text-xl font-bold text-amber-800 dark:text-amber-300">
           กรุณากรอกข้อมูลส่วนตัวเพิ่มเติม
-        </Typography>
-        
-        <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 400, mx: 'auto' }}>
+        </h2>
+
+        <p className="mx-auto mb-6 max-w-md text-base text-muted-foreground">
           เพื่อดำเนินการลงทะเบียนกิจกรรม กรุณากรอกชื่อ-นามสกุล และข้อมูลเพิ่มเติม
           เพื่อให้ระบบสามารถประมวลผลการลงทะเบียนได้อย่างถูกต้อง
-        </Typography>
-        
+        </p>
+
         <Button
-          variant="contained"
-          size="large"
-          startIcon={<EditIcon />}
+          size="lg"
           onClick={onEditProfile}
-          sx={{
-            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-            px: 4,
-            py: 1.5,
-            fontSize: '1rem',
-            fontWeight: 'bold',
-            boxShadow: '0 4px 16px rgba(245, 158, 11, 0.4)',
-            '&:hover': {
-              background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
-              boxShadow: '0 6px 20px rgba(245, 158, 11, 0.5)',
-              transform: 'translateY(-1px)'
-            }
-          }}
+          className="bg-gradient-to-br from-[#f59e0b] to-[#d97706] px-8 font-bold text-white shadow-[0_4px_16px_rgba(245,158,11,0.4)] hover:from-[#d97706] hover:to-[#b45309] hover:shadow-[0_6px_20px_rgba(245,158,11,0.5)] hover:-translate-y-px"
         >
+          <Pencil className="h-4 w-4" />
           กรอกข้อมูลส่วนตัว
         </Button>
-        
-        <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(245, 158, 11, 0.1)', borderRadius: 1 }}>
-          <Typography variant="caption" color="text.secondary">
+
+        <div className="mt-6 rounded-md bg-amber-500/10 p-4">
+          <p className="text-xs text-muted-foreground">
             <strong>ข้อมูลที่จำเป็น:</strong> ชื่อ-นามสกุล, คณะ, สาขา (หากมี)
-          </Typography>
-        </Box>
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -202,11 +140,11 @@ interface SuccessAlertProps {
   duration?: number;
 }
 
-export const SuccessAlert: React.FC<SuccessAlertProps> = ({ 
-  message, 
-  onClose, 
-  autoHide = true, 
-  duration = 3000 
+export const SuccessAlert: React.FC<SuccessAlertProps> = ({
+  message,
+  onClose,
+  autoHide = true,
+  duration = 3000,
 }) => {
   useEffect(() => {
     if (autoHide && onClose) {
@@ -216,18 +154,23 @@ export const SuccessAlert: React.FC<SuccessAlertProps> = ({
   }, [autoHide, onClose, duration]);
 
   return (
-    <Alert 
-      severity="success" 
-      sx={{ 
-        mb: 2,
-        background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-        border: '1px solid #10b981'
-      }}
-      onClose={onClose}
+    <Alert
+      variant="success"
+      className="relative mb-4 border-[#10b981] bg-gradient-to-br from-[#dcfce7] to-[#bbf7d0] dark:from-emerald-950/40 dark:to-emerald-900/30"
     >
-      <Typography variant="body2" fontWeight="medium">
-        {message}
-      </Typography>
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-3 top-3 rounded-sm p-1 text-muted-foreground opacity-70 hover:opacity-100"
+          aria-label="ปิด"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+      <AlertDescription>
+        <p className="font-medium">{message}</p>
+      </AlertDescription>
     </Alert>
   );
 };
@@ -244,66 +187,59 @@ export const ActivityStatusAlert: React.FC<ActivityStatusAlertProps> = ({
   status,
   message,
   startTime,
-  endTime
+  endTime,
 }) => {
-  const getSeverityAndIcon = () => {
+  const getVariant = () => {
     switch (status) {
       case 'inactive':
-        return { severity: 'error' as const, icon: <BlockIcon /> };
+        return 'destructive' as const;
       case 'upcoming':
-        return { severity: 'warning' as const, icon: <AccessTimeIcon /> };
+        return 'warning' as const;
       case 'ended':
-        return { severity: 'info' as const, icon: <InfoIcon /> };
+        return 'info' as const;
       case 'full':
-        return { severity: 'error' as const, icon: <PersonOffIcon /> };
+        return 'destructive' as const;
       default:
-        return { severity: 'info' as const, icon: <InfoIcon /> };
+        return 'info' as const;
     }
   };
 
-  const { severity, icon } = getSeverityAndIcon();
+  const variant = getVariant();
+
+  const bgClass =
+    variant === 'destructive'
+      ? 'border-[#ef4444] bg-gradient-to-br from-[#fee2e2] to-[#fecaca] dark:from-red-950/40 dark:to-red-900/30'
+      : variant === 'warning'
+        ? 'border-[#f59e0b] bg-gradient-to-br from-[#fef3c7] to-[#fde68a] dark:from-amber-950/40 dark:to-amber-900/30'
+        : 'border-[#3b82f6] bg-gradient-to-br from-[#dbeafe] to-[#bfdbfe] dark:from-blue-950/40 dark:to-blue-900/30';
 
   return (
-    <Alert 
-      severity={severity}
-      icon={icon}
-      sx={{ 
-        mb: 3,
-        background: severity === 'error' 
-          ? 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)'
-          : severity === 'warning'
-            ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
-            : 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
-        border: `1px solid ${
-          severity === 'error' ? '#ef4444' : 
-          severity === 'warning' ? '#f59e0b' : '#3b82f6'
-        }`
-      }}
-    >
-      <Typography variant="body1" gutterBottom fontWeight="bold">
+    <Alert variant={variant} className={cn('mb-6', bgClass)}>
+      <AlertTitle className="font-bold">
         {status === 'inactive' && 'กิจกรรมถูกปิดใช้งาน'}
         {status === 'upcoming' && 'กิจกรรมยังไม่เปิดให้ลงทะเบียน'}
         {status === 'ended' && 'กิจกรรมสิ้นสุดแล้ว'}
         {status === 'full' && 'กิจกรรมเต็มแล้ว'}
-      </Typography>
-      <Typography variant="body2">
-        {message}
-      </Typography>
-      
-      {(startTime || endTime) && (
-        <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: 1 }}>
-          {startTime && status === 'upcoming' && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              <strong>เปิดลงทะเบียน:</strong> {startTime.toLocaleString('th-TH')}
-            </Typography>
-          )}
-          {endTime && status === 'ended' && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              <strong>สิ้นสุดเมื่อ:</strong> {endTime.toLocaleString('th-TH')}
-            </Typography>
-          )}
-        </Box>
-      )}
+      </AlertTitle>
+      <AlertDescription>
+        <p>{message}</p>
+
+        {(startTime || endTime) && (
+          <div className="mt-4 rounded-md bg-black/5 p-4 dark:bg-white/5">
+            {startTime && status === 'upcoming' && (
+              <p className="block text-xs text-muted-foreground">
+                <strong>เปิดลงทะเบียน:</strong>{' '}
+                {startTime.toLocaleString('th-TH')}
+              </p>
+            )}
+            {endTime && status === 'ended' && (
+              <p className="block text-xs text-muted-foreground">
+                <strong>สิ้นสุดเมื่อ:</strong> {endTime.toLocaleString('th-TH')}
+              </p>
+            )}
+          </div>
+        )}
+      </AlertDescription>
     </Alert>
   );
 };

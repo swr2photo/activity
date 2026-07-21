@@ -1,25 +1,18 @@
+'use client';
+
 import React, { useState } from 'react';
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  FormControl,
-  FormControlLabel,
-  FormLabel,
-  Radio,
-  RadioGroup,
-  Stack,
-  TextField,
-  Typography,
-  CircularProgress,
-  Alert,
-  Fade,
-} from '@mui/material';
-import { Assignment as AssignmentIcon } from '@mui/icons-material';
+import { ClipboardList } from 'lucide-react';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { SurveyConfig, SurveyQuestion } from '../../lib/adminFirebase';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Alert } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { cn } from '@/lib/utils';
 
 interface SurveyFormProps {
   activityCode: string;
@@ -39,6 +32,12 @@ export default function SurveyForm({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [visible, setVisible] = useState(false);
+
+  React.useEffect(() => {
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const handleChange = (questionId: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -48,11 +47,10 @@ export default function SurveyForm({
     e.preventDefault();
     setError('');
 
-    // Validate required fields and custom validation rules
     for (const q of surveyConfig.questions) {
       const valRaw = answers[q.id] || '';
       const val = valRaw.trim();
-      
+
       if (q.required && val === '') {
         setError(`กรุณาตอบคำถาม: ${q.question}`);
         return;
@@ -60,25 +58,21 @@ export default function SurveyForm({
 
       if (val !== '' && q.type === 'text') {
         const type = q.validationType || 'any';
-        const allowSpaces = q.allowSpaces !== false; // default true
+        const allowSpaces = q.allowSpaces !== false;
         const prefix = q.prefix || '';
         const postfix = q.postfix || '';
 
-        // Check prefix
         if (prefix && !val.startsWith(prefix)) {
           setError(`คำถาม "${q.question}" ต้องเริ่มต้นด้วย "${prefix}"`);
           return;
         }
 
-        // Check postfix
         if (postfix && !val.endsWith(postfix)) {
           setError(`คำถาม "${q.question}" ต้องลงท้ายด้วย "${postfix}"`);
           return;
         }
 
-        // Check character rules
         let cleanVal = val;
-        // strip prefix and postfix for character checks
         if (prefix && cleanVal.startsWith(prefix)) {
           cleanVal = cleanVal.substring(prefix.length);
         }
@@ -134,106 +128,96 @@ export default function SurveyForm({
   };
 
   return (
-    <Fade in>
-      <Card elevation={0} sx={{ borderRadius: 4, bgcolor: '#fdfdfd', border: '1px solid', borderColor: 'divider' }}>
-        <CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
-          <Box sx={{ textAlign: 'center', mb: 3 }}>
-            <AssignmentIcon sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
-            <Typography variant="h5" fontWeight={800} gutterBottom>
-              แบบประเมินกิจกรรม
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              กรุณาทำแบบประเมินเพื่อเสร็จสิ้นการลงทะเบียน
-            </Typography>
-          </Box>
+    <Card
+      className={cn(
+        'rounded-2xl border bg-[#fdfdfd] shadow-none transition-opacity duration-300',
+        visible ? 'opacity-100' : 'opacity-0'
+      )}
+    >
+      <CardContent className="p-6 sm:p-8">
+        <div className="mb-6 text-center">
+          <ClipboardList className="mx-auto mb-2 h-12 w-12 text-primary" />
+          <h2 className="mb-1 text-xl font-extrabold">แบบประเมินกิจกรรม</h2>
+          <p className="text-sm text-muted-foreground">
+            กรุณาทำแบบประเมินเพื่อเสร็จสิ้นการลงทะเบียน
+          </p>
+        </div>
 
-          {error && (
-            <Alert severity="error" sx={{ mb: 3 }}>
-              {error}
-            </Alert>
-          )}
+        {error && (
+          <Alert variant="destructive" className="mb-6">
+            {error}
+          </Alert>
+        )}
 
-          <form onSubmit={handleSubmit}>
-            <Stack spacing={3}>
-              {surveyConfig.questions.map((q: SurveyQuestion, i: number) => (
-                <Box key={q.id}>
-                  <FormLabel
+        <form onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-6">
+            {surveyConfig.questions.map((q: SurveyQuestion, i: number) => (
+              <div key={q.id}>
+                <Label className="mb-2 block font-semibold text-foreground">
+                  {i + 1}. {q.question}
+                  {q.required && <span className="ml-0.5 text-destructive">*</span>}
+                </Label>
+
+                {q.type === 'text' && (
+                  <Textarea
                     required={q.required}
-                    sx={{
-                      fontWeight: 600,
-                      color: 'text.primary',
-                      mb: 1,
-                      display: 'block',
-                      '& .MuiFormLabel-asterisk': { color: 'error.main' },
-                    }}
+                    value={answers[q.id] || ''}
+                    onChange={(e) => handleChange(q.id, e.target.value)}
+                    placeholder="พิมพ์คำตอบของคุณ"
+                    rows={2}
+                  />
+                )}
+
+                {(q.type === 'choice' || q.type === 'rating') && (
+                  <RadioGroup
+                    required={q.required}
+                    value={answers[q.id] || ''}
+                    onValueChange={(value) => handleChange(q.id, value)}
+                    className={
+                      q.type === 'rating'
+                        ? 'mt-2 flex flex-row justify-around gap-4'
+                        : 'gap-2'
+                    }
                   >
-                    {i + 1}. {q.question}
-                  </FormLabel>
+                    {q.type === 'rating'
+                      ? [1, 2, 3, 4, 5].map((val) => (
+                          <label
+                            key={val}
+                            className="flex flex-col items-center gap-1.5 cursor-pointer"
+                          >
+                            <RadioGroupItem value={val.toString()} />
+                            <span className="text-sm">{val}</span>
+                          </label>
+                        ))
+                      : (q.options || []).map((opt) => (
+                          <label
+                            key={opt}
+                            className="flex items-center gap-2 cursor-pointer"
+                          >
+                            <RadioGroupItem value={opt} />
+                            <span className="text-sm">{opt}</span>
+                          </label>
+                        ))}
+                  </RadioGroup>
+                )}
+              </div>
+            ))}
 
-                  {q.type === 'text' && (
-                    <TextField
-                      fullWidth
-                      variant="outlined"
-                      size="small"
-                      required={q.required}
-                      value={answers[q.id] || ''}
-                      onChange={(e) => handleChange(q.id, e.target.value)}
-                      placeholder="พิมพ์คำตอบของคุณ"
-                      multiline
-                      minRows={2}
-                    />
-                  )}
-
-                  {(q.type === 'choice' || q.type === 'rating') && (
-                    <FormControl required={q.required} fullWidth>
-                      <RadioGroup
-                        value={answers[q.id] || ''}
-                        onChange={(e) => handleChange(q.id, e.target.value)}
-                        row={q.type === 'rating'}
-                      >
-                        {q.type === 'rating' ? (
-                          <Stack direction="row" spacing={2} justifyContent="space-around" sx={{ mt: 1 }}>
-                            {[1, 2, 3, 4, 5].map((val) => (
-                              <FormControlLabel
-                                key={val}
-                                value={val.toString()}
-                                control={<Radio size="small" />}
-                                label={val.toString()}
-                                labelPlacement="bottom"
-                              />
-                            ))}
-                          </Stack>
-                        ) : (
-                          <Stack spacing={1}>
-                            {(q.options || []).map((opt) => (
-                              <FormControlLabel
-                                key={opt}
-                                value={opt}
-                                control={<Radio size="small" />}
-                                label={opt}
-                              />
-                            ))}
-                          </Stack>
-                        )}
-                      </RadioGroup>
-                    </FormControl>
-                  )}
-                </Box>
-              ))}
-
-              <Button
-                type="submit"
-                variant="contained"
-                size="large"
-                disabled={submitting}
-                sx={{ mt: 2, py: 1.5, borderRadius: 3 }}
-              >
-                {submitting ? <CircularProgress size={24} sx={{ color: 'white' }} /> : 'ส่งแบบประเมิน'}
-              </Button>
-            </Stack>
-          </form>
-        </CardContent>
-      </Card>
-    </Fade>
+            <Button
+              type="submit"
+              size="lg"
+              disabled={submitting}
+              className="mt-2 rounded-xl py-6"
+            >
+              {submitting ? (
+                <Spinner className="text-primary-foreground" />
+              ) : (
+                'ส่งแบบประเมิน'
+              )}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

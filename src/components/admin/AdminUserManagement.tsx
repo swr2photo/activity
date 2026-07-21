@@ -46,7 +46,7 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { PageHeader } from './shared/PageHeader';
 import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
-import { useSnackbar } from 'notistack';
+import { useSnackbar } from '@/lib/toast';
 
 interface Props {
   currentAdmin: AdminProfile;

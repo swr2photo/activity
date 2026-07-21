@@ -2,29 +2,27 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import Grid from '@mui/material/Grid';
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  TextField,
-  InputAdornment,
-  Chip,
-  IconButton,
-  Tooltip,
-  Button,
-  ButtonGroup,
-  Stack,
-} from '@mui/material';
-import {
-  Search as SearchIcon,
-  ContentCopy as CopyIcon,
-  Delete as DeleteIcon,
-  Block as CancelIcon,
-} from '@mui/icons-material';
-import { useSnackbar } from 'notistack';
+import { Search, Copy, Trash2, Ban } from 'lucide-react';
+import { useSnackbar } from '@/lib/toast';
 import { listInvites, deleteInvite, cancelInvite, type AdminInvite } from '@/lib/invitesApi';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 export default function InvitesPanel() {
   const { enqueueSnackbar } = useSnackbar();
@@ -94,114 +92,135 @@ export default function InvitesPanel() {
     }
   };
 
-  const statusColor = (s: AdminInvite['status']) =>
-    s === 'pending' ? 'warning' : s === 'accepted' ? 'success' : s === 'cancelled' ? 'default' : 'error';
+  const statusBadgeClass = (s: AdminInvite['status']) => {
+    if (s === 'pending') return 'border-amber-200 bg-amber-50 text-amber-800';
+    if (s === 'accepted') return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+    if (s === 'cancelled') return 'border-slate-200 bg-slate-50 text-slate-700';
+    return 'border-rose-200 bg-rose-50 text-rose-800';
+  };
 
   return (
-    <Card sx={{ mt: 3 }}>
-      <CardContent>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2} flexWrap="wrap" rowGap={2}>
-          <Typography variant="h6">ประวัติคำเชิญ</Typography>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ width: { xs: '100%', sm: 'auto' } }}>
-            <TextField
-              size="small"
-              fullWidth
-              placeholder="ค้นหาอีเมล/บทบาท/สังกัด"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-              sx={{ minWidth: { xs: '100%', sm: 280 } }}
-            />
-            <TextField
-              size="small"
-              select
-              label="สถานะ"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as any)}
-              SelectProps={{ native: true }}
-              sx={{ minWidth: 140 }}
-            >
-              <option value="all">ทั้งหมด</option>
-              <option value="pending">รอ</option>
-              <option value="accepted">ยืนยันแล้ว</option>
-              <option value="expired">หมดอายุ</option>
-              <option value="cancelled">ยกเลิก</option>
-            </TextField>
-            <ButtonGroup>
-              <Button onClick={load} disabled={loading}>
+    <TooltipProvider>
+      <Card className="mt-6">
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <h2 className="text-lg font-semibold">ประวัติคำเชิญ</h2>
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <div className="relative min-w-full sm:min-w-[280px]">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="ค้นหาอีเมล/บทบาท/สังกัด"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="sr-only">สถานะ</Label>
+                <Select value={status} onValueChange={(v) => setStatus(v as any)}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="สถานะ" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">ทั้งหมด</SelectItem>
+                    <SelectItem value="pending">รอ</SelectItem>
+                    <SelectItem value="accepted">ยืนยันแล้ว</SelectItem>
+                    <SelectItem value="expired">หมดอายุ</SelectItem>
+                    <SelectItem value="cancelled">ยกเลิก</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button variant="outline" onClick={load} disabled={loading}>
                 รีเฟรช
               </Button>
-            </ButtonGroup>
-          </Stack>
-        </Stack>
+            </div>
+          </div>
 
-        <Box sx={{ mt: 2 }}>
-          {filtered.length === 0 ? (
-            <Typography color="text.secondary" sx={{ textAlign: 'center', py: 6 }}>
-              {loading ? 'กำลังโหลด…' : 'ไม่มีประวัติคำเชิญ'}
-            </Typography>
-          ) : (
-            <Grid container spacing={1}>
-              {filtered.map((it) => (
-                <Grid key={it.id} size={{ xs: 12 }}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <Box sx={{ minWidth: 240 }}>
-                        <Typography fontWeight={700}>{it.email}</Typography>
-                        <Typography variant="caption" color="text.secondary">
+          <div className="mt-4">
+            {filtered.length === 0 ? (
+              <p className="py-12 text-center text-muted-foreground">
+                {loading ? 'กำลังโหลด…' : 'ไม่มีประวัติคำเชิญ'}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {filtered.map((it) => (
+                  <Card key={it.id} className="border shadow-none">
+                    <CardContent className="flex flex-wrap items-center gap-4 py-4">
+                      <div className="min-w-[240px]">
+                        <p className="font-bold">{it.email}</p>
+                        <p className="text-xs text-muted-foreground">
                           บทบาท: {it.role} • สังกัด: {it.department}
-                        </Typography>
-                      </Box>
+                        </p>
+                      </div>
 
-                      <Chip label={it.status} color={statusColor(it.status) as any} size="small" />
+                      <Badge variant="outline" className={statusBadgeClass(it.status)}>
+                        {it.status}
+                      </Badge>
 
-                      <Box sx={{ color: 'text.secondary', fontSize: 12 }}>
+                      <div className="text-xs text-muted-foreground">
                         สร้างเมื่อ: {it.createdAt ? new Date(it.createdAt).toLocaleString('th-TH') : '-'}
                         {it.expiresAt ? ` • หมดอายุ: ${new Date(it.expiresAt).toLocaleString('th-TH')}` : ''}
-                      </Box>
+                      </div>
 
-                      <Box sx={{ flex: 1 }} />
+                      <div className="flex-1" />
 
-                      <Stack direction="row" spacing={0.5}>
-                        <Tooltip title="คัดลอกลิงก์ยืนยัน">
-                          <span>
-                            <IconButton
-                              size="small"
-                              onClick={() => copyLink(it)}
-                              disabled={it.status !== 'pending' || !it.token}
+                      <div className="flex items-center gap-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8"
+                                onClick={() => copyLink(it)}
+                                disabled={it.status !== 'pending' || !it.token}
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>คัดลอกลิงก์ยืนยัน</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-amber-600 hover:text-amber-700"
+                                onClick={() => doCancel(it)}
+                                disabled={it.status !== 'pending'}
+                              >
+                                <Ban className="h-4 w-4" />
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>ยกเลิกคำเชิญ (ทำให้ลิงก์ใช้ไม่ได้)</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => doDelete(it)}
                             >
-                              <CopyIcon fontSize="small" />
-                            </IconButton>
-                          </span>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>ลบประวัติคำเชิญ</TooltipContent>
                         </Tooltip>
-
-                        <Tooltip title="ยกเลิกคำเชิญ (ทำให้ลิงก์ใช้ไม่ได้)">
-                          <span>
-                            <IconButton
-                              size="small"
-                              color="warning"
-                              onClick={() => doCancel(it)}
-                              disabled={it.status !== 'pending'}
-                            >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-
-                        <Tooltip title="ลบประวัติคำเชิญ">
-                          <IconButton size="small" color="error" onClick={() => doDelete(it)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
+                      </div>
                     </CardContent>
                   </Card>
-                </Grid>
-              ))}
-            </Grid>
-          )}
-        </Box>
-      </CardContent>
-    </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </TooltipProvider>
   );
 }

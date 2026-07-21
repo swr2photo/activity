@@ -1,14 +1,29 @@
-// components/common/ResponsiveCard.tsx
 'use client';
 
 import React from 'react';
-import Card, { CardProps } from '@mui/material/Card';
+import { cn } from '@/lib/utils';
 
-export type ResponsiveCardProps = React.PropsWithChildren<CardProps>;
+export type ResponsiveCardProps = React.HTMLAttributes<HTMLDivElement> & {
+  children?: React.ReactNode;
+};
 
 /**
- * Wrapper เฉย ๆ เพื่อให้ import ใช้ร่วมกันง่าย (และเป็น module แน่นอน)
+ * Simple card wrapper for shared layout usage.
  */
-export const ResponsiveCard: React.FC<ResponsiveCardProps> = ({ children, ...props }) => {
-  return <Card {...props}>{children}</Card>;
+export const ResponsiveCard: React.FC<ResponsiveCardProps> = ({
+  children,
+  className,
+  ...props
+}) => {
+  return (
+    <div
+      className={cn(
+        'rounded-xl border border-border bg-card text-card-foreground shadow-sm',
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
 };

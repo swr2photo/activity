@@ -6,7 +6,7 @@ import {
   Upload, Link as LinkIcon, Image as ImageIcon, Trash2,
   Save, RotateCcw, Move, Crosshair, User,
 } from 'lucide-react';
-import { useSnackbar } from 'notistack';
+import { useSnackbar } from '@/lib/toast';
 import { updateProfile } from 'firebase/auth';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 

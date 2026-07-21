@@ -2,12 +2,12 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { GoogleMap, MarkerF, CircleF, useLoadScript } from '@react-google-maps/api';
-import { Button, Box } from '@mui/material';
+import { Button } from '@/components/ui/button';
 import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
 
 interface LocationPickerProps {
   location: { latitude: number; longitude: number };
-  radius: number; // เมตร
+  radius: number;
   onLocationChange: (lat: number, lng: number) => void;
 }
 
@@ -16,9 +16,16 @@ const mapContainerStyle = {
   height: '300px',
 };
 
-const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
+const libraries: ('places' | 'geometry' | 'drawing' | 'visualization')[] = [
+  'places',
+  'geometry',
+];
 
-const LocationPicker: React.FC<LocationPickerProps> = ({ location, radius, onLocationChange }) => {
+const LocationPicker: React.FC<LocationPickerProps> = ({
+  location,
+  radius,
+  onLocationChange,
+}) => {
   const alertDialog = useAlertDialog();
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
@@ -30,7 +37,6 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ location, radius, onLoc
     lng: location.longitude,
   });
 
-  // Update marker position when location prop changes
   useEffect(() => {
     setMarkerPos({
       lat: location.latitude,
@@ -38,7 +44,6 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ location, radius, onLoc
     });
   }, [location.latitude, location.longitude]);
 
-  // ฟังก์ชันดึงตำแหน่งปัจจุบันจากเบราว์เซอร์
   const handleUseCurrentLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -69,55 +74,61 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ location, radius, onLoc
         {
           enableHighAccuracy: true,
           timeout: 10000,
-          maximumAge: 60000
+          maximumAge: 60000,
         }
       );
     } else {
-      void alertDialog('ไม่รองรับตำแหน่ง', 'เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง', 'warning');
+      void alertDialog(
+        'ไม่รองรับตำแหน่ง',
+        'เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง',
+        'warning'
+      );
     }
   };
 
-  const onMapClick = useCallback((event: google.maps.MapMouseEvent) => {
-    if (event.latLng) {
-      const lat = event.latLng.lat();
-      const lng = event.latLng.lng();
-      setMarkerPos({ lat, lng });
-      onLocationChange(lat, lng);
-    }
-  }, [onLocationChange]);
+  const onMapClick = useCallback(
+    (event: google.maps.MapMouseEvent) => {
+      if (event.latLng) {
+        const lat = event.latLng.lat();
+        const lng = event.latLng.lng();
+        setMarkerPos({ lat, lng });
+        onLocationChange(lat, lng);
+      }
+    },
+    [onLocationChange]
+  );
 
-  const onMarkerDragEnd = useCallback((event: google.maps.MapMouseEvent) => {
-    if (event.latLng) {
-      const lat = event.latLng.lat();
-      const lng = event.latLng.lng();
-      setMarkerPos({ lat, lng });
-      onLocationChange(lat, lng);
-    }
-  }, [onLocationChange]);
+  const onMarkerDragEnd = useCallback(
+    (event: google.maps.MapMouseEvent) => {
+      if (event.latLng) {
+        const lat = event.latLng.lat();
+        const lng = event.latLng.lng();
+        setMarkerPos({ lat, lng });
+        onLocationChange(lat, lng);
+      }
+    },
+    [onLocationChange]
+  );
 
   if (loadError) {
     return (
-      <div style={{ color: 'red', padding: '10px' }}>
+      <div className="p-2.5 text-destructive">
         โหลดแผนที่ล้มเหลว: {loadError.message}
       </div>
     );
   }
 
   if (!isLoaded) {
-    return (
-      <div style={{ padding: '10px', textAlign: 'center' }}>
-        กำลังโหลดแผนที่...
-      </div>
-    );
+    return <div className="p-2.5 text-center">กำลังโหลดแผนที่...</div>;
   }
 
   return (
     <>
-      <Box sx={{ mb: 1, textAlign: 'right' }}>
-        <Button variant="contained" size="small" onClick={handleUseCurrentLocation}>
+      <div className="mb-2 text-right">
+        <Button size="sm" onClick={handleUseCurrentLocation}>
           ใช้ตำแหน่งปัจจุบัน
         </Button>
-      </Box>
+      </div>
       <GoogleMap
         mapContainerStyle={mapContainerStyle}
         zoom={15}

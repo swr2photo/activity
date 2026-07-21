@@ -2,36 +2,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import {
-  Box,
-  Typography,
-  IconButton,
-  Tooltip,
-  Chip,
-  Switch,
-  CircularProgress,
-  TextField,
-  InputAdornment,
-  Stack,
-  Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Tabs,
-  Tab,
-} from '@mui/material';
-import {
-  ContentCopy as CopyIcon,
-  Search as SearchIcon,
-  Download as DownloadIcon,
-  Visibility as ViewIcon,
-  OpenInNew as OpenInNewIcon,
-  Check as CheckIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-} from '@mui/icons-material';
-import { Link2, MonitorPlay, QrCode, RefreshCw, Trash2, Plus, BarChart2, Settings2, MapPin, Smartphone, Monitor, Cpu, Globe, Activity as ActivityIcon, TrendingUp, BarChart3, Sparkles, ImageOff } from 'lucide-react';
+import { Link2, MonitorPlay, QrCode, RefreshCw, Trash2, Plus, BarChart2, Settings2, MapPin, Smartphone, Monitor, Cpu, Globe, Activity as ActivityIcon, TrendingUp, BarChart3, Sparkles, ImageOff, Copy, Search, Download, Eye, ExternalLink, Check, Pencil } from 'lucide-react';
 
 import {
   subscribeActivities,
@@ -50,6 +21,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 /* ===================== URL Helpers ===================== */
 const envBase = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || '').toString();
@@ -669,6 +651,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
   }, [filtered, filteredCustomLinks, qrCache, getQr, activeTab]);
 
   return (
+    <TooltipProvider>
     <div className="space-y-6 w-full min-w-0 max-w-full overflow-x-hidden">
       {/* Header */}
       <PageHeader
@@ -688,33 +671,32 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
       {/* Snackbar */}
       {snack && (
         <Alert
-          severity={snack.type}
-          onClose={() => setSnack(null)}
-          sx={{ borderRadius: 3 }}
+          variant={snack.type === 'error' ? 'destructive' : snack.type === 'success' ? 'success' : snack.type === 'info' ? 'info' : 'default'}
+          className="rounded-xl"
         >
-          {snack.message}
+          <AlertDescription>{snack.message}</AlertDescription>
         </Alert>
       )}
 
       {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', maxWidth: '100%', overflow: 'hidden' }}>
-        <Tabs 
-          value={activeTab} 
-          onChange={(e, val) => {
-            setActiveTab(val);
-            setSearch(''); // Clear search on tab switch
-          }}
-          textColor="primary"
-          indicatorColor="primary"
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-          sx={{ minHeight: 48, maxWidth: '100%' }}
-        >
-          <Tab label="ลิงก์ย่อกิจกรรม" sx={{ fontWeight: 700, textTransform: 'none', minWidth: 'auto', px: 1.5 }} />
-          <Tab label="ลิงก์ย่อทั่วไป" sx={{ fontWeight: 700, textTransform: 'none', minWidth: 'auto', px: 1.5 }} />
-        </Tabs>
-      </Box>
+      <div className="border-b max-w-full overflow-hidden">
+        <div className="flex gap-1 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => { setActiveTab(0); setSearch(''); }}
+            className={`px-3 py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-colors ${activeTab === 0 ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            ลิงก์ย่อกิจกรรม
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveTab(1); setSearch(''); }}
+            className={`px-3 py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-colors ${activeTab === 1 ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            ลิงก์ย่อทั่วไป
+          </button>
+        </div>
+      </div>
 
       {activeTab === 0 ? (
         <>
@@ -765,7 +747,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
           <Card>
             <CardContent className="pt-6">
               <div className="relative">
-                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" sx={{ fontSize: 20 }} />
+                <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   placeholder="ค้นหาชื่อกิจกรรม, รหัส หรือลิงก์ย่อ..."
@@ -780,7 +762,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
           {/* Activity List */}
           {loading ? (
             <div className="flex justify-center py-16">
-              <CircularProgress />
+              <Spinner />
             </div>
           ) : filtered.length === 0 ? (
             <Card>
@@ -819,7 +801,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                             />
                           ) : (
                             <div className="w-24 h-24 flex items-center justify-center">
-                              <CircularProgress size={24} />
+                              <Spinner />
                             </div>
                           )}
                         </div>
@@ -873,39 +855,51 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                             <code className="text-xs text-blue-600 truncate flex-1 select-all">
                               {shortUrl}
                             </code>
-                            <Tooltip title={copiedId === `short-${a.id}` ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์ย่อ'}>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleCopy(shortUrl, `short-${a.id}`)}
-                                sx={{ p: 0.5 }}
-                              >
-                                {copiedId === `short-${a.id}` ? (
-                                  <CheckIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                                ) : (
-                                  <CopyIcon sx={{ fontSize: 16 }} />
-                                )}
-                              </IconButton>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0.5"
+                                  onClick={() => handleCopy(shortUrl, `short-${a.id}`)}
+                                >
+                                  {copiedId === `short-${a.id}` ? (
+                                    <Check className="h-4 w-4 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {copiedId === `short-${a.id}` ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์ย่อ'}
+                              </TooltipContent>
                             </Tooltip>
                           </div>
 
                           {/* Full URL row */}
                           <div className="flex items-center gap-1.5 mb-3 p-2 bg-slate-50 rounded-lg border border-slate-100">
-                            <OpenInNewIcon sx={{ fontSize: 14, color: 'text.disabled' }} className="shrink-0" />
+                            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             <code className="text-[11px] text-slate-500 truncate flex-1 select-all">
                               {registerUrl}
                             </code>
-                            <Tooltip title={copiedId === `full-${a.id}` ? 'คัดลอกแล้ว!' : 'คัดลอก URL เต็ม'}>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleCopy(registerUrl, `full-${a.id}`)}
-                                sx={{ p: 0.5 }}
-                              >
-                                {copiedId === `full-${a.id}` ? (
-                                  <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
-                                ) : (
-                                  <CopyIcon sx={{ fontSize: 14 }} />
-                                )}
-                              </IconButton>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0.5"
+                                  onClick={() => handleCopy(registerUrl, `full-${a.id}`)}
+                                >
+                                  {copiedId === `full-${a.id}` ? (
+                                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {copiedId === `full-${a.id}` ? 'คัดลอกแล้ว!' : 'คัดลอก URL เต็ม'}
+                              </TooltipContent>
                             </Tooltip>
                           </div>
 
@@ -918,7 +912,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                               className="gap-1.5 text-xs h-8"
                               onClick={() => handleDownloadQr(a)}
                             >
-                              <DownloadIcon sx={{ fontSize: 14 }} />
+                              <Download className="h-3.5 w-3.5" />
                               ดาวน์โหลด QR
                             </Button>
 
@@ -929,7 +923,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                               className="gap-1.5 text-xs h-8 text-blue-700 border-blue-200 hover:bg-blue-50"
                               onClick={() => openEditCustomCode(a)}
                             >
-                              <EditIcon sx={{ fontSize: 14 }} />
+                              <Pencil className="h-3.5 w-3.5" />
                               แก้ไขลิงก์ย่อ
                             </Button>
 
@@ -962,7 +956,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                               className="gap-1.5 text-xs h-8"
                               onClick={() => window.open(registerUrl, '_blank')}
                             >
-                              <ViewIcon sx={{ fontSize: 14 }} />
+                              <Eye className="h-3.5 w-3.5" />
                               เปิดหน้าลงทะเบียน
                             </Button>
 
@@ -970,20 +964,19 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                             <div className="flex items-center gap-1.5 ml-auto">
                               <span className="text-xs text-muted-foreground">Dynamic QR</span>
                               {togglingIds.has(a.id) ? (
-                                <CircularProgress size={20} />
+                                <Spinner size="sm" />
                               ) : (
                                 <Switch
-                                  size="small"
                                   checked={a.dynamicQREnabled ?? false}
-                                  onChange={() => handleToggleDynamicQR(a)}
-                                  color="secondary"
+                                  onCheckedChange={() => handleToggleDynamicQR(a)}
                                 />
                               )}
                             </div>
 
                             {/* Open Dynamic QR Screen */}
                             {a.dynamicQREnabled && (
-                              <Tooltip title="เปิดหน้าจอ Dynamic QR (Rolling QR)">
+                              <Tooltip>
+                              <TooltipTrigger asChild>
                                 <Button
                                   variant="secondary"
                                   size="sm"
@@ -993,12 +986,15 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                                   <MonitorPlay className="h-3.5 w-3.5" />
                                   เปิดจอ Rolling QR
                                 </Button>
-                              </Tooltip>
+                              </TooltipTrigger>
+                              <TooltipContent>เปิดหน้าจอ Dynamic QR (Rolling QR)</TooltipContent>
+                            </Tooltip>
                             )}
 
                             {/* AI Background for Dynamic QR Screen */}
                             {a.dynamicQREnabled && (
-                              <Tooltip title="สร้างภาพพื้นหลังสำหรับจอ Rolling QR ด้วย Magnific AI">
+                              <Tooltip>
+                              <TooltipTrigger asChild>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1008,12 +1004,15 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                                   <Sparkles className="h-3.5 w-3.5" />
                                   {a.dynamicQrBgUrl ? 'เปลี่ยนพื้นหลังจอ (AI)' : 'สร้างพื้นหลังจอ (AI)'}
                                 </Button>
-                              </Tooltip>
+                              </TooltipTrigger>
+                              <TooltipContent>สร้างภาพพื้นหลังสำหรับจอ Rolling QR ด้วย Magnific AI</TooltipContent>
+                            </Tooltip>
                             )}
 
                             {/* Remove AI Background */}
                             {a.dynamicQREnabled && a.dynamicQrBgUrl && (
-                              <Tooltip title="ลบภาพพื้นหลังจอ Rolling QR (กลับไปใช้พื้นหลังปกติ)">
+                              <Tooltip>
+                              <TooltipTrigger asChild>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1022,13 +1021,15 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                                   onClick={() => handleRemoveQrBackground(a)}
                                 >
                                   {removingBgId === a.id ? (
-                                    <CircularProgress size={14} />
+                                    <Spinner size="sm" />
                                   ) : (
                                     <ImageOff className="h-3.5 w-3.5" />
                                   )}
                                   ลบพื้นหลัง
                                 </Button>
-                              </Tooltip>
+                              </TooltipTrigger>
+                              <TooltipContent>ลบภาพพื้นหลังจอ Rolling QR (กลับไปใช้พื้นหลังปกติ)</TooltipContent>
+                            </Tooltip>
                             )}
                           </div>
                         </div>
@@ -1054,7 +1055,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
           <Card>
             <CardContent className="pt-6">
               <div className="relative">
-                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" sx={{ fontSize: 20 }} />
+                <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   placeholder="ค้นหาชื่อลิงก์ย่อ หรือ URL ปลายทาง..."
@@ -1069,7 +1070,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
           {/* General Links List */}
           {customLinksLoading ? (
             <div className="flex justify-center py-16">
-              <CircularProgress />
+              <Spinner />
             </div>
           ) : filteredCustomLinks.length === 0 ? (
             <Card>
@@ -1110,7 +1111,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                             />
                           ) : (
                             <div className="w-24 h-24 flex items-center justify-center">
-                              <CircularProgress size={24} />
+                              <Spinner />
                             </div>
                           )}
                         </div>
@@ -1142,18 +1143,24 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                                 ) : null}
                               </div>
                             </div>
-                            <Stack direction="row" spacing={0.5}>
-                              <Tooltip title="แก้ไข URL">
-                                <IconButton size="small" onClick={() => openEditGeneralLink(l)}>
-                                  <EditIcon sx={{ fontSize: 18 }} className="text-blue-600" />
-                                </IconButton>
+                            <div className="flex gap-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEditGeneralLink(l)}>
+                                    <Pencil className="h-[18px] w-[18px]" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>แก้ไข URL</TooltipContent>
                               </Tooltip>
-                              <Tooltip title="ลบลิงก์ย่อ">
-                                <IconButton size="small" onClick={() => handleDeleteGeneralLink(l)}>
-                                  <DeleteIcon sx={{ fontSize: 18 }} className="text-rose-600" />
-                                </IconButton>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleDeleteGeneralLink(l)}>
+                                    <Trash2 className="h-[18px] w-[18px]" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>ลบลิงก์ย่อ</TooltipContent>
                               </Tooltip>
-                            </Stack>
+                            </div>
                           </div>
 
                           {/* Short URL row */}
@@ -1162,39 +1169,51 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                             <code className="text-xs text-blue-600 truncate flex-1 select-all">
                               {shortUrl}
                             </code>
-                            <Tooltip title={copiedId === `short-${l.id}` ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์ย่อ'}>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleCopy(shortUrl, `short-${l.id}`)}
-                                sx={{ p: 0.5 }}
-                              >
-                                {copiedId === `short-${l.id}` ? (
-                                  <CheckIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                                ) : (
-                                  <CopyIcon sx={{ fontSize: 16 }} />
-                                )}
-                              </IconButton>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0.5"
+                                  onClick={() => handleCopy(shortUrl, `short-${l.id}`)}
+                                >
+                                  {copiedId === `short-${l.id}` ? (
+                                    <Check className="h-4 w-4 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {copiedId === `short-${l.id}` ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์ย่อ'}
+                              </TooltipContent>
                             </Tooltip>
                           </div>
 
                           {/* Destination URL row */}
                           <div className="flex items-center gap-1.5 mb-3 p-2 bg-slate-50 rounded-lg border border-slate-100">
-                            <OpenInNewIcon sx={{ fontSize: 14, color: 'text.disabled' }} className="shrink-0" />
+                            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             <code className="text-[11px] text-slate-500 truncate flex-1 select-all">
                               {l.targetUrl}
                             </code>
-                            <Tooltip title={copiedId === `full-${l.id}` ? 'คัดลอกแล้ว!' : 'คัดลอก URL ปลายทาง'}>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleCopy(l.targetUrl, `full-${l.id}`)}
-                                sx={{ p: 0.5 }}
-                              >
-                                {copiedId === `full-${l.id}` ? (
-                                  <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
-                                ) : (
-                                  <CopyIcon sx={{ fontSize: 14 }} />
-                                )}
-                              </IconButton>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0.5"
+                                  onClick={() => handleCopy(l.targetUrl, `full-${l.id}`)}
+                                >
+                                  {copiedId === `full-${l.id}` ? (
+                                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {copiedId === `full-${l.id}` ? 'คัดลอกแล้ว!' : 'คัดลอก URL ปลายทาง'}
+                              </TooltipContent>
                             </Tooltip>
                           </div>
 
@@ -1207,7 +1226,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                               className="gap-1.5 text-xs h-8"
                               onClick={() => handleDownloadGeneralQr(l)}
                             >
-                              <DownloadIcon sx={{ fontSize: 14 }} />
+                              <Download className="h-3.5 w-3.5" />
                               ดาวน์โหลด QR
                             </Button>
 
@@ -1240,7 +1259,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                               className="gap-1.5 text-xs h-8"
                               onClick={() => window.open(l.targetUrl, '_blank')}
                             >
-                              <ViewIcon sx={{ fontSize: 14 }} />
+                              <Eye className="h-3.5 w-3.5" />
                               เปิดดูลิงก์ปลายทาง
                             </Button>
                           </div>
@@ -1264,199 +1283,190 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
       )}
 
       {/* Edit Custom Code Dialog (For Activities) */}
-      <Dialog open={!!editingActivity} onClose={() => setEditingActivity(null)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>กำหนดลิงก์ย่อแบบกำหนดเอง</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
-            ป้อนรหัสลิงก์ย่อที่ต้องการ (เช่น CS-CAMP) เมื่อผู้ใช้เข้าผ่านลิงก์ย่อ ระบบจะส่งต่อไปยังหน้าลงทะเบียนของกิจกรรมนี้โดยอัตโนมัติ (ทิ้งให้ว่างไว้หากต้องการใช้รหัสสุ่มเริ่มต้น)
-          </Typography>
-          <TextField
-            autoFocus
-            fullWidth
-            label="รหัสลิงก์ย่อกำหนดเอง"
-            value={customCodeInput}
-            onChange={(e) => setCustomCodeInput(e.target.value.toUpperCase().trim())}
-            placeholder="ตัวอย่าง: CS-CAMP"
-            error={customCodeInput.length > 30}
-            helperText={
-              customCodeInput.length > 30 
-                ? 'รหัสต้องไม่เกิน 30 ตัวอักษร'
-                : 'รองรับภาษาอังกฤษ ตัวเลข เครื่องหมาย - และ _ เท่านั้น'
-            }
-          />
+      <Dialog open={!!editingActivity} onOpenChange={(v) => !v && setEditingActivity(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-bold">กำหนดลิงก์ย่อแบบกำหนดเอง</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              ป้อนรหัสลิงก์ย่อที่ต้องการ (เช่น CS-CAMP) เมื่อผู้ใช้เข้าผ่านลิงก์ย่อ ระบบจะส่งต่อไปยังหน้าลงทะเบียนของกิจกรรมนี้โดยอัตโนมัติ (ทิ้งให้ว่างไว้หากต้องการใช้รหัสสุ่มเริ่มต้น)
+            </p>
+            <div className="space-y-1.5">
+              <Label>รหัสลิงก์ย่อกำหนดเอง</Label>
+              <Input
+                autoFocus
+                value={customCodeInput}
+                onChange={(e) => setCustomCodeInput(e.target.value.toUpperCase().trim())}
+                placeholder="ตัวอย่าง: CS-CAMP"
+                className={customCodeInput.length > 30 ? 'border-destructive' : ''}
+              />
+              <p className={`text-xs ${customCodeInput.length > 30 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {customCodeInput.length > 30
+                  ? 'รหัสต้องไม่เกิน 30 ตัวอักษร'
+                  : 'รองรับภาษาอังกฤษ ตัวเลข เครื่องหมาย - และ _ เท่านั้น'}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingActivity(null)} disabled={savingCustomCode}>
+              ยกเลิก
+            </Button>
+            <Button
+              onClick={handleSaveCustomCode}
+              disabled={savingCustomCode || customCodeInput.length > 30}
+            >
+              {savingCustomCode ? 'กำลังบันทึก...' : 'บันทึก'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button variant="outline" onClick={() => setEditingActivity(null)} disabled={savingCustomCode}>
-            ยกเลิก
-          </Button>
-          <Button 
-            onClick={handleSaveCustomCode} 
-            disabled={savingCustomCode || customCodeInput.length > 30}
-            variant="default"
-          >
-            {savingCustomCode ? 'กำลังบันทึก...' : 'บันทึก'}
-          </Button>
-        </DialogActions>
       </Dialog>
 
       {/* Create/Edit General Short Link Dialog */}
-      <Dialog open={openGeneralDialog} onClose={() => setOpenGeneralDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>
-          {editingGeneralLink ? 'แก้ไขลิงก์ย่อทั่วไป' : 'สร้างลิงก์ย่อทั่วไป (ลิงก์ภายนอก)'}
-        </DialogTitle>
-        <DialogContent className="space-y-4 pt-2">
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            สร้างลิงก์ย่อทั่วไปที่ไม่เกี่ยวข้องกับกิจกรรม เช่น ชี้ไปยัง Google Forms หรือเว็บไซต์อื่นๆ ของภาควิชา
-          </Typography>
-          
-          <TextField
-            fullWidth
-            label="รหัสลิงก์ย่อ (Slug)"
-            value={generalCodeInput}
-            onChange={(e) => setGeneralCodeInput(e.target.value.toUpperCase().trim())}
-            placeholder="ตัวอย่าง: GOOGLE-FORM"
-            disabled={!!editingGeneralLink}
-            error={generalCodeInput.length > 30}
-            helperText={
-              editingGeneralLink
-                ? 'ไม่สามารถแก้ไข Slug ได้หลังจากสร้างแล้ว'
-                : 'รองรับภาษาอังกฤษ ตัวเลข เครื่องหมาย - และ _ (ห้ามซ้ำกับรหัสอื่นๆ)'
-            }
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <span className="text-sm font-semibold text-slate-400">/r/</span>
-                  </InputAdornment>
-                ),
-                endAdornment: !editingGeneralLink && (
-                  <InputAdornment position="end">
-                    <Button 
-                      variant="ghost" 
-                      className="h-8 text-xs px-2 gap-1 text-slate-600 hover:text-slate-900"
-                      onClick={() => setGeneralCodeInput(randomSlug())}
-                      type="button"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin-slow" />
-                      สุ่มรหัส
-                    </Button>
-                  </InputAdornment>
-                )
-              }
-            }}
-          />
-
-          <TextField
-            fullWidth
-            label="URL ปลายทาง"
-            value={generalUrlInput}
-            onChange={(e) => setGeneralUrlInput(e.target.value.trim())}
-            placeholder="ตัวอย่าง: https://docs.google.com/forms/..."
-            type="url"
-            helperText="ลิงก์แบบเต็มที่ต้องการให้ส่งต่อผู้ใช้งานไป (เช่น https://...)"
-          />
+      <Dialog open={openGeneralDialog} onOpenChange={(v) => !v && setOpenGeneralDialog(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-bold">
+              {editingGeneralLink ? 'แก้ไขลิงก์ย่อทั่วไป' : 'สร้างลิงก์ย่อทั่วไป (ลิงก์ภายนอก)'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              สร้างลิงก์ย่อทั่วไปที่ไม่เกี่ยวข้องกับกิจกรรม เช่น ชี้ไปยัง Google Forms หรือเว็บไซต์อื่นๆ ของภาควิชา
+            </p>
+            <div className="space-y-1.5">
+              <Label>รหัสลิงก์ย่อ (Slug)</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-400">/r/</span>
+                <Input
+                  value={generalCodeInput}
+                  onChange={(e) => setGeneralCodeInput(e.target.value.toUpperCase().trim())}
+                  placeholder="ตัวอย่าง: GOOGLE-FORM"
+                  disabled={!!editingGeneralLink}
+                  className={generalCodeInput.length > 30 ? 'border-destructive' : ''}
+                />
+                {!editingGeneralLink && (
+                  <Button
+                    variant="ghost"
+                    className="h-8 shrink-0 gap-1 px-2 text-xs text-slate-600 hover:text-slate-900"
+                    onClick={() => setGeneralCodeInput(randomSlug())}
+                    type="button"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    สุ่ม
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {editingGeneralLink
+                  ? 'ไม่สามารถแก้ไข Slug ได้หลังจากสร้างแล้ว'
+                  : 'รองรับภาษาอังกฤษ ตัวเลข เครื่องหมาย - และ _ (ห้ามซ้ำกับรหัสอื่นๆ)'}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>URL ปลายทาง</Label>
+              <Input
+                value={generalUrlInput}
+                onChange={(e) => setGeneralUrlInput(e.target.value.trim())}
+                placeholder="ตัวอย่าง: https://docs.google.com/forms/..."
+                type="url"
+              />
+              <p className="text-xs text-muted-foreground">
+                ลิงก์แบบเต็มที่ต้องการให้ส่งต่อผู้ใช้งานไป (เช่น https://...)
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenGeneralDialog(false)} disabled={savingGeneralLink}>
+              ยกเลิก
+            </Button>
+            <Button
+              onClick={handleSaveGeneralLink}
+              disabled={savingGeneralLink || !generalCodeInput.trim() || !generalUrlInput.trim() || generalCodeInput.length > 30}
+            >
+              {savingGeneralLink ? 'กำลังบันทึก...' : 'บันทึก'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button variant="outline" onClick={() => setOpenGeneralDialog(false)} disabled={savingGeneralLink}>
-            ยกเลิก
-          </Button>
-          <Button 
-            onClick={handleSaveGeneralLink} 
-            disabled={savingGeneralLink || !generalCodeInput.trim() || !generalUrlInput.trim() || generalCodeInput.length > 30}
-            variant="default"
-          >
-            {savingGeneralLink ? 'กำลังบันทึก...' : 'บันทึก'}
-          </Button>
-        </DialogActions>
       </Dialog>
 
       {/* Settings Dialog (Status & Timers) */}
-      <Dialog open={openSettingsDialog} onClose={() => setOpenSettingsDialog(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>ตั้งเวลา & ควบคุมลิงก์ ({settingsLinkName})</DialogTitle>
-        <DialogContent className="space-y-4 pt-2">
-          {/* Toggle Switch */}
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 mt-2">
-            <div>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>เปิดใช้งานลิงก์ย่อ</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>หากปิด ผู้ใช้จะไม่สามารถเข้าลิงก์นี้ได้</Typography>
-            </div>
-            <Switch
-              checked={settingsLinkEnabled}
-              onChange={(e) => setSettingsLinkEnabled(e.target.checked)}
-              color="primary"
-            />
-          </div>
-
-          {/* Date inputs */}
-          <div className="space-y-3 pt-2">
-            <div>
-              <label className="text-xs font-semibold text-slate-500 block mb-1">เวลาเริ่มต้นเปิดใช้งาน (Start Time)</label>
-              <input
-                type="datetime-local"
-                value={settingsLinkStartAt}
-                onChange={(e) => setSettingsLinkStartAt(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+      <Dialog open={openSettingsDialog} onOpenChange={(v) => !v && setOpenSettingsDialog(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-bold">ตั้งเวลา & ควบคุมลิงก์ ({settingsLinkName})</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="mt-2 flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <div>
+                <p className="text-sm font-semibold">เปิดใช้งานลิงก์ย่อ</p>
+                <p className="text-xs text-muted-foreground">หากปิด ผู้ใช้จะไม่สามารถเข้าลิงก์นี้ได้</p>
+              </div>
+              <Switch
+                checked={settingsLinkEnabled}
+                onCheckedChange={setSettingsLinkEnabled}
               />
-              <span className="text-[10px] text-slate-400 block mt-0.5">ปล่อยว่างไว้หากต้องการให้ใช้งานได้ทันที</span>
             </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-500 block mb-1">เวลาหมดอายุการใช้งาน (End Time)</label>
-              <input
-                type="datetime-local"
-                value={settingsLinkEndAt}
-                onChange={(e) => setSettingsLinkEndAt(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-              <span className="text-[10px] text-slate-400 block mt-0.5">ปล่อยว่างไว้หากไม่มีวันหมดอายุ</span>
+            <div className="space-y-3 pt-2">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-500">เวลาเริ่มต้นเปิดใช้งาน (Start Time)</label>
+                <input
+                  type="datetime-local"
+                  value={settingsLinkStartAt}
+                  onChange={(e) => setSettingsLinkStartAt(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <span className="mt-0.5 block text-[10px] text-slate-400">ปล่อยว่างไว้หากต้องการให้ใช้งานได้ทันที</span>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-500">เวลาหมดอายุการใช้งาน (End Time)</label>
+                <input
+                  type="datetime-local"
+                  value={settingsLinkEndAt}
+                  onChange={(e) => setSettingsLinkEndAt(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <span className="mt-0.5 block text-[10px] text-slate-400">ปล่อยว่างไว้หากไม่มีวันหมดอายุ</span>
+              </div>
             </div>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenSettingsDialog(false)} disabled={savingSettings}>
+              ยกเลิก
+            </Button>
+            <Button onClick={handleSaveSettings} disabled={savingSettings}>
+              {savingSettings ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button variant="outline" onClick={() => setOpenSettingsDialog(false)} disabled={savingSettings}>
-            ยกเลิก
-          </Button>
-          <Button onClick={handleSaveSettings} disabled={savingSettings} variant="default">
-            {savingSettings ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'}
-          </Button>
-        </DialogActions>
       </Dialog>
 
       {/* Analytics Dialog */}
-      <Dialog 
-        open={openAnalyticsDialog} 
-        onClose={() => setOpenAnalyticsDialog(false)} 
-        maxWidth="sm" 
-        fullWidth
-        sx={{ 
-          '& .MuiDialog-paper': { 
-            borderRadius: '24px', 
-            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)',
-            border: '1px solid rgba(226,232,240,0.8)'
-          } 
-        }}
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pb: 1, pt: 3 }}>
-          <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
-            <BarChart3 className="h-5 w-5" />
-          </div>
-          <div>
-            <Typography variant="h6" sx={{ fontWeight: 800, color: 'slate.900', lineHeight: 1.2 }}>
-              วิเคราะห์สถิติมุมมองผู้ใช้
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>
-              ลิงก์ย่อ: {selectedLinkName}
-            </Typography>
-          </div>
-        </DialogTitle>
-        <DialogContent dividers sx={{ borderColor: 'slate.100', py: 3 }} className="space-y-6">
+      <Dialog open={openAnalyticsDialog} onOpenChange={(v) => !v && setOpenAnalyticsDialog(false)}>
+        <DialogContent className="max-w-lg rounded-3xl border border-slate-200/80 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="rounded-xl bg-indigo-50 p-2 text-indigo-600">
+                <BarChart3 className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-lg font-extrabold leading-tight text-slate-900">
+                  วิเคราะห์สถิติมุมมองผู้ใช้
+                </p>
+                <p className="text-xs font-medium text-muted-foreground">
+                  ลิงก์ย่อ: {selectedLinkName}
+                </p>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 border-t border-slate-100 py-3">
           {analyticsLoading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
               <div className="relative flex items-center justify-center">
-                <CircularProgress size={44} thickness={4.5} className="text-indigo-600" />
+                <Spinner size="lg" className="h-11 w-11 text-indigo-600" />
                 <ActivityIcon className="h-5 w-5 text-indigo-500 absolute animate-pulse" />
               </div>
-              <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 600 }}>กำลังรวบรวมและวิเคราะห์ข้อมูลสถิติ...</Typography>
+              <p className="text-sm font-semibold text-muted-foreground">กำลังรวบรวมและวิเคราะห์ข้อมูลสถิติ...</p>
             </div>
           ) : visitsData.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
@@ -1624,16 +1634,16 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
               </div>
             );
           })()}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setOpenAnalyticsDialog(false)}
+              className="h-10 rounded-xl border border-slate-200 px-5 shadow-sm"
+            >
+              ปิดหน้าต่างสถิติ
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2.5 }}>
-          <Button 
-            onClick={() => setOpenAnalyticsDialog(false)}
-            variant="default"
-            className="rounded-xl px-5 h-10 shadow-sm border border-slate-200"
-          >
-            ปิดหน้าต่างสถิติ
-          </Button>
-        </DialogActions>
       </Dialog>
 
       {/* Magnific AI Background Dialog (Dynamic QR Screen) */}
@@ -1651,5 +1661,6 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
         initialRatio="widescreen_16_9"
       />
     </div>
+    </TooltipProvider>
   );
 }

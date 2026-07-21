@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { useSnackbar } from 'notistack';
+import { useSnackbar } from '@/lib/toast';
 import {
   Shield, UserPlus, Mail, RefreshCw, Edit, Trash2, ShieldAlert, Check,
   Copy, X, Search, ChevronDown, CheckCircle2, ShieldCheck, MailWarning, UserX

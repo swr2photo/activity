@@ -95,10 +95,10 @@ export async function compressImageFile(
     throw new Error('กรุณาเลือกไฟล์รูปภาพ');
   }
 
-  // จำกัดขนาดไฟล์ต้นทางที่รับ (กันไฟล์ผิดปกติ)
-  const MAX_INPUT_BYTES = 20 * 1024 * 1024;
+  // จำกัดขนาดไฟล์ต้นทางที่รับ
+  const MAX_INPUT_BYTES = 12 * 1024 * 1024;
   if (file.size > MAX_INPUT_BYTES) {
-    throw new Error('ไฟล์รูปใหญ่เกินไป (สูงสุด 20MB)');
+    throw new Error('ไฟล์รูปใหญ่เกินไป (สูงสุด 12MB)');
   }
 
   const objectUrl = URL.createObjectURL(file);

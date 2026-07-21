@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   GoogleMap,
   MarkerF,
@@ -10,29 +10,27 @@ import {
   useLoadScript,
 } from '@react-google-maps/api';
 import {
-  Box,
-  Typography,
-  Button,
-  IconButton,
-  CircularProgress,
-  Stack,
-  Tooltip,
-  useMediaQuery,
-} from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
-import {
   Map as MapIcon,
-  SatelliteAlt as SatelliteIcon,
-  OpenInNew as OpenInNewIcon,
-  GpsFixed as GpsIcon,
-  CenterFocusStrong as FocusIcon,
-  DirectionsWalk as WalkIcon,
-  DirectionsCar as CarIcon,
-  MyLocation as MyLocationIcon,
-  CheckCircle as CheckIcon,
-  WarningAmber as WarningIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material';
+  Satellite,
+  ExternalLink,
+  Crosshair,
+  LocateFixed,
+  Footprints,
+  Car,
+  MapPin,
+  CheckCircle2,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 export interface GeofenceMapProps {
   center: { lat: number; lng: number };
@@ -48,7 +46,22 @@ export interface GeofenceMapProps {
   onUseCurrentLocation?: () => void;
 }
 
-const libraries: ('places' | 'geometry' | 'drawing' | 'visualization')[] = ['places', 'geometry'];
+const libraries: ('places' | 'geometry' | 'drawing' | 'visualization')[] = [
+  'places',
+  'geometry',
+];
+
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [breakpoint]);
+  return isMobile;
+}
 
 const GeofenceMap: React.FC<GeofenceMapProps> = ({
   center,
@@ -61,8 +74,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   onCenterChange,
   onUseCurrentLocation,
 }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isMobile = useIsMobile();
 
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
@@ -102,7 +114,11 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
           mode === 'roadmap'
             ? [
                 { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
-                { featureType: 'transit', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+                {
+                  featureType: 'transit',
+                  elementType: 'labels.icon',
+                  stylers: [{ visibility: 'off' }],
+                },
               ]
             : undefined,
       }) as google.maps.MapOptions,
@@ -110,7 +126,10 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   );
 
   const openInMaps = useCallback(() => {
-    window.open(`https://www.google.com/maps/search/?api=1&query=${center.lat},${center.lng}`, '_blank');
+    window.open(
+      `https://www.google.com/maps/search/?api=1&query=${center.lat},${center.lng}`,
+      '_blank'
+    );
   }, [center]);
 
   const panTo = useCallback(
@@ -209,63 +228,62 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     [inRadius]
   );
 
-  const handleDirections = useCallback((res: google.maps.DirectionsResult | null, status: string) => {
-    setIsLoadingRoute(false);
-    if (status === 'OK' && res) {
-      setDirections(res);
-      setShowingRoute(true);
-    } else {
-      setDirections(null);
-      setWantRoute(false);
-      setShowingRoute(false);
-    }
-  }, []);
+  const handleDirections = useCallback(
+    (res: google.maps.DirectionsResult | null, status: string) => {
+      setIsLoadingRoute(false);
+      if (status === 'OK' && res) {
+        setDirections(res);
+        setShowingRoute(true);
+      } else {
+        setDirections(null);
+        setWantRoute(false);
+        setShowingRoute(false);
+      }
+    },
+    []
+  );
 
   const statusTone = inRadius ? 'success' : showingRoute ? 'info' : 'warning';
   const statusBg =
     statusTone === 'success'
-      ? alpha('#16a34a', 0.12)
+      ? 'bg-emerald-500/10'
       : statusTone === 'info'
-        ? alpha('#0a6bcf', 0.12)
-        : alpha('#d97706', 0.14);
+        ? 'bg-[#0a6bcf]/10'
+        : 'bg-amber-500/15';
   const statusFg =
-    statusTone === 'success' ? '#15803d' : statusTone === 'info' ? '#0a6bcf' : '#b45309';
+    statusTone === 'success'
+      ? 'text-emerald-700'
+      : statusTone === 'info'
+        ? 'text-[#0a6bcf]'
+        : 'text-amber-700';
 
-  const shellSx = {
-    position: 'relative' as const,
-    borderRadius: { xs: '16px', sm: '20px' },
-    overflow: 'hidden',
-    touchAction: editable ? 'none' : 'pan-y pinch-zoom',
-    border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-    bgcolor: 'background.paper',
-    boxShadow: '0 8px 28px rgba(0,0,0,0.08)',
-    width: '100%',
-    maxWidth: '100%',
-  };
+  const shellClass = cn(
+    'relative w-full max-w-full overflow-hidden rounded-2xl border border-border/50 bg-card shadow-[0_8px_28px_rgba(0,0,0,0.08)] sm:rounded-[20px]',
+    editable ? 'touch-none' : 'touch-pan-y'
+  );
 
   if (loadError) {
     return (
-      <Box sx={{ ...shellSx, p: 4, textAlign: 'center' }}>
-        <Typography fontWeight={700} color="error" gutterBottom>
-          ไม่สามารถโหลดแผนที่ได้
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
+      <div className={cn(shellClass, 'p-8 text-center')}>
+        <p className="mb-1 font-bold text-destructive">ไม่สามารถโหลดแผนที่ได้</p>
+        <p className="text-sm text-muted-foreground">
           ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่
-        </Typography>
-      </Box>
+        </p>
+      </div>
     );
   }
 
   if (!isLoaded) {
     return (
-      <Box sx={{ ...shellSx, minHeight: mapHeight, display: 'grid', placeItems: 'center' }}>
-        <Stack alignItems="center" spacing={1.5}>
-          <CircularProgress size={36} />
-          <Typography variant="body2" color="text.secondary">
-            กำลังโหลดแผนที่…
-          </Typography>
-        </Stack>
-      </Box>
+      <div
+        className={cn(shellClass, 'grid place-items-center')}
+        style={{ minHeight: mapHeight }}
+      >
+        <div className="flex flex-col items-center gap-3">
+          <Spinner size="lg" />
+          <p className="text-sm text-muted-foreground">กำลังโหลดแผนที่…</p>
+        </div>
+      </div>
     );
   }
 
@@ -280,274 +298,230 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     active?: boolean;
     children: React.ReactNode;
   }) => (
-    <Tooltip title={tip} arrow>
-      <IconButton
-        size="small"
-        onClick={onClick}
-        aria-label={tip}
-        sx={{
-          bgcolor: active ? alpha('#0a6bcf', 0.14) : alpha(theme.palette.background.paper, 0.92),
-          color: active ? '#0a6bcf' : 'text.primary',
-          border: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-          '&:hover': { bgcolor: alpha('#0a6bcf', 0.1) },
-        }}
-      >
-        {children}
-      </IconButton>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={onClick}
+          aria-label={tip}
+          className={cn(
+            'h-8 w-8 border border-border/40 shadow-sm',
+            active
+              ? 'bg-[#0a6bcf]/15 text-[#0a6bcf] hover:bg-[#0a6bcf]/20'
+              : 'bg-background/90 text-foreground hover:bg-[#0a6bcf]/10'
+          )}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{tip}</TooltipContent>
     </Tooltip>
   );
 
   return (
-    <Box sx={shellSx}>
-      {/* Compact status strip */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          px: 1.5,
-          py: 1,
-          bgcolor: statusBg,
-          borderBottom: `1px solid ${alpha(theme.palette.divider, 0.25)}`,
-          minWidth: 0,
-        }}
-      >
-        {inRadius ? (
-          <CheckIcon sx={{ color: statusFg, fontSize: 20, flexShrink: 0 }} />
-        ) : (
-          <WarningIcon sx={{ color: statusFg, fontSize: 20, flexShrink: 0 }} />
-        )}
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography
-            noWrap
-            sx={{ fontWeight: 800, fontSize: '0.85rem', color: 'text.primary', lineHeight: 1.25 }}
-          >
-            {title}
-          </Typography>
-          <Typography
-            noWrap
-            sx={{ fontWeight: 600, fontSize: '0.72rem', color: statusFg, lineHeight: 1.2 }}
-          >
-            {inRadius
-              ? 'อยู่ในพื้นที่แล้ว — พร้อมลงทะเบียน'
-              : showingRoute
-                ? `กำลังนำทาง (${travelMode === 'DRIVING' ? 'ขับรถ' : 'เดิน'})`
-                : 'อยู่นอกพื้นที่กิจกรรม'}
-          </Typography>
-        </Box>
-        {showingRoute && (
-          <IconButton size="small" onClick={clearRoute} aria-label="ปิดเส้นทาง" sx={{ color: statusFg }}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        )}
-      </Box>
-
-      {/* Map */}
-      <Box sx={{ position: 'relative' }}>
-        <GoogleMap
-          center={center}
-          zoom={16}
-          mapContainerStyle={containerStyle}
-          options={mapOptions}
-          onLoad={(m) => setMap(m)}
-          onUnmount={() => setMap(null)}
-          onClick={(e) => {
-            if (!editable || !e.latLng) return;
-            onCenterChange?.({ lat: e.latLng.lat(), lng: e.latLng.lng() });
-          }}
-        >
-          <MarkerF position={center} icon={eventIcon} />
-          <CircleF center={center} radius={Math.max(0, radius || 0)} options={circleOptions} />
-          {userPos && <MarkerF position={userPos} icon={userIcon} />}
-
-          {wantRoute && userPos && (
-            <DirectionsService
-              options={{
-                origin: userPos,
-                destination: center,
-                travelMode: (google.maps.TravelMode as any)[travelMode],
-              }}
-              callback={handleDirections as any}
-            />
+    <TooltipProvider delayDuration={300}>
+      <div className={shellClass}>
+        <div
+          className={cn(
+            'flex min-w-0 items-center gap-2 border-b border-border/25 px-3 py-2',
+            statusBg
           )}
-          {directions && showingRoute && (
-            <DirectionsRenderer
-              options={{
-                directions,
-                suppressMarkers: true,
-                polylineOptions: {
-                  strokeColor: '#0a6bcf',
-                  strokeOpacity: 0.95,
-                  strokeWeight: 5,
-                },
-              }}
-            />
-          )}
-        </GoogleMap>
-
-        {/* Floating tools — top right */}
-        <Stack
-          spacing={0.75}
-          sx={{ position: 'absolute', top: 10, right: 10, zIndex: 3 }}
         >
-          <ToolBtn title="โฟกัสจุดกิจกรรม" onClick={panToCenter}>
-            <FocusIcon fontSize="small" />
-          </ToolBtn>
-          {userPos ? (
-            <ToolBtn title="ไปตำแหน่งของฉัน" onClick={panToUser}>
-              <GpsIcon fontSize="small" />
-            </ToolBtn>
+          {inRadius ? (
+            <CheckCircle2 className={cn('h-5 w-5 shrink-0', statusFg)} />
           ) : (
-            onUseCurrentLocation && (
-              <ToolBtn title="ค้นหาตำแหน่งฉัน" onClick={onUseCurrentLocation}>
-                <GpsIcon fontSize="small" />
-              </ToolBtn>
-            )
+            <TriangleAlert className={cn('h-5 w-5 shrink-0', statusFg)} />
           )}
-          <ToolBtn
-            title={mode === 'satellite' ? 'แผนที่' : 'ดาวเทียม'}
-            onClick={() => setMode((m) => (m === 'satellite' ? 'roadmap' : 'satellite'))}
-            active={mode === 'satellite'}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[0.85rem] font-extrabold leading-tight text-foreground">
+              {title}
+            </p>
+            <p className={cn('truncate text-[0.72rem] font-semibold leading-tight', statusFg)}>
+              {inRadius
+                ? 'อยู่ในพื้นที่แล้ว — พร้อมลงทะเบียน'
+                : showingRoute
+                  ? `กำลังนำทาง (${travelMode === 'DRIVING' ? 'ขับรถ' : 'เดิน'})`
+                  : 'อยู่นอกพื้นที่กิจกรรม'}
+            </p>
+          </div>
+          {showingRoute && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={clearRoute}
+              aria-label="ปิดเส้นทาง"
+              className={cn('h-8 w-8', statusFg)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+
+        <div className="relative">
+          <GoogleMap
+            center={center}
+            zoom={16}
+            mapContainerStyle={containerStyle}
+            options={mapOptions}
+            onLoad={(m) => setMap(m)}
+            onUnmount={() => setMap(null)}
+            onClick={(e) => {
+              if (!editable || !e.latLng) return;
+              onCenterChange?.({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+            }}
           >
-            {mode === 'satellite' ? <MapIcon fontSize="small" /> : <SatelliteIcon fontSize="small" />}
-          </ToolBtn>
-          <ToolBtn title="เปิดใน Google Maps" onClick={openInMaps}>
-            <OpenInNewIcon fontSize="small" />
-          </ToolBtn>
-          {editable && onUseCurrentLocation && (
-            <ToolBtn title="ตั้งจุดเป็นตำแหน่งฉัน" onClick={onUseCurrentLocation}>
-              <MyLocationIcon fontSize="small" />
+            <MarkerF position={center} icon={eventIcon} />
+            <CircleF
+              center={center}
+              radius={Math.max(0, radius || 0)}
+              options={circleOptions}
+            />
+            {userPos && <MarkerF position={userPos} icon={userIcon} />}
+
+            {wantRoute && userPos && (
+              <DirectionsService
+                options={{
+                  origin: userPos,
+                  destination: center,
+                  travelMode: (google.maps.TravelMode as any)[travelMode],
+                }}
+                callback={handleDirections as any}
+              />
+            )}
+            {directions && showingRoute && (
+              <DirectionsRenderer
+                options={{
+                  directions,
+                  suppressMarkers: true,
+                  polylineOptions: {
+                    strokeColor: '#0a6bcf',
+                    strokeOpacity: 0.95,
+                    strokeWeight: 5,
+                  },
+                }}
+              />
+            )}
+          </GoogleMap>
+
+          <div className="absolute right-2.5 top-2.5 z-[3] flex flex-col gap-1.5">
+            <ToolBtn title="โฟกัสจุดกิจกรรม" onClick={panToCenter}>
+              <LocateFixed className="h-4 w-4" />
             </ToolBtn>
+            {userPos ? (
+              <ToolBtn title="ไปตำแหน่งของฉัน" onClick={panToUser}>
+                <Crosshair className="h-4 w-4" />
+              </ToolBtn>
+            ) : (
+              onUseCurrentLocation && (
+                <ToolBtn title="ค้นหาตำแหน่งฉัน" onClick={onUseCurrentLocation}>
+                  <Crosshair className="h-4 w-4" />
+                </ToolBtn>
+              )
+            )}
+            <ToolBtn
+              title={mode === 'satellite' ? 'แผนที่' : 'ดาวเทียม'}
+              onClick={() =>
+                setMode((m) => (m === 'satellite' ? 'roadmap' : 'satellite'))
+              }
+              active={mode === 'satellite'}
+            >
+              {mode === 'satellite' ? (
+                <MapIcon className="h-4 w-4" />
+              ) : (
+                <Satellite className="h-4 w-4" />
+              )}
+            </ToolBtn>
+            <ToolBtn title="เปิดใน Google Maps" onClick={openInMaps}>
+              <ExternalLink className="h-4 w-4" />
+            </ToolBtn>
+            {editable && onUseCurrentLocation && (
+              <ToolBtn title="ตั้งจุดเป็นตำแหน่งฉัน" onClick={onUseCurrentLocation}>
+                <MapPin className="h-4 w-4" />
+              </ToolBtn>
+            )}
+          </div>
+
+          {isLoadingRoute && (
+            <div className="absolute inset-0 z-[4] grid place-items-center bg-white/55 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-2">
+                <Spinner size="lg" />
+                <p className="text-xs font-bold">กำลังค้นหาเส้นทาง…</p>
+              </div>
+            </div>
           )}
-        </Stack>
+        </div>
 
-        {isLoadingRoute && (
-          <Box
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 4,
-              display: 'grid',
-              placeItems: 'center',
-              bgcolor: alpha('#fff', 0.55),
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            <Stack alignItems="center" spacing={1}>
-              <CircularProgress size={32} />
-              <Typography variant="caption" fontWeight={700}>
-                กำลังค้นหาเส้นทาง…
-              </Typography>
-            </Stack>
-          </Box>
+        {!inRadius && userPos && (
+          <div className="border-t border-border/35 bg-muted/40 p-3">
+            <p className="mb-2 block text-xs font-semibold text-muted-foreground">
+              {showingRoute
+                ? 'กำลังแสดงเส้นทางไปยังจุดกิจกรรม'
+                : 'กดปุ่มด้านล่างเพื่อนำทางไปยังจุดกิจกรรม'}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                className={cn(
+                  'w-full rounded-xl py-2 font-extrabold',
+                  showingRoute && travelMode === 'DRIVING'
+                    ? 'bg-[#0a6bcf] hover:bg-[#0858ad]'
+                    : ''
+                )}
+                variant={
+                  showingRoute && travelMode === 'DRIVING' ? 'default' : 'outline'
+                }
+                onClick={() => toggleRoute('DRIVING')}
+              >
+                <Car className="h-4 w-4" />
+                {showingRoute && travelMode === 'DRIVING' ? 'ปิดเส้นทาง' : 'ขับรถ'}
+              </Button>
+              <Button
+                type="button"
+                className={cn(
+                  'w-full rounded-xl py-2 font-extrabold',
+                  showingRoute && travelMode === 'WALKING'
+                    ? 'bg-[#0a6bcf] hover:bg-[#0858ad]'
+                    : ''
+                )}
+                variant={
+                  showingRoute && travelMode === 'WALKING' ? 'default' : 'outline'
+                }
+                onClick={() => toggleRoute('WALKING')}
+              >
+                <Footprints className="h-4 w-4" />
+                {showingRoute && travelMode === 'WALKING' ? 'ปิดเส้นทาง' : 'เดิน'}
+              </Button>
+            </div>
+          </div>
         )}
-      </Box>
 
-      {/* Primary actions — always visible when outside */}
-      {!inRadius && userPos && (
-        <Box
-          sx={{
-            p: 1.25,
-            borderTop: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
-            bgcolor: alpha(theme.palette.background.default, 0.65),
-          }}
-        >
-          <Typography
-            variant="caption"
-            sx={{ display: 'block', mb: 1, color: 'text.secondary', fontWeight: 600 }}
-          >
-            {showingRoute
-              ? 'กำลังแสดงเส้นทางไปยังจุดกิจกรรม'
-              : 'กดปุ่มด้านล่างเพื่อนำทางไปยังจุดกิจกรรม'}
-          </Typography>
-          <Stack direction="row" spacing={1}>
+        {inRadius && (
+          <div className="flex items-center gap-2 border-t border-emerald-500/25 bg-emerald-500/10 px-3 py-2">
+            <CheckCircle2 className="h-[18px] w-[18px] text-emerald-700" />
+            <p className="text-xs font-bold text-emerald-700">
+              คุณอยู่ในรัศมีกิจกรรมแล้ว
+            </p>
+          </div>
+        )}
+
+        {!userPos && !editable && (
+          <div className="border-t border-border/35 p-3">
             <Button
-              fullWidth
-              variant={showingRoute && travelMode === 'DRIVING' ? 'contained' : 'outlined'}
-              startIcon={<CarIcon />}
-              onClick={() => toggleRoute('DRIVING')}
-              sx={{
-                fontWeight: 800,
-                textTransform: 'none',
-                borderRadius: '12px',
-                py: 1,
-                ...(showingRoute && travelMode === 'DRIVING'
-                  ? { bgcolor: '#0a6bcf', '&:hover': { bgcolor: '#0858ad' } }
-                  : {}),
-              }}
+              type="button"
+              className="w-full rounded-xl bg-[#0a6bcf] py-2.5 font-extrabold hover:bg-[#0858ad]"
+              onClick={onUseCurrentLocation}
+              disabled={!onUseCurrentLocation}
             >
-              {showingRoute && travelMode === 'DRIVING' ? 'ปิดเส้นทาง' : 'ขับรถ'}
+              <Crosshair className="h-4 w-4" />
+              เปิดตำแหน่งของฉัน
             </Button>
-            <Button
-              fullWidth
-              variant={showingRoute && travelMode === 'WALKING' ? 'contained' : 'outlined'}
-              startIcon={<WalkIcon />}
-              onClick={() => toggleRoute('WALKING')}
-              sx={{
-                fontWeight: 800,
-                textTransform: 'none',
-                borderRadius: '12px',
-                py: 1,
-                ...(showingRoute && travelMode === 'WALKING'
-                  ? { bgcolor: '#0a6bcf', '&:hover': { bgcolor: '#0858ad' } }
-                  : {}),
-              }}
-            >
-              {showingRoute && travelMode === 'WALKING' ? 'ปิดเส้นทาง' : 'เดิน'}
-            </Button>
-          </Stack>
-        </Box>
-      )}
-
-      {/* In-radius confirmation */}
-      {inRadius && (
-        <Box
-          sx={{
-            px: 1.5,
-            py: 1,
-            borderTop: `1px solid ${alpha('#16a34a', 0.25)}`,
-            bgcolor: alpha('#16a34a', 0.08),
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-          }}
-        >
-          <CheckIcon sx={{ color: '#15803d', fontSize: 18 }} />
-          <Typography variant="caption" sx={{ fontWeight: 700, color: '#15803d' }}>
-            คุณอยู่ในรัศมีกิจกรรมแล้ว
-          </Typography>
-        </Box>
-      )}
-
-      {/* No GPS yet */}
-      {!userPos && !editable && (
-        <Box
-          sx={{
-            p: 1.25,
-            borderTop: `1px solid ${alpha(theme.palette.divider, 0.35)}`,
-          }}
-        >
-          <Button
-            fullWidth
-            variant="contained"
-            startIcon={<GpsIcon />}
-            onClick={onUseCurrentLocation}
-            disabled={!onUseCurrentLocation}
-            sx={{
-              fontWeight: 800,
-              textTransform: 'none',
-              borderRadius: '12px',
-              py: 1.1,
-              bgcolor: '#0a6bcf',
-              '&:hover': { bgcolor: '#0858ad' },
-            }}
-          >
-            เปิดตำแหน่งของฉัน
-          </Button>
-        </Box>
-      )}
-    </Box>
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
   );
 };
 

@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Lock } from 'lucide-react';
-import { useSnackbar } from 'notistack';
+import { useSnackbar } from '@/lib/toast';
 
 import { adminAuth as auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';

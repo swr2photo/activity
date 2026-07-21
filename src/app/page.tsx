@@ -2,43 +2,48 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  Box,
-  Button,
-  Container,
-  Grid,
-  Skeleton,
-  Stack,
-  Typography,
-  TextField,
-  Card,
-  Chip,
-  InputAdornment,
-  Checkbox,
-  FormControlLabel,
-  FormGroup,
-  Divider,
-  Drawer,
-  Badge,
-  IconButton,
-} from "@mui/material";
 import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ActivityCard from "@/components/ActivityCard";
-import { Refresh, Search, EventAvailable, FilterList, InfoOutlined, Close as CloseIcon } from "@mui/icons-material";
+import {
+  RefreshCw,
+  Search,
+  CalendarCheck,
+  Filter,
+  Info,
+  X,
+} from "lucide-react";
+import { glassCardLargeClass } from "@/lib/uiTheme";
+import { getDepartmentLabel } from "@/types/admin";
 import { motion, AnimatePresence } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
+import {
+  isRefreshCacheFresh,
+  readRefreshCache,
+  RefreshCacheKey,
+  RefreshCacheTtl,
+  writeRefreshCache,
+} from "@/lib/refreshCache";
 
 // --- Hero media ---
 // วางไฟล์ /public/hero.mp4 และ /public/hero.jpg เพื่อใช้วิดีโอ/รูปของคณะเอง
 // (ถ้าไม่มีจะ fallback ไปใช้สื่อฟรีจาก Pexels ด้านล่างโดยอัตโนมัติผ่านค่า default นี้)
 const HERO_VIDEO =
   process.env.NEXT_PUBLIC_HERO_VIDEO_URL ||
-  'https://videos.pexels.com/video-files/3129671/3129671-hd_1920_1080_30fps.mp4';
+  "https://videos.pexels.com/video-files/3129671/3129671-hd_1920_1080_30fps.mp4";
 const HERO_POSTER =
   process.env.NEXT_PUBLIC_HERO_POSTER_URL ||
-  'https://images.pexels.com/videos/3129671/free-video-3129671.jpg?auto=compress&w=1920';
+  "https://images.pexels.com/videos/3129671/free-video-3129671.jpg?auto=compress&w=1920";
 
 // --- Types ---
 type ActivityListItem = {
@@ -64,24 +69,33 @@ const STATUS_OPTIONS = [
   { value: "active", label: "เปิดให้ลงทะเบียนแล้ว" },
   { value: "soon", label: "เร็วๆ นี้" },
   { value: "full", label: "เต็มแล้ว" },
-  { value: "ended", label: "ผ่านมาแล้ว" }
+  { value: "ended", label: "ผ่านมาแล้ว" },
 ];
 const CATEGORY_OPTIONS = [
   "วิชาการ / สัมมนา",
   "เวิร์กชอป / ฝึกอบรม",
-  "กีฬา / สุขภาพ"
+  "กีฬา / สุขภาพ",
 ];
 
-const toDate = (d: any): Date => d?.toDate?.() ?? (d instanceof Date ? d : new Date(d));
+const toDate = (d: any): Date =>
+  d?.toDate?.() ?? (d instanceof Date ? d : new Date(d));
 
-const getStatus = (a: ActivityListItem): { key: StatusKey; label: string; tone: any } => {
+const getStatus = (
+  a: ActivityListItem
+): { key: StatusKey; label: string; tone: any } => {
   const now = new Date();
   const start = a.startDateTime ? toDate(a.startDateTime) : null;
   const end = a.endDateTime ? toDate(a.endDateTime) : null;
-  if (a.isActive === false) return { key: "inactive", label: a.closeReason || "ปิดรับ", tone: "default" };
-  if (start && now < start) return { key: "upcoming", label: "กำลังจะเปิด", tone: "info" };
-  if (end && now > end) return { key: "ended", label: "สิ้นสุดแล้ว", tone: "error" };
-  if ((a.maxParticipants || 0) > 0 && (a.currentParticipants || 0) >= (a.maxParticipants || 0))
+  if (a.isActive === false)
+    return { key: "inactive", label: a.closeReason || "ปิดรับ", tone: "default" };
+  if (start && now < start)
+    return { key: "upcoming", label: "กำลังจะเปิด", tone: "info" };
+  if (end && now > end)
+    return { key: "ended", label: "สิ้นสุดแล้ว", tone: "error" };
+  if (
+    (a.maxParticipants || 0) > 0 &&
+    (a.currentParticipants || 0) >= (a.maxParticipants || 0)
+  )
     return { key: "full", label: "เต็มแล้ว", tone: "warning" };
   return { key: "active", label: "เปิดรับสมัคร", tone: "success" };
 };
@@ -99,13 +113,41 @@ const containerVariants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
-    transition: { staggerChildren: 0.1 }
-  }
+    transition: { staggerChildren: 0.1 },
+  },
 };
 
 const itemVariants: any = {
   hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { type: "spring", stiffness: 300, damping: 24 },
+  },
+};
+
+const toMillis = (d: any): number | undefined => {
+  if (d == null) return undefined;
+  if (typeof d === "number") return d;
+  if (typeof d === "string") {
+    const t = Date.parse(d);
+    return Number.isNaN(t) ? undefined : t;
+  }
+  if (typeof d?.toDate === "function") return d.toDate().getTime();
+  if (d instanceof Date) return d.getTime();
+  if (typeof d?.seconds === "number") return d.seconds * 1000;
+  return undefined;
+};
+
+const serializeActivity = (a: ActivityListItem): ActivityListItem => ({
+  ...a,
+  startDateTime: toMillis(a.startDateTime),
+  endDateTime: toMillis(a.endDateTime),
+});
+
+const readCachedActivities = (): ActivityListItem[] | null => {
+  const hit = readRefreshCache<ActivityListItem[]>(RefreshCacheKey.homeActivities);
+  return hit?.data?.length ? hit.data : null;
 };
 
 const HomePage: React.FC = () => {
@@ -113,40 +155,73 @@ const HomePage: React.FC = () => {
   const [activities, setActivities] = useState<ActivityListItem[]>([]);
   const [error, setError] = useState("");
   const [qText, setQText] = useState("");
-  
+
   // New Filter States
   const [categories, setCategories] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState("ทั้งหมด");
   const [statuses, setStatuses] = useState<string[]>([]);
   const [departmentFilters, setDepartmentFilters] = useState<string[]>([]);
-  
+
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
-  const fetchActivities = async () => {
+  const fetchActivities = async (opts?: { force?: boolean }) => {
+    const force = opts?.force === true;
+    const cachedList = readCachedActivities();
+    const hasCache = Boolean(cachedList?.length);
+    const fresh = isRefreshCacheFresh(
+      RefreshCacheKey.homeActivities,
+      RefreshCacheTtl.homeActivities
+    );
+
+    // รีเฟรชหน้า + cache ยังสด → ไม่โหลด Firestore ซ้ำ (กดปุ่มรีเฟรช = force)
+    if (!force && hasCache && fresh) {
+      setActivities(cachedList!);
+      setLoading(false);
+      return;
+    }
+
     try {
-      setLoading(true);
+      // มี cache อยู่แล้ว → อัปเดตเงียบ ๆ ไม่กระพริบ skeleton
+      if (!hasCache) setLoading(true);
       setError("");
       let snap;
       try {
-        const qRef = query(collection(db, "activityQRCodes"), where("activityCode", "!=", ""), orderBy("activityCode", "asc"), limit(100));
+        const qRef = query(
+          collection(db, "activityQRCodes"),
+          where("activityCode", "!=", ""),
+          orderBy("activityCode", "asc"),
+          limit(100)
+        );
         snap = await getDocs(qRef);
       } catch (err) {
         snap = await getDocs(collection(db, "activityQRCodes"));
       }
-      const list: ActivityListItem[] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-      setActivities(list.filter((x) => !!x.activityCode));
+      const list: ActivityListItem[] = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as any))
+        .filter((x) => !!x.activityCode)
+        .map(serializeActivity);
+      setActivities(list);
+      writeRefreshCache(RefreshCacheKey.homeActivities, list);
     } catch (e) {
-      setError("ไม่สามารถโหลดรายการกิจกรรมได้");
+      if (!hasCache) setError("ไม่สามารถโหลดรายการกิจกรรมได้");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchActivities(); }, []);
+  useEffect(() => {
+    const cached = readCachedActivities();
+    if (cached?.length) {
+      setActivities(cached);
+      setLoading(false);
+    }
+    void fetchActivities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const counts = useMemo(() => {
     const c = { all: activities.length, active: 0, soon: 0 };
-    activities.forEach(a => {
+    activities.forEach((a) => {
       const s = getStatus(a).key;
       if (s === "active") c.active++;
       if (s === "upcoming" && isSoon(a, 24)) c.soon++;
@@ -155,209 +230,195 @@ const HomePage: React.FC = () => {
   }, [activities]);
 
   const availableDepartments = useMemo(() => {
-    const deps = new Set(activities.map(a => a.department || 'ไม่ระบุ'));
-    return Array.from(deps).sort();
+    const deps = new Set(
+      activities
+        .map((a) => (a.department || "").trim())
+        .filter((d) => d && d !== "ไม่ระบุ")
+    );
+    return Array.from(deps).sort((a, b) =>
+      getDepartmentLabel(a).localeCompare(getDepartmentLabel(b), "th")
+    );
   }, [activities]);
 
   const filteredAndSorted = useMemo(() => {
     const t = qText.trim().toLowerCase();
-    let result = activities.filter(a => {
-      const matchSearch = !t || a.activityCode.toLowerCase().includes(t) || a.activityName.toLowerCase().includes(t) || (a.location || "").toLowerCase().includes(t);
-      
+    let result = activities.filter((a) => {
+      const matchSearch =
+        !t ||
+        a.activityCode.toLowerCase().includes(t) ||
+        a.activityName.toLowerCase().includes(t) ||
+        (a.location || "").toLowerCase().includes(t);
+
       const sObj = getStatus(a);
       let sStr = sObj.key as string;
       if (sStr === "upcoming" && isSoon(a, 24)) sStr = "soon";
-      
+
       const matchStatus = statuses.length === 0 || statuses.includes(sStr);
-      const matchDepartment = departmentFilters.length === 0 || departmentFilters.includes(a.department || 'ไม่ระบุ');
-      
+      const matchDepartment =
+        departmentFilters.length === 0 ||
+        departmentFilters.includes(a.department || "ไม่ระบุ");
+
       // Mocking category and type match for now since data doesn't have it
       // const matchCategory = categories.length === 0 || categories.includes(a.category);
       // const matchType = typeFilter === "ทั้งหมด" || a.type === typeFilter;
 
       return matchSearch && matchStatus && matchDepartment;
     });
-    const rank = (s: StatusKey) => (s === "active" ? 0 : s === "upcoming" ? 1 : s === "full" ? 2 : 3);
-    return result.sort((a, b) => rank(getStatus(a).key) - rank(getStatus(b).key));
+    const rank = (s: StatusKey) =>
+      s === "active" ? 0 : s === "upcoming" ? 1 : s === "full" ? 2 : 3;
+    return result.sort(
+      (a, b) => rank(getStatus(a).key) - rank(getStatus(b).key)
+    );
   }, [activities, qText, statuses, categories, typeFilter, departmentFilters]);
 
-  const activeFilterCount = statuses.length + categories.length + departmentFilters.length + (typeFilter !== "ทั้งหมด" ? 1 : 0);
+  const activeFilterCount =
+    statuses.length +
+    categories.length +
+    departmentFilters.length +
+    (typeFilter !== "ทั้งหมด" ? 1 : 0);
+
+  // silence unused error in UI for now (preserved for future toast)
+  void error;
 
   const FilterSidebarContent = (
-    <Box sx={{ p: { xs: 1, md: 2 } }}>
+    <div className="p-2 md:p-4">
       {/* Category */}
-      <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#1d1d1f', mb: 1.5 }}>
-        หมวดหมู่
-      </Typography>
-      <FormGroup sx={{ mb: 4, gap: 0.5 }}>
-        {CATEGORY_OPTIONS.map(cat => (
-          <FormControlLabel
-            key={cat}
-            control={
-              <Checkbox 
-                size="small" 
-                checked={categories.includes(cat)}
-                onChange={(e) => {
-                  if (e.target.checked) setCategories(prev => [...prev, cat]);
-                  else setCategories(prev => prev.filter(c => c !== cat));
-                }}
-                sx={{ color: '#c7c7cc', py: 0.5, '&.Mui-checked': { color: '#0071e3' } }}
-              />
-            }
-            label={<Typography variant="body2" color="#515154">{cat}</Typography>}
-            sx={{ m: 0, '& .MuiFormControlLabel-label': { fontWeight: 500 } }}
-          />
+      <p className="mb-3 text-sm font-bold text-[var(--page-text)]">หมวดหมู่</p>
+      <div className="mb-8 flex flex-col gap-2">
+        {CATEGORY_OPTIONS.map((cat) => (
+          <div key={cat} className="flex items-center gap-2">
+            <Checkbox
+              id={`cat-${cat}`}
+              checked={categories.includes(cat)}
+              onCheckedChange={(checked) => {
+                if (checked) setCategories((prev) => [...prev, cat]);
+                else setCategories((prev) => prev.filter((c) => c !== cat));
+              }}
+              className="border-[var(--page-border)] data-[state=checked]:border-[#0071e3] data-[state=checked]:bg-[#0071e3]"
+            />
+            <Label
+              htmlFor={`cat-${cat}`}
+              className="cursor-pointer text-sm font-medium text-[var(--page-text)] opacity-85"
+            >
+              {cat}
+            </Label>
+          </div>
         ))}
-      </FormGroup>
+      </div>
 
       {/* Type */}
-      <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#1d1d1f', mb: 2 }}>
-        ประเภท
-      </Typography>
-      <Stack direction="row" spacing={1} sx={{ mb: 4 }}>
-        {['ทั้งหมด', 'Onsite', 'Online'].map(type => {
+      <p className="mb-4 text-sm font-bold text-[var(--page-text)]">ประเภท</p>
+      <div className="mb-8 flex flex-wrap gap-2">
+        {["ทั้งหมด", "Onsite", "Online"].map((type) => {
           const isSelected = typeFilter === type;
           return (
-            <Chip
+            <button
               key={type}
-              label={type}
+              type="button"
               onClick={() => setTypeFilter(type)}
-              sx={{
-                bgcolor: isSelected ? '#1d1d1f' : 'transparent',
-                color: isSelected ? '#ffffff' : '#515154',
-                border: isSelected ? '1px solid #1d1d1f' : '1px solid #d2d2d7',
-                fontWeight: 600,
-                fontSize: '0.8rem',
-                height: 32,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                '&:hover': { bgcolor: isSelected ? '#1d1d1f' : 'rgba(0,0,0,0.04)' }
-              }}
-            />
+              className={cn(
+                "h-8 cursor-pointer rounded-full border px-3 text-[0.8rem] font-semibold transition-all",
+                isSelected
+                  ? "border-[var(--page-text)] bg-[var(--page-text)] text-[var(--page-card-solid)]"
+                  : "border-[var(--page-border)] bg-transparent text-[var(--page-text-secondary)] hover:bg-muted"
+              )}
+            >
+              {type}
+            </button>
           );
         })}
-      </Stack>
+      </div>
 
       {/* Status */}
-      <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#1d1d1f', mb: 1.5 }}>
-        สถานะ
-      </Typography>
-      <FormGroup sx={{ gap: 0.5 }}>
-        {STATUS_OPTIONS.map(stat => (
-          <FormControlLabel
-            key={stat.value}
-            control={
-              <Checkbox 
-                size="small" 
-                checked={statuses.includes(stat.value)}
-                onChange={(e) => {
-                  if (e.target.checked) setStatuses(prev => [...prev, stat.value]);
-                  else setStatuses(prev => prev.filter(s => s !== stat.value));
-                }}
-                sx={{ color: '#c7c7cc', py: 0.5, '&.Mui-checked': { color: '#34c759' } }}
-              />
-            }
-            label={<Typography variant="body2" color="#515154">{stat.label}</Typography>}
-            sx={{ m: 0, '& .MuiFormControlLabel-label': { fontWeight: 500 } }}
-          />
+      <p className="mb-3 text-sm font-bold text-[var(--page-text)]">สถานะ</p>
+      <div className="flex flex-col gap-2">
+        {STATUS_OPTIONS.map((stat) => (
+          <div key={stat.value} className="flex items-center gap-2">
+            <Checkbox
+              id={`stat-${stat.value}`}
+              checked={statuses.includes(stat.value)}
+              onCheckedChange={(checked) => {
+                if (checked) setStatuses((prev) => [...prev, stat.value]);
+                else
+                  setStatuses((prev) => prev.filter((s) => s !== stat.value));
+              }}
+              className="border-[var(--page-border)] data-[state=checked]:border-[#34c759] data-[state=checked]:bg-[#34c759]"
+            />
+            <Label
+              htmlFor={`stat-${stat.value}`}
+              className="cursor-pointer text-sm font-medium text-[var(--page-text)] opacity-85"
+            >
+              {stat.label}
+            </Label>
+          </div>
         ))}
-      </FormGroup>
+      </div>
 
       {/* Department */}
       {availableDepartments.length > 0 && (
-        <Box sx={{ mt: 1 }}>
-          <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#1d1d1f', mb: 1.5 }}>
+        <div className="mt-4">
+          <p className="mb-3 text-sm font-bold text-[var(--page-text)]">
             สังกัด / คณะ
-          </Typography>
-          <FormGroup sx={{ mb: 4, gap: 0.5 }}>
-            {availableDepartments.map(dep => (
-              <FormControlLabel
-                key={dep}
-                control={
-                  <Checkbox 
-                    size="small" 
-                    checked={departmentFilters.includes(dep)}
-                    onChange={(e) => {
-                      if (e.target.checked) setDepartmentFilters(prev => [...prev, dep]);
-                      else setDepartmentFilters(prev => prev.filter(d => d !== dep));
-                    }}
-                    sx={{ color: '#c7c7cc', py: 0.5, '&.Mui-checked': { color: '#0071e3' } }}
-                  />
-                }
-                label={<Typography variant="body2" color="#515154">{dep}</Typography>}
-                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontWeight: 500 } }}
-              />
+          </p>
+          <div className="mb-8 flex flex-col gap-2">
+            {availableDepartments.map((dep) => (
+              <div key={dep} className="flex items-center gap-2">
+                <Checkbox
+                  id={`dep-${dep}`}
+                  checked={departmentFilters.includes(dep)}
+                  onCheckedChange={(checked) => {
+                    if (checked)
+                      setDepartmentFilters((prev) => [...prev, dep]);
+                    else
+                      setDepartmentFilters((prev) =>
+                        prev.filter((d) => d !== dep)
+                      );
+                  }}
+                  className="border-[var(--page-border)] data-[state=checked]:border-[#0071e3] data-[state=checked]:bg-[#0071e3]"
+                />
+                <Label
+                  htmlFor={`dep-${dep}`}
+                  className="cursor-pointer text-sm font-semibold text-[var(--page-text)] opacity-90"
+                >
+                  {getDepartmentLabel(dep)}
+                </Label>
+              </div>
             ))}
-          </FormGroup>
-        </Box>
+          </div>
+        </div>
       )}
-    </Box>
+    </div>
   );
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#000000" }}>
+    <div className="flex min-h-screen flex-col bg-black">
       <Navbar />
 
       {/* ===================== Hero — Cinematic Video Background ===================== */}
-      <Box sx={{ 
-        position: 'relative',
-        bgcolor: '#000000', 
-        color: 'white', 
-        minHeight: { xs: '78svh', md: '86svh' },
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        textAlign: 'center',
-        overflow: 'hidden',
-        zIndex: 1,
-        pt: { xs: 12, md: 10 },
-        pb: { xs: 16, md: 20 },
-      }}>
-        {/* Layer 1: Poster image (แสดงทันทีระหว่างวิดีโอโหลด / fallback ถ้าเล่นไม่ได้) */}
-        <Box
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: -3,
-            backgroundImage: `url(${HERO_POSTER})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            transform: 'scale(1.05)',
-          }}
+      <div className="relative z-[1] flex min-h-[78svh] flex-col justify-center overflow-hidden bg-black pb-16 pt-12 text-center text-white md:min-h-[86svh] md:pb-20 md:pt-10">
+        {/* Layer 1: Poster image */}
+        <div
+          className="absolute inset-0 -z-[3] scale-105 bg-cover bg-center"
+          style={{ backgroundImage: `url(${HERO_POSTER})` }}
         />
 
         {/* Layer 2: Video background */}
-        <Box
-          component="video"
+        <video
           autoPlay
           loop
           muted
           playsInline
           preload="metadata"
           poster={HERO_POSTER}
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            zIndex: -2,
-            animation: 'heroZoom 28s ease-in-out infinite alternate',
-            '@keyframes heroZoom': {
-              from: { transform: 'scale(1)' },
-              to: { transform: 'scale(1.08)' },
-            },
-          }}
+          className="absolute inset-0 -z-[2] h-full w-full object-cover animate-[heroZoom_28s_ease-in-out_infinite_alternate]"
         >
           <source src={HERO_VIDEO} type="video/mp4" />
-        </Box>
+        </video>
 
         {/* Layer 3: Readability overlays */}
-        <Box
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: -1,
+        <div
+          className="absolute inset-0 -z-[1]"
+          style={{
             background: `
               radial-gradient(ellipse 90% 70% at 50% 45%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.62) 100%),
               linear-gradient(to bottom, rgba(0,0,0,0.68) 0%, rgba(0,0,0,0.12) 28%, rgba(0,0,0,0.12) 62%, #000000 100%)
@@ -365,352 +426,331 @@ const HomePage: React.FC = () => {
           }}
         />
 
-        <Container maxWidth="md" sx={{ position: 'relative' }}>
+        <div className="relative mx-auto w-full max-w-3xl px-4">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
           >
             {/* Badge */}
-            <Box
-              component={motion.div}
+            <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.6, delay: 0.15 }}
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 1,
-                px: 2.25,
-                py: 0.9,
-                mb: 3.5,
-                borderRadius: '100px',
-                bgcolor: 'rgba(255,255,255,0.1)',
-                border: '1px solid rgba(255,255,255,0.18)',
-                backdropFilter: 'blur(12px)',
+              className="mb-7 inline-flex items-center gap-2 rounded-full border border-white/18 bg-white/10 px-4 py-2 backdrop-blur-md"
+            >
+              <span className="h-2 w-2 rounded-full bg-[#34c759] shadow-[0_0_12px_rgba(52,199,89,0.9)] animate-[heroPulse_2s_ease-in-out_infinite]" />
+              <span className="text-[0.8rem] font-bold tracking-wider text-white/90">
+                {loading
+                  ? "กำลังโหลดกิจกรรม..."
+                  : `เปิดรับสมัครแล้ว ${counts.active} กิจกรรม`}
+              </span>
+            </motion.div>
+
+            <h1
+              className="mb-6 font-extrabold leading-[1.05] tracking-tight text-transparent"
+              style={{
+                fontSize: "clamp(2.9rem, 8vw, 5rem)",
+                fontFamily:
+                  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                background: "linear-gradient(135deg, #ffffff 35%, #c7c7cc 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                textShadow: "0 8px 40px rgba(0,0,0,0.4)",
               }}
             >
-              <Box sx={{
-                width: 8, height: 8, borderRadius: '50%', bgcolor: '#34c759',
-                boxShadow: '0 0 12px rgba(52,199,89,0.9)',
-                animation: 'heroPulse 2s ease-in-out infinite',
-                '@keyframes heroPulse': {
-                  '0%, 100%': { opacity: 1 },
-                  '50%': { opacity: 0.45 },
-                },
-              }} />
-              <Typography variant="caption" sx={{ fontWeight: 700, letterSpacing: '0.06em', color: 'rgba(255,255,255,0.92)', fontSize: '0.8rem' }}>
-                {loading ? 'กำลังโหลดกิจกรรม...' : `เปิดรับสมัครแล้ว ${counts.active} กิจกรรม`}
-              </Typography>
-            </Box>
-
-            <Typography variant="h1" fontWeight={800} sx={{ 
-              fontSize: { xs: '2.9rem', md: '5rem' }, 
-              mb: 2.5, 
-              letterSpacing: '-0.04em', 
-              lineHeight: 1.05,
-              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-              background: 'linear-gradient(135deg, #ffffff 35%, #c7c7cc 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              textShadow: '0 8px 40px rgba(0,0,0,0.4)',
-            }}>
               ค้นพบกิจกรรม
               <br />
               ที่คุณชอบ.
-            </Typography>
+            </h1>
 
-            <Typography variant="h6" sx={{ 
-              color: 'rgba(255,255,255,0.78)', 
-              fontWeight: 500, 
-              mb: 5, 
-              px: 2, 
-              fontSize: { xs: '1.05rem', md: '1.3rem' }, 
-              letterSpacing: '-0.01em',
-              maxWidth: 560,
-              mx: 'auto',
-              textShadow: '0 2px 16px rgba(0,0,0,0.5)',
-            }}>
+            <p
+              className="mx-auto mb-10 max-w-[560px] px-2 text-[1.05rem] font-medium tracking-tight text-white/78 md:text-[1.3rem]"
+              style={{ textShadow: "0 2px 16px rgba(0,0,0,0.5)" }}
+            >
               ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ.
               <br />
               สะดวก รวดเร็ว และแม่นยำ
-            </Typography>
+            </p>
 
             {/* CTA */}
-            <Stack
-              component={motion.div}
+            <motion.div
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.35 }}
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={2}
-              justifyContent="center"
-              alignItems="center"
+              className="flex flex-col items-center justify-center gap-4 sm:flex-row"
             >
               <Button
-                onClick={() => document.getElementById('activities')?.scrollIntoView({ behavior: 'smooth' })}
-                sx={{
-                  px: 4.5,
-                  py: 1.6,
-                  borderRadius: '100px',
-                  fontSize: '1rem',
-                  fontWeight: 700,
-                  color: '#000000',
-                  bgcolor: '#ffffff',
-                  boxShadow: '0 12px 32px rgba(255,255,255,0.22)',
-                  transition: 'all 0.25s ease',
-                  '&:hover': { bgcolor: '#f5f5f7', transform: 'translateY(-2px)', boxShadow: '0 16px 40px rgba(255,255,255,0.3)' },
-                }}
+                onClick={() =>
+                  document
+                    .getElementById("activities")
+                    ?.scrollIntoView({ behavior: "smooth" })
+                }
+                className="rounded-full bg-white px-9 py-6 text-base font-bold text-black shadow-[0_12px_32px_rgba(255,255,255,0.22)] transition-all hover:-translate-y-0.5 hover:bg-[#f5f5f7] hover:shadow-[0_16px_40px_rgba(255,255,255,0.3)]"
               >
                 สำรวจกิจกรรมทั้งหมด
               </Button>
               <Button
-                onClick={() => { setStatuses(['active']); document.getElementById('activities')?.scrollIntoView({ behavior: 'smooth' }); }}
-                sx={{
-                  px: 4.5,
-                  py: 1.6,
-                  borderRadius: '100px',
-                  fontSize: '1rem',
-                  fontWeight: 700,
-                  color: '#ffffff',
-                  bgcolor: 'rgba(255,255,255,0.1)',
-                  border: '1px solid rgba(255,255,255,0.25)',
-                  backdropFilter: 'blur(12px)',
-                  transition: 'all 0.25s ease',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.18)', transform: 'translateY(-2px)' },
+                onClick={() => {
+                  setStatuses(["active"]);
+                  document
+                    .getElementById("activities")
+                    ?.scrollIntoView({ behavior: "smooth" });
                 }}
+                className="rounded-full border border-white/25 bg-white/10 px-9 py-6 text-base font-bold text-white backdrop-blur-md transition-all hover:-translate-y-0.5 hover:bg-white/18"
               >
                 เฉพาะที่เปิดรับสมัคร
               </Button>
-            </Stack>
+            </motion.div>
           </motion.div>
-        </Container>
+        </div>
 
         {/* Scroll indicator */}
-        <Box
-          component={motion.div}
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1, duration: 0.8 }}
-          onClick={() => document.getElementById('activities')?.scrollIntoView({ behavior: 'smooth' })}
-          sx={{
-            position: 'absolute',
-            bottom: { xs: 84, md: 110 },
-            left: '50%',
-            transform: 'translateX(-50%)',
-            cursor: 'pointer',
-            width: 26,
-            height: 42,
-            borderRadius: '14px',
-            border: '2px solid rgba(255,255,255,0.35)',
-            display: { xs: 'none', md: 'flex' },
-            justifyContent: 'center',
-            pt: '7px',
-          }}
+          onClick={() =>
+            document
+              .getElementById("activities")
+              ?.scrollIntoView({ behavior: "smooth" })
+          }
+          className="absolute bottom-[110px] left-1/2 hidden h-[42px] w-[26px] -translate-x-1/2 cursor-pointer justify-center rounded-[14px] border-2 border-white/35 pt-[7px] md:flex"
         >
-          <Box sx={{
-            width: 4, height: 9, borderRadius: '4px', bgcolor: 'rgba(255,255,255,0.75)',
-            animation: 'heroScroll 1.8s ease-in-out infinite',
-            '@keyframes heroScroll': {
-              '0%': { transform: 'translateY(0)', opacity: 1 },
-              '70%': { transform: 'translateY(12px)', opacity: 0 },
-              '100%': { transform: 'translateY(0)', opacity: 0 },
-            },
-          }} />
-        </Box>
-      </Box>
+          <span className="h-[9px] w-1 rounded bg-white/75 animate-[heroScroll_1.8s_ease-in-out_infinite]" />
+        </motion.div>
+      </div>
 
       {/* Main Content Area */}
-      <Box id="activities" sx={{ bgcolor: '#f5f5f7', flexGrow: 1, borderTopLeftRadius: '40px', borderTopRightRadius: '40px', position: 'relative', zIndex: 2, scrollMarginTop: '80px' }}>
-        <Container maxWidth="xl" sx={{ mt: -10, mb: 10 }}>
-          <Grid container spacing={{ xs: 2, md: 4 }}>
-            
+      <div
+        id="activities"
+        className="relative z-[2] flex-grow scroll-mt-20 rounded-t-[40px] bg-[var(--page-bg)]"
+      >
+        <div className="mx-auto mb-24 mt-[-2.5rem] w-full max-w-[1400px] px-4">
+          <div className="grid grid-cols-12 gap-4 md:gap-8">
             {/* Left Sidebar (Desktop) */}
-            <Grid size={{ xs: 12, md: 3, lg: 2.5 }} sx={{ display: { xs: 'none', md: 'block' } }}>
-              <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}>
-                <Card sx={{ 
-                  p: 2, 
-                  borderRadius: '24px', 
-                  boxShadow: '0 24px 48px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.5) inset',
-                  border: '1px solid rgba(0, 0, 0, 0.05)',
-                  backdropFilter: 'blur(40px)',
-                  bgcolor: 'rgba(255, 255, 255, 0.75)',
-                  position: 'sticky',
-                  top: 100
-                }}>
+            <div className="col-span-12 hidden md:col-span-3 md:block lg:col-span-3 xl:col-span-3">
+              <motion.div
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+              >
+                <Card
+                  className={cn(
+                    glassCardLargeClass,
+                    "sticky top-[100px] p-2 shadow-[var(--page-shadow)]"
+                  )}
+                >
                   {FilterSidebarContent}
                 </Card>
               </motion.div>
-            </Grid>
+            </div>
 
             {/* Right Content */}
-            <Grid size={{ xs: 12, md: 9, lg: 9.5 }}>
+            <div className="col-span-12 md:col-span-9 lg:col-span-9">
               {/* Floating Search Bar */}
               <motion.div
                 initial={{ opacity: 0, y: 40 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.2, type: "spring", stiffness: 200 }}
+                transition={{
+                  duration: 0.6,
+                  delay: 0.2,
+                  type: "spring",
+                  stiffness: 200,
+                }}
               >
-                <Card sx={{ 
-                  p: { xs: 2, md: 3 }, 
-                  borderRadius: '24px', 
-                  boxShadow: '0 24px 48px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.5) inset',
-                  border: '1px solid rgba(0, 0, 0, 0.05)',
-                  backdropFilter: 'blur(40px)',
-                  bgcolor: 'rgba(255, 255, 255, 0.75)',
-                }}>
-                  <Grid container spacing={2} alignItems="center">
-                    <Grid size={{ xs: 12, md: 8 }}>
-                      <TextField
-                        fullWidth
+                <Card
+                  className={cn(
+                    glassCardLargeClass,
+                    "p-4 shadow-[var(--page-shadow)] md:p-6"
+                  )}
+                >
+                  <div className="flex flex-col items-center gap-4 md:flex-row">
+                    <div className="relative w-full flex-1">
+                      <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--page-text-secondary)]" />
+                      <Input
                         placeholder="ค้นหาชื่อกิจกรรม รหัส หรือสถานที่..."
                         value={qText}
                         onChange={(e) => setQText(e.target.value)}
-                        InputProps={{
-                          startAdornment: <InputAdornment position="start"><Search sx={{ color: '#86868b' }} /></InputAdornment>,
-                          sx: { 
-                            borderRadius: '16px', 
-                            bgcolor: '#ffffff', 
-                            border: '1px solid rgba(0,0,0,0.04)', 
-                            boxShadow: '0 2px 12px rgba(0,0,0,0.02) inset',
-                            '& fieldset': { border: 'none' },
-                            '& input': { py: 1.8, fontSize: '1.05rem', color: '#1d1d1f' },
-                            transition: 'all 0.3s ease',
-                            '&:hover': { boxShadow: '0 2px 12px rgba(0,0,0,0.04) inset' },
-                            '&.Mui-focused': { boxShadow: '0 0 0 4px rgba(0, 113, 227, 0.15)' }
-                          }
-                        }}
+                        className="h-14 rounded-2xl border-[var(--page-border)] bg-[var(--page-card-solid)] pl-10 text-[1.05rem] text-[var(--page-text)] shadow-none focus-visible:ring-[#0071e3]/40"
                       />
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 4 }}>
-                      <Stack direction="row" spacing={1.5} justifyContent={{ xs: 'flex-start', md: 'flex-end' }} alignItems="center">
-                        <Button
-                          variant="outlined"
-                          onClick={() => setMobileFilterOpen(true)}
-                          sx={{
-                            display: { xs: 'flex', md: 'none' },
-                            height: 48,
-                            borderRadius: '14px',
-                            color: '#1d1d1f',
-                            borderColor: 'rgba(0,0,0,0.1)',
-                            bgcolor: '#ffffff'
-                          }}
-                        >
-                          <Badge color="primary" badgeContent={activeFilterCount} invisible={activeFilterCount === 0}>
-                            <FilterList sx={{ mr: 1 }} /> ตัวกรอง
+                    </div>
+                    <div className="flex w-full items-center justify-start gap-3 md:w-auto md:justify-end">
+                      <Button
+                        variant="outline"
+                        onClick={() => setMobileFilterOpen(true)}
+                        className="relative flex h-12 rounded-xl border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] md:hidden"
+                      >
+                        <Filter className="h-4 w-4" />
+                        ตัวกรอง
+                        {activeFilterCount > 0 && (
+                          <Badge className="absolute -right-2 -top-2 h-5 min-w-5 justify-center rounded-full px-1.5 text-[0.65rem]">
+                            {activeFilterCount}
                           </Badge>
-                        </Button>
-                        <Box sx={{ flexGrow: 1, display: { xs: 'block', md: 'none' } }} />
-                        <Chip 
-                          icon={<EventAvailable sx={{ fontSize: '1.2rem !important', color: '#248a3d !important' }} />} 
-                          label={`เปิดรับสมัคร: ${counts.active}`} 
-                          sx={{ 
-                            bgcolor: 'rgba(52, 199, 89, 0.12)', 
-                            color: '#248a3d', 
-                            fontWeight: 700, 
-                            borderRadius: '12px',
-                            px: 1,
-                            height: 48,
-                            fontSize: '0.95rem',
-                            border: '1px solid rgba(52, 199, 89, 0.2)'
-                          }} 
-                        />
-                        <Button 
-                          variant="text" 
-                          onClick={fetchActivities} 
-                          sx={{ 
-                            minWidth: 48, 
-                            height: 48, 
-                            borderRadius: '14px', 
-                            bgcolor: '#ffffff', 
-                            color: '#1d1d1f',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                            border: '1px solid rgba(0,0,0,0.04)',
-                            transition: 'all 0.2s',
-                            '&:hover': { bgcolor: '#f5f5f7', transform: 'scale(1.05)' }
-                          }}
-                        >
-                          <Refresh />
-                        </Button>
-                      </Stack>
-                    </Grid>
-                  </Grid>
+                        )}
+                      </Button>
+                      <div className="flex-grow md:hidden" />
+                      <Badge
+                        variant="success"
+                        className="h-12 gap-1.5 rounded-xl border border-[rgba(52,199,89,0.2)] bg-[rgba(52,199,89,0.12)] px-3 text-[0.95rem] font-bold text-[#248a3d]"
+                      >
+                        <CalendarCheck className="h-5 w-5 text-[#248a3d]" />
+                        เปิดรับสมัคร: {counts.active}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => fetchActivities({ force: true })}
+                        className="h-12 w-12 rounded-xl border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] transition-all hover:scale-105 hover:bg-[var(--page-bg)]"
+                      >
+                        <RefreshCw className="h-5 w-5" />
+                      </Button>
+                    </div>
+                  </div>
                 </Card>
               </motion.div>
 
               {/* Activity Cards List */}
-              <Box sx={{ mt: 6 }}>
+              <div className="mt-12">
                 {loading ? (
-                  <Grid container spacing={4}>
-                    {[1, 2, 3, 4, 5, 6].map(i => (
-                      <Grid key={i} size={{ xs: 12, sm: 6, lg: 4 }}>
-                        <Skeleton variant="rectangular" height={280} sx={{ borderRadius: '24px', mb: 2 }} />
-                        <Skeleton width="70%" height={32} sx={{ borderRadius: '8px', mb: 1 }} />
-                        <Skeleton width="40%" height={24} sx={{ borderRadius: '8px' }} />
-                      </Grid>
+                  <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+                    {[1, 2, 3, 4, 5, 6].map((i) => (
+                      <div key={i}>
+                        <Skeleton className="mb-2 h-[280px] rounded-[24px]" />
+                        <Skeleton className="mb-1 h-8 w-[70%] rounded-lg" />
+                        <Skeleton className="h-6 w-[40%] rounded-lg" />
+                      </div>
                     ))}
-                  </Grid>
+                  </div>
                 ) : filteredAndSorted.length === 0 ? (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    <Box sx={{ textAlign: 'center', py: 14 }}>
-                      <InfoOutlined sx={{ fontSize: 90, color: '#d2d2d7', mb: 3 }} />
-                      <Typography variant="h5" fontWeight={700} color="#1d1d1f" mb={1}>ไม่พบกิจกรรมที่คุณมองหา</Typography>
-                      <Typography variant="body1" color="#86868b" mb={3}>ลองปรับเงื่อนไขการค้นหาใหม่ หรือเลือกดูทั้งหมด</Typography>
-                      <Button variant="outlined" sx={{ borderRadius: '12px', px: 4, py: 1.5, fontWeight: 600 }} onClick={() => { setQText(""); setStatuses([]); setCategories([]); setTypeFilter("ทั้งหมด"); setDepartmentFilters([]); }}>ล้างตัวกรอง</Button>
-                    </Box>
+                    <div className="py-28 text-center">
+                      <Info className="mx-auto mb-6 h-[90px] w-[90px] text-[var(--page-border)]" />
+                      <h2 className="mb-2 text-xl font-bold text-[var(--page-text)]">
+                        ไม่พบกิจกรรมที่คุณมองหา
+                      </h2>
+                      <p className="mb-6 text-base text-[var(--page-text-secondary)]">
+                        ลองปรับเงื่อนไขการค้นหาใหม่ หรือเลือกดูทั้งหมด
+                      </p>
+                      <Button
+                        variant="outline"
+                        className="rounded-xl px-8 py-5 font-semibold"
+                        onClick={() => {
+                          setQText("");
+                          setStatuses([]);
+                          setCategories([]);
+                          setTypeFilter("ทั้งหมด");
+                          setDepartmentFilters([]);
+                        }}
+                      >
+                        ล้างตัวกรอง
+                      </Button>
+                    </div>
                   </motion.div>
                 ) : (
-                  <motion.div variants={containerVariants} initial="hidden" animate="show">
-                    <Grid container spacing={3}>
+                  <motion.div
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="show"
+                  >
+                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                       <AnimatePresence>
                         {filteredAndSorted.map((a) => (
-                          <Grid key={a.id} size={{ xs: 12, sm: 6, lg: 4, xl: 4 }}>
-                            <motion.div variants={itemVariants} layoutId={a.id} style={{ height: '100%' }}>
-                              <ActivityCard {...a} status={getStatus(a)} canOpen={getStatus(a).key === "active"} />
-                            </motion.div>
-                          </Grid>
+                          <motion.div
+                            key={a.id}
+                            variants={itemVariants}
+                            layoutId={a.id}
+                            className="h-full"
+                          >
+                            <ActivityCard
+                              {...a}
+                              status={getStatus(a)}
+                              canOpen={getStatus(a).key === "active"}
+                            />
+                          </motion.div>
                         ))}
                       </AnimatePresence>
-                    </Grid>
+                    </div>
                   </motion.div>
                 )}
-              </Box>
-            </Grid>
-          </Grid>
-        </Container>
-      </Box>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-      {/* Mobile Drawer Filter */}
-      <Drawer 
-        anchor="right" 
-        open={mobileFilterOpen} 
-        onClose={() => setMobileFilterOpen(false)}
-        PaperProps={{
-          sx: { width: 300, borderTopLeftRadius: 24, borderBottomLeftRadius: 24 }
-        }}
-      >
-        <Box sx={{ p: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6" fontWeight={800}>ตัวกรอง</Typography>
-            <IconButton onClick={() => setMobileFilterOpen(false)}><CloseIcon /></IconButton>
-          </Stack>
-          <Divider sx={{ mb: 2 }} />
-          {FilterSidebarContent}
-          <Box sx={{ mt: 4, pb: 4 }}>
-            <Button 
-              fullWidth 
-              variant="contained" 
-              onClick={() => setMobileFilterOpen(false)}
-              sx={{ borderRadius: '12px', py: 1.5, fontWeight: 700 }}
-            >
-              แสดงผลลัพธ์ ({filteredAndSorted.length})
-            </Button>
-          </Box>
-        </Box>
-      </Drawer>
+      {/* Mobile Filter Panel */}
+      {mobileFilterOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setMobileFilterOpen(false)}
+          />
+          <div className="absolute inset-y-0 right-0 flex w-[300px] flex-col rounded-l-3xl border-l border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] shadow-2xl">
+            <div className="p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-extrabold">ตัวกรอง</h2>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setMobileFilterOpen(false)}
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+              <Separator className="mb-4" />
+              <div className="max-h-[calc(100dvh-180px)] overflow-y-auto">
+                {FilterSidebarContent}
+              </div>
+              <div className="mt-8 pb-8">
+                <Button
+                  className="w-full rounded-xl py-5 font-bold"
+                  onClick={() => setMobileFilterOpen(false)}
+                >
+                  แสดงผลลัพธ์ ({filteredAndSorted.length})
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Footer />
-    </Box>
+
+      <style jsx global>{`
+        @keyframes heroZoom {
+          from {
+            transform: scale(1);
+          }
+          to {
+            transform: scale(1.08);
+          }
+        }
+        @keyframes heroPulse {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.45;
+          }
+        }
+        @keyframes heroScroll {
+          0% {
+            transform: translateY(0);
+            opacity: 1;
+          }
+          70% {
+            transform: translateY(12px);
+            opacity: 0;
+          }
+          100% {
+            transform: translateY(0);
+            opacity: 0;
+          }
+        }
+      `}</style>
+    </div>
   );
 };
 

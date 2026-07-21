@@ -115,7 +115,7 @@ function KPICard({
       transition={{ delay, duration: 0.6, type: 'spring', stiffness: 200, damping: 20 }}
       className="group"
     >
-      <Card className="relative overflow-hidden transition-all duration-500 border border-white/40 bg-white/60 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] hover:-translate-y-1 rounded-3xl h-full">
+      <Card className="relative overflow-hidden transition-all duration-500 border border-border bg-card/80 backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.35)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] hover:-translate-y-1 rounded-3xl h-full">
         <div className={`absolute inset-0 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity duration-500 ${gradient}`} />
         <div className={`absolute -right-8 -top-8 w-32 h-32 rounded-full blur-3xl opacity-20 group-hover:opacity-40 transition-opacity duration-700 ${gradient}`} />
         
@@ -126,14 +126,14 @@ function KPICard({
               <Icon className="h-6 w-6 text-white drop-shadow-md relative z-10" />
             </div>
             {trend && (
-              <Badge variant={trend.isPositive ? 'success' : 'secondary'} className="font-bold text-xs py-1 px-2 bg-white/80 backdrop-blur-sm border-white/50 shadow-sm">
+              <Badge variant={trend.isPositive ? 'success' : 'secondary'} className="font-bold text-xs py-1 px-2 bg-background/80 backdrop-blur-sm border-border shadow-sm">
                 {trend.isPositive ? '↑' : '↓'} {trend.value}%
               </Badge>
             )}
           </div>
           
           <div>
-            <p className="text-4xl font-extrabold tracking-tight text-slate-800 mb-1 drop-shadow-sm">
+            <p className="text-4xl font-extrabold tracking-tight text-foreground mb-1 drop-shadow-sm">
               <AnimatedCounter value={value} />
             </p>
             <p className="text-sm font-semibold text-slate-500">{title}</p>
@@ -280,8 +280,8 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
           transition={{ delay: 0.4, duration: 0.5 }}
         >
           <Card className="h-full border-0 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-4 pt-6 px-8">
-              <CardTitle className="flex items-center justify-between text-lg font-bold text-slate-800">
+            <CardHeader className="border-b border-border bg-muted/40 pb-4 pt-6 px-8">
+              <CardTitle className="flex items-center justify-between text-lg font-bold text-foreground">
                 <div className="flex items-center gap-2">
                   <div className="p-2 bg-blue-100 rounded-xl text-blue-600">
                     <Clock className="h-5 w-5" />
@@ -304,13 +304,13 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.5 + i * 0.1 }}
                       key={a.id}
-                      className="group flex items-center gap-4 p-6 hover:bg-slate-50 transition-all duration-300"
+                      className="group flex items-center gap-4 p-6 hover:bg-muted/50 transition-all duration-300"
                     >
                       <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold text-lg shadow-md group-hover:scale-110 transition-transform">
                         {(a.activityName || '?').charAt(0)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-base font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{a.activityName}</p>
+                        <p className="text-base font-bold text-foreground truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{a.activityName}</p>
                         <p className="text-sm font-medium text-slate-500 flex items-center gap-2 mt-1">
                           <Users className="w-4 h-4" /> {a.currentParticipants ?? 0} คน 
                           <span className="text-slate-300">•</span> 
@@ -335,8 +335,8 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({ curren
           transition={{ delay: 0.5, duration: 0.5 }}
         >
           <Card className="h-full border-0 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-4 pt-6 px-8">
-              <CardTitle className="flex items-center justify-between text-lg font-bold text-slate-800">
+            <CardHeader className="border-b border-border bg-muted/40 pb-4 pt-6 px-8">
+              <CardTitle className="flex items-center justify-between text-lg font-bold text-foreground">
                 <div className="flex items-center gap-2">
                   <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600">
                     <TrendingUp className="h-5 w-5" />

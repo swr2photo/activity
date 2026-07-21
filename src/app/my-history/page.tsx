@@ -2,40 +2,14 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useDeferredValue, startTransition } from 'react';
-import {
-  Box,
-  Container,
-  Typography,
-  Chip,
-  Stack,
-  TextField,
-  InputAdornment,
-  CircularProgress,
-  Button,
-  Skeleton,
-  Avatar,
-  IconButton,
-  Collapse,
-} from '@mui/material';
-import {
-  Search,
-  History as HistoryIcon,
-  EventAvailable,
-  CalendarToday,
-  LocationOn,
-  School,
-  LoginOutlined,
-  InfoOutlined,
-  AccessTime,
-  CheckCircleOutline,
-  ArrowBack,
-  Assignment as SurveyIcon,
-  Launch as LaunchIcon,
-  ExpandMore as ExpandMoreIcon,
-  Description as FileIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Skeleton } from '@/components/ui/skeleton';
+import { HistoryIcon } from '@/components/icons/history';
+import { cn } from '@/lib/utils';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import { useAuth } from '../../lib/firebaseAuth';
 import { getSurveyWindowStatus, surveyStatusLabelTh } from '../../lib/surveyWindow';
@@ -45,15 +19,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
+import { optimizeAvatarUrl } from '@/utils/avatar';
 
 type RegistrationRecord = {
   id: string;
   activityCode: string;
+  activityDocId?: string;
   activityName?: string;
   studentId: string;
   firstName: string;
   lastName: string;
   department: string;
+  institutionName?: string;
   timestamp: Date;
   location?: string;
   bannerUrl?: string;
@@ -76,10 +53,70 @@ const formatTime = (d: Date) =>
 const formatShortDate = (d: Date) =>
   d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
 
+function looksLikeRawActivityCode(value: string) {
+  const s = (value || '').trim();
+  if (!s) return true;
+  if (/^[0-9A-F]{16,}$/i.test(s)) return true;
+  if (/^[0-9A-Z_-]{20,}$/i.test(s) && !/\s/.test(s)) return true;
+  return false;
+}
+
+function displayActivityTitle(record: RegistrationRecord) {
+  const name = (record.activityName || '').trim();
+  const code = (record.activityCode || '').trim();
+  if (name && !looksLikeRawActivityCode(name)) return name;
+  if (code && !looksLikeRawActivityCode(code) && name !== code) return code;
+  return 'กิจกรรมที่ลงทะเบียน';
+}
+
 function countFiles(r: RegistrationRecord) {
   const main = r.files?.length || 0;
   const sess = (r.sessions || []).reduce((n, s) => n + (s.files?.length || 0), 0);
   return main + sess;
+}
+
+function HistoryPageSkeleton() {
+  return (
+    <div className="flex-grow pb-12 pt-2 lg:pb-8 lg:pt-0">
+      <div className="sticky top-0 z-20 border-b border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-bg)_88%,transparent)] pb-3 pt-3 backdrop-blur-[16px] backdrop-saturate-160 lg:top-16 lg:pt-2.5">
+        <div className="mx-auto max-w-3xl px-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Skeleton className="h-11 w-11 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1">
+                <Skeleton className="mb-1.5 h-5 w-[48%]" />
+                <Skeleton className="h-3.5 w-[32%]" />
+              </div>
+            </div>
+            <Skeleton className="h-[34px] w-[34px] rounded-[10px]" />
+          </div>
+          <Skeleton className="mb-3 h-11 w-full rounded-[14px]" />
+          <div className="flex gap-2">
+            <Skeleton className="h-8 w-22 rounded-[10px]" />
+            <Skeleton className="h-8 w-32 rounded-[10px]" />
+            <Skeleton className="h-8 w-24 rounded-[10px]" />
+          </div>
+        </div>
+      </div>
+      <div className="mx-auto mt-6 max-w-3xl space-y-3 px-4">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className="rounded-2xl border border-[var(--page-border)] bg-[var(--page-card-solid)] p-4"
+          >
+            <div className="flex items-center gap-4">
+              <Skeleton className="h-14 w-14 shrink-0 rounded-xl" />
+              <div className="min-w-0 flex-grow">
+                <Skeleton className={cn('mb-2 h-5', i % 3 === 0 ? 'w-[80%]' : i % 3 === 1 ? 'w-[70%]' : 'w-[60%]')} />
+                <Skeleton className="mb-1.5 h-4 w-[40%]" />
+                <Skeleton className="h-3.5 w-[28%]" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 const MyHistoryPage: React.FC = () => {
@@ -87,8 +124,7 @@ const MyHistoryPage: React.FC = () => {
   const alertDialog = useAlertDialog();
 
   const [records, setRecords] = useState<RegistrationRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [enriching, setEnriching] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
   const deferredSearch = useDeferredValue(searchText);
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -122,13 +158,21 @@ const MyHistoryPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!userData?.studentId) return;
+    if (!user) {
+      setLoading(false);
+      setRecords([]);
+      return;
+    }
+
+    if (!userData?.studentId) {
+      setLoading(!userData);
+      return;
+    }
 
     let cancelled = false;
 
     const fetchRecords = async () => {
       setLoading(true);
-      setEnriching(false);
       try {
         const q = query(
           collection(db, 'activityRecords'),
@@ -146,23 +190,75 @@ const MyHistoryPage: React.FC = () => {
           return {
             id: d.id,
             activityCode: data.activityCode || '',
-            activityName: data.activityName || data.activityCode || '',
+            activityDocId: data.activityDocId || '',
+            activityName: data.activityName || '',
             studentId: data.studentId || '',
             firstName: data.firstName || '',
             lastName: data.lastName || '',
             department: data.department || '',
+            institutionName: data.institutionName || '',
             timestamp: ts,
           };
         });
 
         rawRecords.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-        setRecords(rawRecords);
-        setLoading(false);
 
-        // Enrich in background so list appears first
-        setEnriching(true);
         let completedSurveyCodes = new Set<string>();
-        if (user?.uid) {
+        const uniqueCodes = [...new Set(rawRecords.map((r) => r.activityCode).filter(Boolean))];
+        const uniqueDocIds = [
+          ...new Set(
+            rawRecords
+              .map((r) => r.activityDocId)
+              .filter((id): id is string => Boolean(id))
+          ),
+        ];
+        type ActivityMeta = {
+          activityName?: string;
+          location?: string;
+          bannerUrl?: string;
+          surveyEnabled?: boolean;
+          surveyStatus?: RegistrationRecord['surveyStatus'];
+          surveyStatusLabel?: string;
+          files?: any[];
+          sessions?: any[];
+        };
+        const activityMapByCode: Record<string, ActivityMeta> = {};
+        const activityMapByDocId: Record<string, ActivityMeta> = {};
+
+        const putActivityMeta = (docId: string, actData: any) => {
+          const cfg = actData.surveyConfig || {};
+          const win = getSurveyWindowStatus({
+            enabled: cfg.enabled,
+            questionsLength: cfg.questions?.length ?? 0,
+            openAt: cfg.openAt,
+            closeAt: cfg.closeAt,
+            surveyOpenMinutes: cfg.surveyOpenMinutes,
+            forceOpenUntil: cfg.forceOpenUntil,
+            userForceOpenUntil: cfg.userForceOpenUntil,
+            userId: user?.uid,
+            endDateTime: actData.endDateTime,
+            sessions: actData.sessions || [],
+          });
+          const meta: ActivityMeta = {
+            activityName: actData.activityName || '',
+            location: actData.location,
+            bannerUrl: actData.bannerUrl,
+            surveyEnabled: Boolean(cfg.enabled),
+            surveyStatus: win.label,
+            surveyStatusLabel: surveyStatusLabelTh(win),
+            files: actData.files || [],
+            sessions: actData.sessions || [],
+          };
+          activityMapByDocId[docId] = meta;
+          const code = String(actData.activityCode || '').trim();
+          if (code) {
+            activityMapByCode[code] = meta;
+            activityMapByCode[code.toUpperCase()] = meta;
+          }
+        };
+
+        const surveyPromise = (async () => {
+          if (!user?.uid) return;
           try {
             const surveyQ = query(collection(db, 'surveyResponses'), where('userId', '==', user.uid));
             const surveySnap = await getDocs(surveyQ);
@@ -172,27 +268,34 @@ const MyHistoryPage: React.FC = () => {
           } catch (err) {
             console.error('Error fetching surveys:', err);
           }
-        }
+        })();
 
-        const uniqueCodes = [...new Set(rawRecords.map((r) => r.activityCode))].filter(Boolean);
-        const activityMap: Record<
-          string,
-          {
-            activityName?: string;
-            location?: string;
-            bannerUrl?: string;
-            surveyEnabled?: boolean;
-            surveyStatus?: RegistrationRecord['surveyStatus'];
-            surveyStatusLabel?: string;
-            files?: any[];
-            sessions?: any[];
+        const metaPromise = (async () => {
+          if (uniqueDocIds.length > 0) {
+            try {
+              const snaps = await Promise.all(
+                uniqueDocIds.map((id) => getDoc(doc(db, 'activityQRCodes', id)))
+              );
+              snaps.forEach((snap, i) => {
+                if (snap.exists()) putActivityMeta(uniqueDocIds[i], snap.data());
+              });
+            } catch (err) {
+              console.error('Error fetching activities by doc id:', err);
+            }
           }
-        > = {};
 
-        if (uniqueCodes.length > 0) {
+          const missingCodes = uniqueCodes.filter((code) => {
+            const key = code.toUpperCase();
+            return !activityMapByCode[code] && !activityMapByCode[key];
+          });
+          if (missingCodes.length === 0) return;
+
+          const queryCodes = [
+            ...new Set(missingCodes.flatMap((c) => [c, c.toUpperCase(), c.toLowerCase()])),
+          ];
           const chunks: string[][] = [];
-          for (let i = 0; i < uniqueCodes.length; i += 30) {
-            chunks.push(uniqueCodes.slice(i, i + 30));
+          for (let i = 0; i < queryCodes.length; i += 30) {
+            chunks.push(queryCodes.slice(i, i + 30));
           }
           try {
             const actSnaps = await Promise.all(
@@ -201,55 +304,47 @@ const MyHistoryPage: React.FC = () => {
               )
             );
             actSnaps.forEach((actSnap) => {
-              actSnap.forEach((d) => {
-                const actData = d.data() as any;
-                const code = actData.activityCode;
-                if (code) {
-                  const cfg = actData.surveyConfig || {};
-                  const win = getSurveyWindowStatus({
-                    enabled: cfg.enabled,
-                    questionsLength: cfg.questions?.length ?? 0,
-                    openAt: cfg.openAt,
-                    closeAt: cfg.closeAt,
-                    surveyOpenMinutes: cfg.surveyOpenMinutes,
-                    forceOpenUntil: cfg.forceOpenUntil,
-                    userForceOpenUntil: cfg.userForceOpenUntil,
-                    userId: user?.uid,
-                    endDateTime: actData.endDateTime,
-                    sessions: actData.sessions || [],
-                  });
-                  activityMap[code] = {
-                    activityName: actData.activityName || code,
-                    location: actData.location,
-                    bannerUrl: actData.bannerUrl,
-                    surveyEnabled: Boolean(cfg.enabled),
-                    surveyStatus: win.label,
-                    surveyStatusLabel: surveyStatusLabelTh(win),
-                    files: actData.files || [],
-                    sessions: actData.sessions || [],
-                  };
-                }
-              });
+              actSnap.forEach((d) => putActivityMeta(d.id, d.data()));
             });
           } catch (err) {
             console.error('Error batch fetching activities:', err);
           }
-        }
+        })();
 
+        await Promise.all([surveyPromise, metaPromise]);
         if (cancelled) return;
 
-        const enriched = rawRecords.map((r) => ({
-          ...r,
-          activityName: activityMap[r.activityCode]?.activityName || r.activityName || r.activityCode,
-          location: activityMap[r.activityCode]?.location,
-          bannerUrl: activityMap[r.activityCode]?.bannerUrl,
-          surveyEnabled: activityMap[r.activityCode]?.surveyEnabled || false,
-          surveyCompleted: completedSurveyCodes.has((r.activityCode || '').toUpperCase()),
-          surveyStatus: activityMap[r.activityCode]?.surveyStatus,
-          surveyStatusLabel: activityMap[r.activityCode]?.surveyStatusLabel,
-          files: activityMap[r.activityCode]?.files || [],
-          sessions: activityMap[r.activityCode]?.sessions || [],
-        }));
+        const resolveMeta = (r: RegistrationRecord): ActivityMeta | undefined => {
+          if (r.activityDocId && activityMapByDocId[r.activityDocId]) {
+            return activityMapByDocId[r.activityDocId];
+          }
+          const code = r.activityCode || '';
+          return activityMapByCode[code] || activityMapByCode[code.toUpperCase()];
+        };
+
+        const enriched = rawRecords.map((r) => {
+          const meta = resolveMeta(r);
+          const resolvedName =
+            (meta?.activityName && !looksLikeRawActivityCode(meta.activityName)
+              ? meta.activityName
+              : '') ||
+            (r.activityName && !looksLikeRawActivityCode(r.activityName) ? r.activityName : '') ||
+            meta?.activityName ||
+            r.activityName ||
+            '';
+          return {
+            ...r,
+            activityName: resolvedName,
+            location: meta?.location || r.location,
+            bannerUrl: meta?.bannerUrl,
+            surveyEnabled: meta?.surveyEnabled || false,
+            surveyCompleted: completedSurveyCodes.has((r.activityCode || '').toUpperCase()),
+            surveyStatus: meta?.surveyStatus,
+            surveyStatusLabel: meta?.surveyStatusLabel,
+            files: meta?.files || [],
+            sessions: meta?.sessions || [],
+          };
+        });
 
         setRecords(enriched);
       } catch (e) {
@@ -257,7 +352,6 @@ const MyHistoryPage: React.FC = () => {
       } finally {
         if (!cancelled) {
           setLoading(false);
-          setEnriching(false);
         }
       }
     };
@@ -266,7 +360,7 @@ const MyHistoryPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [userData?.studentId, user?.uid]);
+  }, [user, userData, user?.uid]);
 
   const surveyPendingCount = useMemo(
     () =>
@@ -322,189 +416,107 @@ const MyHistoryPage: React.FC = () => {
   };
 
   const pageShell = (children: React.ReactNode) => (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: '100vh',
-        bgcolor: 'var(--page-bg)',
-        color: 'var(--page-text)',
-      }}
-    >
+    <div className="flex min-h-screen flex-col bg-[var(--page-bg)] text-[var(--page-text)]">
       <Navbar />
       {children}
       <Footer />
-    </Box>
+    </div>
   );
 
-  if (authLoading) {
-    return pageShell(
-      <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', py: 12 }}>
-        <CircularProgress size={36} />
-      </Box>
-    );
+  if (authLoading || (user && loading)) {
+    return pageShell(<HistoryPageSkeleton />);
   }
 
   if (!user) {
     return pageShell(
-      <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2, py: 10 }}>
+      <div className="flex flex-grow items-center justify-center px-4 py-20">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
-          <Box
-            sx={{
-              maxWidth: 420,
-              mx: 'auto',
-              p: { xs: 3.5, sm: 4.5 },
-              borderRadius: '24px',
-              textAlign: 'center',
-              bgcolor: 'var(--page-card-solid)',
-              border: '1px solid var(--page-border)',
-              boxShadow: 'var(--page-shadow)',
-            }}
-          >
-            <Box
-              sx={{
-                width: 64,
-                height: 64,
-                borderRadius: '18px',
-                background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                mx: 'auto',
-                mb: 2.5,
-              }}
+          <div className="mx-auto max-w-[420px] rounded-3xl border border-[var(--page-border)] bg-[var(--page-card-solid)] p-8 text-center shadow-[var(--page-shadow)] sm:p-10">
+            <div
+              className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-[18px]"
+              style={{ background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)' }}
             >
-              <HistoryIcon sx={{ fontSize: 32, color: '#fff' }} />
-            </Box>
-            <Typography variant="h5" fontWeight={800} sx={{ mb: 1, letterSpacing: '-0.02em' }}>
-              ประวัติการลงทะเบียน
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'var(--page-text-secondary)', mb: 3, lineHeight: 1.65 }}>
+              <HistoryIcon.History className="h-8 w-8 text-white" />
+            </div>
+            <h1 className="mb-2 text-xl font-extrabold tracking-tight sm:text-2xl">ประวัติการลงทะเบียน</h1>
+            <p className="mb-6 text-sm leading-relaxed text-[var(--page-text-secondary)]">
               เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย เพื่อดูกิจกรรมที่เคยลงทะเบียน เอกสาร และแบบประเมินที่ค้างอยู่
-            </Typography>
+            </p>
             <Button
-              variant="contained"
-              size="large"
-              fullWidth
+              size="lg"
+              className="w-full rounded-[14px] bg-[#0a6bcf] py-3 font-bold shadow-[0_8px_20px_rgba(10,107,207,0.28)] hover:bg-[#0858ad]"
               onClick={userLogin}
-              startIcon={<LoginOutlined />}
-              sx={{
-                borderRadius: '14px',
-                py: 1.5,
-                fontWeight: 700,
-                textTransform: 'none',
-                bgcolor: '#0a6bcf',
-                boxShadow: '0 8px 20px rgba(10, 107, 207, 0.28)',
-                '&:hover': { bgcolor: '#0858ad' },
-              }}
             >
+              <HistoryIcon.Login />
               เข้าสู่ระบบ
             </Button>
-          </Box>
+          </div>
         </motion.div>
-      </Box>
+      </div>
     );
   }
 
   return pageShell(
-    <Box sx={{ flexGrow: 1, pb: { xs: 12, lg: 8 }, pt: { xs: 2, lg: 0 } }}>
-      {/* Compact sticky toolbar — content above the fold */}
-      <Box
-        sx={{
-          position: 'sticky',
-          // มือถือ: navbar อยู่ล่าง → ติดบนจอ | เดสก์ท็อป: ติดใต้ navbar (~64px)
-          top: { xs: 0, lg: 64 },
-          zIndex: 20,
-          pt: { xs: 1.5, lg: 1.25 },
-          pb: 1.5,
-          bgcolor: 'color-mix(in srgb, var(--page-bg) 88%, transparent)',
-          backdropFilter: 'blur(16px) saturate(160%)',
-          borderBottom: '1px solid var(--page-border)',
-        }}
-      >
-        <Container maxWidth="md">
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }} spacing={1}>
-            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-              <Avatar
-                src={userData?.photoURL || user?.photoURL || undefined}
-                sx={{ width: 44, height: 44, border: '2px solid color-mix(in srgb, #0a6bcf 35%, transparent)', flexShrink: 0 }}
-              >
-                {(userData?.firstName?.charAt(0) || user?.displayName?.charAt(0) || '?').toUpperCase()}
+    <div className="flex-grow pb-12 pt-2 lg:pb-8 lg:pt-0">
+      <div className="sticky top-0 z-20 border-b border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-bg)_88%,transparent)] pb-3 pt-3 backdrop-blur-[16px] backdrop-saturate-160 lg:top-16 lg:pt-2.5">
+        <div className="mx-auto max-w-3xl px-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Avatar className="h-11 w-11 shrink-0 border-2 border-[color-mix(in_srgb,#0a6bcf_35%,transparent)]">
+                <AvatarImage
+                  src={optimizeAvatarUrl(user?.photoURL || userData?.photoURL, 96)}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                />
+                <AvatarFallback>
+                  {(userData?.firstName?.charAt(0) || user?.displayName?.charAt(0) || '?').toUpperCase()}
+                </AvatarFallback>
               </Avatar>
-              <Box sx={{ minWidth: 0 }}>
-                <Typography
-                  component="h1"
-                  noWrap
-                  sx={{
-                    fontWeight: 800,
-                    fontSize: { xs: '1rem', sm: '1.15rem' },
-                    letterSpacing: '-0.02em',
-                    lineHeight: 1.25,
-                  }}
-                >
+              <div className="min-w-0">
+                <h1 className="truncate text-base font-extrabold tracking-tight leading-tight sm:text-lg">
                   {userData?.username?.trim() ||
                     userData?.displayName ||
                     [userData?.firstName, userData?.lastName].filter(Boolean).join(' ') ||
                     user?.displayName ||
                     'ผู้ใช้'}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  noWrap
-                  sx={{ color: 'var(--page-text-secondary)', fontWeight: 600, display: 'block' }}
-                >
+                </h1>
+                <p className="block truncate text-xs font-semibold text-[var(--page-text-secondary)]">
                   {userData?.department && userData.department !== 'ไม่ระบุ'
                     ? userData.department
                     : userData?.faculty && userData.faculty !== 'ไม่ระบุ'
                       ? userData.faculty
                       : '—'}
-                </Typography>
-              </Box>
-            </Stack>
-            <IconButton
-              component={Link}
-              href="/"
-              aria-label="กลับหน้าแรก"
-              size="small"
-              sx={{
-                border: '1px solid var(--page-border)',
-                bgcolor: 'var(--page-card)',
-                flexShrink: 0,
-              }}
-            >
-              <ArrowBack fontSize="small" />
-            </IconButton>
-          </Stack>
+                </p>
+              </div>
+            </div>
+            <Button asChild variant="outline" size="icon" className="shrink-0 border-[var(--page-border)] bg-[var(--page-card)]" aria-label="กลับหน้าแรก">
+              <Link href="/">
+                <HistoryIcon.Back />
+              </Link>
+            </Button>
+          </div>
 
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="ค้นหาชื่อ รหัส หรือสถานที่…"
-            value={searchText}
-            onChange={(e) => startTransition(() => setSearchText(e.target.value))}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search sx={{ color: 'var(--page-text-secondary)', fontSize: 20 }} />
-                </InputAdornment>
-              ),
-              endAdornment: searchText ? (
-                <InputAdornment position="end">
-                  <IconButton size="small" aria-label="ล้างคำค้น" onClick={() => setSearchText('')}>
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                </InputAdornment>
-              ) : undefined,
-              sx: {
-                borderRadius: '14px',
-                bgcolor: 'var(--page-card-solid)',
-                '& fieldset': { borderColor: 'var(--page-border)' },
-                '& input': { py: 1.15, fontSize: '0.95rem' },
-              },
-            }}
-          />
+          <div className="relative">
+            <HistoryIcon.Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--page-text-secondary)]" />
+            <Input
+              placeholder="ค้นหาชื่อ รหัส หรือสถานที่…"
+              value={searchText}
+              onChange={(e) => startTransition(() => setSearchText(e.target.value))}
+              className="h-11 rounded-[14px] border-[var(--page-border)] bg-[var(--page-card-solid)] pl-10 pr-10 text-[0.95rem]"
+            />
+            {searchText && (
+              <button
+                type="button"
+                aria-label="ล้างคำค้น"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 hover:bg-accent"
+                onClick={() => setSearchText('')}
+              >
+                <HistoryIcon.Clear size="lg" />
+              </button>
+            )}
+          </div>
 
-          <Stack direction="row" spacing={1} sx={{ mt: 1.25, overflowX: 'auto', pb: 0.25, scrollbarWidth: 'none' }}>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
             {(
               [
                 { key: 'all' as FilterKey, label: 'ทั้งหมด', count: records.length },
@@ -514,55 +526,30 @@ const MyHistoryPage: React.FC = () => {
             ).map((f) => {
               const active = filter === f.key;
               return (
-                <Chip
+                <button
                   key={f.key}
-                  clickable
+                  type="button"
                   onClick={() => setFilter(f.key)}
-                  label={`${f.label}${f.count ? ` (${f.count})` : ''}`}
-                  sx={{
-                    fontWeight: 700,
-                    fontSize: '0.8rem',
-                    height: 32,
-                    borderRadius: '10px',
-                    bgcolor: active ? '#0a6bcf' : 'var(--page-card-solid)',
-                    color: active ? '#fff' : 'var(--page-text)',
-                    border: active ? '1px solid #0a6bcf' : '1px solid var(--page-border)',
-                    '&:hover': { bgcolor: active ? '#0858ad' : 'color-mix(in srgb, var(--page-card) 80%, #0a6bcf)' },
-                  }}
-                />
+                  className={cn(
+                    'h-8 shrink-0 rounded-[10px] border px-3 text-[0.8rem] font-bold transition-colors',
+                    active
+                      ? 'border-[#0a6bcf] bg-[#0a6bcf] text-white hover:bg-[#0858ad]'
+                      : 'border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] hover:bg-[color-mix(in_srgb,var(--page-card)_80%,#0a6bcf)]'
+                  )}
+                >
+                  {f.label}{f.count ? ` (${f.count})` : ''}
+                </button>
               );
             })}
-          </Stack>
-        </Container>
-      </Box>
+          </div>
+        </div>
+      </div>
 
-      <Container maxWidth="md" sx={{ mt: 2.5 }}>
-        {loading ? (
-          <Stack spacing={1.5}>
-            {[1, 2, 3, 4].map((i) => (
-              <Box
-                key={i}
-                sx={{
-                  p: 2,
-                  borderRadius: '16px',
-                  bgcolor: 'var(--page-card-solid)',
-                  border: '1px solid var(--page-border)',
-                }}
-              >
-                <Stack direction="row" spacing={2} alignItems="center">
-                  <Skeleton variant="rounded" width={56} height={56} sx={{ borderRadius: '12px', flexShrink: 0 }} />
-                  <Box sx={{ flexGrow: 1 }}>
-                    <Skeleton width="70%" height={22} sx={{ mb: 0.75 }} />
-                    <Skeleton width="45%" height={16} />
-                  </Box>
-                </Stack>
-              </Box>
-            ))}
-          </Stack>
-        ) : filteredRecords.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 10, px: 2 }}>
-            <InfoOutlined sx={{ fontSize: 56, color: 'var(--page-text-secondary)', opacity: 0.45, mb: 1.5 }} />
-            <Typography variant="h6" fontWeight={800} sx={{ mb: 0.75 }}>
+      <div className="mx-auto mt-6 max-w-3xl px-4">
+        {filteredRecords.length === 0 ? (
+          <div className="px-4 py-20 text-center">
+            <HistoryIcon.Info className="mx-auto mb-4 h-14 w-14 text-[var(--page-text-secondary)] opacity-45" />
+            <h2 className="mb-2 text-lg font-extrabold">
               {records.length === 0
                 ? 'ยังไม่มีประวัติ'
                 : filter === 'survey'
@@ -570,56 +557,40 @@ const MyHistoryPage: React.FC = () => {
                   : filter === 'files'
                     ? 'ไม่พบเอกสารแนบ'
                     : 'ไม่พบผลลัพธ์'}
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'var(--page-text-secondary)', mb: 2.5 }}>
+            </h2>
+            <p className="mb-6 text-sm text-[var(--page-text-secondary)]">
               {records.length === 0
                 ? 'เมื่อลงทะเบียนกิจกรรมแล้ว จะแสดงที่นี่ทันที'
                 : 'ลองเปลี่ยนตัวกรองหรือคำค้นหา'}
-            </Typography>
+            </p>
             {records.length === 0 ? (
-              <Button
-                component={Link}
-                href="/"
-                variant="contained"
-                sx={{
-                  borderRadius: '12px',
-                  px: 3.5,
-                  py: 1.2,
-                  fontWeight: 700,
-                  textTransform: 'none',
-                  bgcolor: '#0a6bcf',
-                }}
-              >
-                ดูกิจกรรมทั้งหมด
+              <Button asChild className="rounded-xl bg-[#0a6bcf] px-8 font-bold hover:bg-[#0858ad]">
+                <Link href="/">ดูกิจกรรมทั้งหมด</Link>
               </Button>
             ) : (
               <Button
-                variant="outlined"
+                variant="outline"
+                className="rounded-xl font-bold"
                 onClick={() => {
                   setFilter('all');
                   setSearchText('');
                 }}
-                sx={{ borderRadius: '12px', fontWeight: 700, textTransform: 'none' }}
               >
                 ล้างตัวกรอง
               </Button>
             )}
-          </Box>
+          </div>
         ) : (
-          <Stack spacing={3}>
+          <div className="space-y-6">
             {groupedByDate.map((group) => (
-              <Box key={group.key}>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25, px: 0.5 }}>
-                  <CalendarToday sx={{ fontSize: 15, color: 'var(--page-text-secondary)' }} />
-                  <Typography variant="caption" fontWeight={800} sx={{ color: 'var(--page-text-secondary)' }}>
-                    {group.label}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: 'var(--page-text-secondary)', opacity: 0.7 }}>
-                    · {group.items.length}
-                  </Typography>
-                </Stack>
+              <div key={group.key}>
+                <div className="mb-3 flex items-center gap-2 px-1">
+                  <HistoryIcon.DayGroup className="text-[var(--page-text-secondary)]" size="md" />
+                  <span className="text-xs font-extrabold text-[var(--page-text-secondary)]">{group.label}</span>
+                  <span className="text-xs text-[var(--page-text-secondary)] opacity-70">· {group.items.length}</span>
+                </div>
 
-                <Stack spacing={1.25}>
+                <div className="space-y-3">
                   <AnimatePresence initial={false}>
                     {group.items.map((record, idx) => {
                       const fileCount = countFiles(record);
@@ -643,336 +614,188 @@ const MyHistoryPage: React.FC = () => {
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ duration: 0.28, delay: Math.min(idx * 0.03, 0.18) }}
                         >
-                          <Box
-                            sx={{
-                              borderRadius: '16px',
-                              bgcolor: 'var(--page-card-solid)',
-                              border: needsSurvey
-                                ? '1px solid color-mix(in srgb, #e8a317 55%, var(--page-border))'
-                                : '1px solid var(--page-border)',
-                              overflow: 'hidden',
-                              transition: 'border-color 0.2s, box-shadow 0.2s',
-                              '&:hover': {
-                                boxShadow: '0 10px 28px rgba(0,0,0,0.06)',
-                              },
-                            }}
+                          <div
+                            className={cn(
+                              'overflow-hidden rounded-2xl bg-[var(--page-card-solid)] transition-[border-color,box-shadow]',
+                              'hover:shadow-[0_10px_28px_rgba(0,0,0,0.06)]',
+                              needsSurvey
+                                ? 'border border-[color-mix(in_srgb,#e8a317_55%,var(--page-border))]'
+                                : 'border border-[var(--page-border)]'
+                            )}
                           >
-                            <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
-                              <Stack direction="row" spacing={1.5} alignItems="flex-start">
-                                {/* Thumb */}
-                                <Box sx={{ flexShrink: 0 }}>
+                            <div className="p-4 sm:p-4">
+                              <div className="flex items-start gap-3">
+                                <div className="shrink-0">
                                   {record.bannerUrl ? (
-                                    <Box
-                                      sx={{
-                                        position: 'relative',
-                                        width: { xs: 52, sm: 60 },
-                                        height: { xs: 52, sm: 60 },
-                                        borderRadius: '12px',
-                                        overflow: 'hidden',
-                                      }}
-                                    >
-                                      <Image
-                                        src={record.bannerUrl}
-                                        alt=""
-                                        fill
-                                        sizes="60px"
-                                        style={{ objectFit: 'cover' }}
-                                      />
-                                    </Box>
+                                    <div className="relative h-[52px] w-[52px] overflow-hidden rounded-xl sm:h-[60px] sm:w-[60px]">
+                                      <Image src={record.bannerUrl} alt="" fill sizes="60px" style={{ objectFit: 'cover' }} />
+                                    </div>
                                   ) : (
-                                    <Box
-                                      sx={{
-                                        width: { xs: 52, sm: 60 },
-                                        height: { xs: 52, sm: 60 },
-                                        borderRadius: '12px',
-                                        background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                      }}
+                                    <div
+                                      className="flex h-[52px] w-[52px] items-center justify-center rounded-xl sm:h-[60px] sm:w-[60px]"
+                                      style={{ background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)' }}
                                     >
-                                      <EventAvailable sx={{ fontSize: 26, color: '#fff' }} />
-                                    </Box>
+                                      <HistoryIcon.ActivityThumb className="text-white" />
+                                    </div>
                                   )}
-                                </Box>
+                                </div>
 
-                                {/* Meta */}
-                                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                                  <Typography
-                                    fontWeight={800}
-                                    sx={{
-                                      fontSize: { xs: '0.95rem', sm: '1.02rem' },
-                                      lineHeight: 1.3,
-                                      letterSpacing: '-0.02em',
-                                      mb: 0.35,
-                                    }}
-                                  >
-                                    {record.activityName || record.activityCode}
-                                  </Typography>
+                                <div className="min-w-0 flex-grow">
+                                  <p className="mb-1 text-[0.95rem] font-extrabold leading-tight tracking-tight sm:text-[1.02rem]">
+                                    {displayActivityTitle(record)}
+                                  </p>
+                                  {looksLikeRawActivityCode(record.activityName || record.activityCode) &&
+                                    record.activityCode && (
+                                      <p className="mb-1 block font-mono text-[0.7rem] text-[var(--page-text-secondary)]">
+                                        รหัส {record.activityCode.slice(0, 8)}…
+                                      </p>
+                                    )}
 
-                                  <Stack
-                                    direction="row"
-                                    spacing={1.25}
-                                    flexWrap="wrap"
-                                    useFlexGap
-                                    sx={{ color: 'var(--page-text-secondary)', rowGap: 0.25 }}
-                                  >
-                                    <Stack direction="row" spacing={0.35} alignItems="center">
-                                      <AccessTime sx={{ fontSize: 13 }} />
-                                      <Typography variant="caption" fontWeight={600}>
-                                        {formatShortDate(record.timestamp)} · {formatTime(record.timestamp)}
-                                      </Typography>
-                                    </Stack>
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[var(--page-text-secondary)]">
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold">
+                                      <HistoryIcon.Time />
+                                      {formatShortDate(record.timestamp)} · {formatTime(record.timestamp)}
+                                    </span>
                                     {record.location && (
-                                      <Stack direction="row" spacing={0.35} alignItems="center">
-                                        <LocationOn sx={{ fontSize: 13 }} />
-                                        <Typography
-                                          variant="caption"
-                                          fontWeight={600}
-                                          sx={{
-                                            maxWidth: 160,
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                          }}
-                                        >
-                                          {record.location}
-                                        </Typography>
-                                      </Stack>
+                                      <span className="inline-flex max-w-[160px] items-center gap-1 truncate text-xs font-semibold">
+                                        <HistoryIcon.Location />
+                                        {record.location}
+                                      </span>
                                     )}
-                                    {record.department && (
-                                      <Stack direction="row" spacing={0.35} alignItems="center" sx={{ display: { xs: 'none', sm: 'flex' } }}>
-                                        <School sx={{ fontSize: 13 }} />
-                                        <Typography variant="caption" fontWeight={600}>
-                                          {record.department}
-                                        </Typography>
-                                      </Stack>
+                                    {(record.institutionName || record.department) && (
+                                      <span className="inline-flex max-w-[180px] items-center gap-1 truncate text-xs font-semibold sm:max-w-[220px]">
+                                        <HistoryIcon.Affiliation />
+                                        {record.institutionName || record.department}
+                                      </span>
                                     )}
-                                  </Stack>
+                                  </div>
 
-                                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
-                                    <Chip
-                                      size="small"
-                                      icon={<CheckCircleOutline sx={{ fontSize: '0.9rem !important' }} />}
-                                      label="ลงทะเบียนแล้ว"
-                                      sx={{
-                                        height: 24,
-                                        fontWeight: 700,
-                                        fontSize: '0.7rem',
-                                        bgcolor: 'rgba(26, 163, 90, 0.12)',
-                                        color: '#1a7a45',
-                                        borderRadius: '8px',
-                                      }}
-                                    />
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    <Badge className="h-6 gap-1 rounded-lg border-0 bg-[rgba(26,163,90,0.12)] text-[0.7rem] font-bold text-[#1a7a45]">
+                                      <HistoryIcon.Registered />
+                                      ลงทะเบียนแล้ว
+                                    </Badge>
                                     {fileCount > 0 && (
-                                      <Chip
-                                        size="small"
-                                        icon={<FileIcon sx={{ fontSize: '0.85rem !important' }} />}
-                                        label={`เอกสาร ${fileCount}`}
-                                        onClick={() => toggleExpand(record.id)}
-                                        sx={{
-                                          height: 24,
-                                          fontWeight: 700,
-                                          fontSize: '0.7rem',
-                                          bgcolor: 'rgba(10, 107, 207, 0.1)',
-                                          color: '#0a6bcf',
-                                          borderRadius: '8px',
-                                          cursor: 'pointer',
-                                        }}
-                                      />
+                                      <button type="button" onClick={() => toggleExpand(record.id)}>
+                                        <Badge className="h-6 cursor-pointer gap-1 rounded-lg border-0 bg-[rgba(10,107,207,0.1)] text-[0.7rem] font-bold text-[#0a6bcf]">
+                                          <HistoryIcon.Docs />
+                                          เอกสาร {fileCount}
+                                        </Badge>
+                                      </button>
                                     )}
                                     {record.surveyEnabled && record.surveyCompleted && (
-                                      <Chip
-                                        size="small"
-                                        icon={<SurveyIcon sx={{ fontSize: '0.85rem !important' }} />}
-                                        label="ทำแบบประเมินแล้ว"
-                                        sx={{
-                                          height: 24,
-                                          fontWeight: 700,
-                                          fontSize: '0.7rem',
-                                          borderRadius: '8px',
-                                        }}
-                                      />
+                                      <Badge variant="secondary" className="h-6 gap-1 rounded-lg text-[0.7rem] font-bold">
+                                        <HistoryIcon.SurveyDone />
+                                        ทำแบบประเมินแล้ว
+                                      </Badge>
                                     )}
-                                  </Stack>
-                                </Box>
-                              </Stack>
+                                  </div>
+                                </div>
+                              </div>
 
-                              {/* Primary actions — always visible */}
-                              <Stack
-                                direction={{ xs: 'column', sm: 'row' }}
-                                spacing={1}
-                                sx={{ mt: 1.5 }}
-                                alignItems={{ sm: 'center' }}
-                              >
+                              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                                 {needsSurvey && (
                                   <Button
-                                    component={Link}
-                                    href={`/register?activity=${record.activityCode}`}
-                                    variant="contained"
-                                    size="small"
-                                    startIcon={<SurveyIcon />}
-                                    sx={{
-                                      flex: { sm: 1 },
-                                      fontWeight: 800,
-                                      fontSize: '0.8rem',
-                                      borderRadius: '10px',
-                                      textTransform: 'none',
-                                      py: 0.85,
-                                      bgcolor: '#e8a317',
-                                      color: '#1d1d1f',
-                                      boxShadow: 'none',
-                                      '&:hover': { bgcolor: '#d4920f', boxShadow: 'none' },
-                                    }}
+                                    asChild
+                                    size="sm"
+                                    className="flex-1 rounded-[10px] bg-[#e8a317] py-2 text-[0.8rem] font-extrabold text-[#1d1d1f] shadow-none hover:bg-[#d4920f] hover:shadow-none"
                                   >
-                                    {record.surveyStatus === 'forced_open'
-                                      ? 'ทำแบบประเมิน (ขยายเวลา)'
-                                      : 'ทำแบบประเมิน (เปิดอยู่)'}
+                                    <Link href={`/register?activity=${record.activityCode}`}>
+                                      <HistoryIcon.SurveyAction />
+                                      {record.surveyStatus === 'forced_open'
+                                        ? 'ทำแบบประเมิน (ขยายเวลา)'
+                                        : 'ทำแบบประเมิน (เปิดอยู่)'}
+                                    </Link>
                                   </Button>
                                 )}
                                 {surveyPendingLater && (
-                                  <Button
-                                    component={Link}
-                                    href={`/register?activity=${record.activityCode}`}
-                                    variant="outlined"
-                                    size="small"
-                                    startIcon={<SurveyIcon />}
-                                    sx={{
-                                      flex: { sm: 1 },
-                                      fontWeight: 700,
-                                      fontSize: '0.8rem',
-                                      borderRadius: '10px',
-                                      textTransform: 'none',
-                                      py: 0.85,
-                                    }}
-                                  >
-                                    {record.surveyStatus === 'not_started'
-                                      ? 'แบบประเมินยังไม่เปิด'
-                                      : 'หมดเวลาทำแบบประเมิน'}
+                                  <Button asChild size="sm" variant="outline" className="flex-1 rounded-[10px] py-2 text-[0.8rem] font-bold">
+                                    <Link href={`/register?activity=${record.activityCode}`}>
+                                      <HistoryIcon.SurveyAction />
+                                      {record.surveyStatus === 'not_started'
+                                        ? 'แบบประเมินยังไม่เปิด'
+                                        : 'หมดเวลาทำแบบประเมิน'}
+                                    </Link>
                                   </Button>
                                 )}
                                 {hasDetails && (
                                   <Button
-                                    size="small"
-                                    variant={needsSurvey ? 'outlined' : 'contained'}
-                                    endIcon={
-                                      <ExpandMoreIcon
-                                        sx={{
-                                          transform: expanded ? 'rotate(180deg)' : 'none',
-                                          transition: 'transform 0.2s',
-                                        }}
-                                      />
-                                    }
+                                    size="sm"
+                                    variant={needsSurvey ? 'outline' : 'default'}
+                                    className={cn(
+                                      'rounded-[10px] py-2 text-[0.8rem] font-bold',
+                                      !needsSurvey && 'flex-1 bg-[#0a6bcf] shadow-none hover:bg-[#0858ad] hover:shadow-none'
+                                    )}
                                     onClick={() => toggleExpand(record.id)}
-                                    sx={{
-                                      flex: { sm: needsSurvey ? undefined : 1 },
-                                      fontWeight: 700,
-                                      fontSize: '0.8rem',
-                                      borderRadius: '10px',
-                                      textTransform: 'none',
-                                      py: 0.85,
-                                      ...(needsSurvey
-                                        ? {}
-                                        : {
-                                            bgcolor: '#0a6bcf',
-                                            boxShadow: 'none',
-                                            '&:hover': { bgcolor: '#0858ad', boxShadow: 'none' },
-                                          }),
-                                    }}
                                   >
                                     {expanded ? 'ซ่อนรายละเอียด' : fileCount > 0 ? `เอกสาร (${fileCount})` : 'รายละเอียด'}
+                                    <HistoryIcon.Expand className={cn(!expanded && 'rotate-180')} />
                                   </Button>
                                 )}
-                              </Stack>
-                            </Box>
+                              </div>
+                            </div>
 
-                            <Collapse in={expanded} timeout={220} unmountOnExit>
-                              <Box
-                                sx={{
-                                  px: { xs: 1.5, sm: 2 },
-                                  pb: 2,
-                                  pt: 0.5,
-                                  bgcolor: 'color-mix(in srgb, var(--page-bg) 65%, transparent)',
-                                  borderTop: '1px solid var(--page-border)',
-                                }}
-                              >
+                            {expanded && (
+                              <div className="border-t border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-bg)_65%,transparent)] px-4 pb-4 pt-2">
                                 {record.files && record.files.length > 0 && (
-                                  <Box sx={{ mt: 1.25 }}>
-                                    <Typography
-                                      variant="caption"
-                                      fontWeight={800}
-                                      sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}
-                                    >
-                                      <FileIcon sx={{ fontSize: 14, color: '#0a6bcf' }} />
+                                  <div className="mt-2">
+                                    <p className="mb-2 flex items-center gap-1 text-xs font-extrabold">
+                                      <HistoryIcon.Docs />
                                       เอกสารกิจกรรม
-                                    </Typography>
-                                    <Stack spacing={0.75}>
+                                    </p>
+                                    <div className="space-y-1.5">
                                       {record.files.map((file: any) => (
                                         <FileRow key={file.id} file={file} onDownload={handleAuthDownload} />
                                       ))}
-                                    </Stack>
-                                  </Box>
+                                    </div>
+                                  </div>
                                 )}
 
                                 {record.sessions && record.sessions.length > 0 && (
-                                  <Box sx={{ mt: 1.75 }}>
-                                    <Typography variant="caption" fontWeight={800} sx={{ mb: 0.75, display: 'block' }}>
-                                      กิจกรรมย่อย / รอบ
-                                    </Typography>
-                                    <Stack spacing={1}>
+                                  <div className="mt-4">
+                                    <p className="mb-2 block text-xs font-extrabold">กิจกรรมย่อย / รอบ</p>
+                                    <div className="space-y-2">
                                       {record.sessions.map((sess: any) => (
-                                        <Box
+                                        <div
                                           key={sess.id}
-                                          sx={{
-                                            p: 1.25,
-                                            borderRadius: '12px',
-                                            bgcolor: 'var(--page-card-solid)',
-                                            border: '1px solid var(--page-border)',
-                                          }}
+                                          className="rounded-xl border border-[var(--page-border)] bg-[var(--page-card-solid)] p-3"
                                         >
-                                          <Typography variant="body2" fontWeight={700}>
-                                            {sess.name}
-                                          </Typography>
+                                          <p className="text-sm font-bold">{sess.name}</p>
                                           {sess.files && sess.files.length > 0 ? (
-                                            <Stack spacing={0.75} sx={{ mt: 0.75 }}>
+                                            <div className="mt-2 space-y-1.5">
                                               {sess.files.map((file: any) => (
                                                 <FileRow key={file.id} file={file} onDownload={handleAuthDownload} dense />
                                               ))}
-                                            </Stack>
+                                            </div>
                                           ) : (
-                                            <Typography variant="caption" sx={{ color: 'var(--page-text-secondary)', mt: 0.35, display: 'block' }}>
-                                              ไม่มีเอกสารแนบ
-                                            </Typography>
+                                            <p className="mt-1 block text-xs text-[var(--page-text-secondary)]">ไม่มีเอกสารแนบ</p>
                                           )}
-                                        </Box>
+                                        </div>
                                       ))}
-                                    </Stack>
-                                  </Box>
+                                    </div>
+                                  </div>
                                 )}
 
                                 {(!record.files || record.files.length === 0) &&
                                   (!record.sessions || record.sessions.length === 0) && (
-                                    <Typography
-                                      variant="caption"
-                                      sx={{ display: 'block', textAlign: 'center', py: 1.5, color: 'var(--page-text-secondary)' }}
-                                    >
+                                    <p className="block py-4 text-center text-xs text-[var(--page-text-secondary)]">
                                       ไม่มีเอกสารแนบหรือข้อมูลกิจกรรมย่อย
-                                    </Typography>
+                                    </p>
                                   )}
-                              </Box>
-                            </Collapse>
-                          </Box>
+                              </div>
+                            )}
+                          </div>
                         </motion.div>
                       );
                     })}
                   </AnimatePresence>
-                </Stack>
-              </Box>
+                </div>
+              </div>
             ))}
-          </Stack>
+          </div>
         )}
-      </Container>
-    </Box>
+      </div>
+    </div>
   );
 };
 
@@ -986,63 +809,47 @@ function FileRow({
   dense?: boolean;
 }) {
   return (
-    <Box
-      sx={{
-        p: dense ? 1 : 1.25,
-        borderRadius: '12px',
-        bgcolor: 'var(--page-card-solid)',
-        border: '1px solid var(--page-border)',
-      }}
+    <div
+      className={cn(
+        'rounded-xl border border-[var(--page-border)] bg-[var(--page-card-solid)]',
+        dense ? 'p-2' : 'p-3'
+      )}
     >
-      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.5}>
-        <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-          <Typography variant={dense ? 'caption' : 'body2'} fontWeight={700} noWrap>
-            {file.name}
-          </Typography>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-grow">
+          <p className={cn('truncate font-bold', dense ? 'text-xs' : 'text-sm')}>{file.name}</p>
           {file.description && (
-            <Typography
-              variant="caption"
-              sx={{ color: 'var(--page-text-secondary)', display: 'block', mt: 0.15 }}
-              noWrap
-            >
-              {file.description}
-            </Typography>
+            <p className="mt-0.5 block truncate text-xs text-[var(--page-text-secondary)]">{file.description}</p>
           )}
-        </Box>
+        </div>
         {file.type === 'text' ? (
-          <Typography
-            variant="caption"
-            sx={{
-              maxWidth: '45%',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              color: 'var(--page-text-secondary)',
-            }}
-          >
+          <p className="max-w-[45%] whitespace-pre-wrap break-words text-xs text-[var(--page-text-secondary)]">
             {file.url}
-          </Typography>
+          </p>
         ) : (
           <Button
-            size="small"
-            variant="outlined"
-            startIcon={<LaunchIcon />}
+            size="sm"
+            variant="outline"
+            className={cn('shrink-0 rounded-lg font-bold', dense ? 'px-2 text-[0.72rem]' : 'px-3 text-[0.8rem]')}
             {...(file.type === 'link'
-              ? { href: file.url, target: '_blank', rel: 'noopener noreferrer', component: 'a' as const }
+              ? { asChild: true }
               : { onClick: () => onDownload(file.url) })}
-            sx={{
-              borderRadius: '8px',
-              textTransform: 'none',
-              fontWeight: 700,
-              fontSize: dense ? '0.72rem' : '0.8rem',
-              flexShrink: 0,
-              px: dense ? 1 : 1.5,
-            }}
           >
-            เปิด
+            {file.type === 'link' ? (
+              <a href={file.url} target="_blank" rel="noopener noreferrer">
+                <HistoryIcon.OpenFile />
+                เปิด
+              </a>
+            ) : (
+              <>
+                <HistoryIcon.OpenFile />
+                เปิด
+              </>
+            )}
           </Button>
         )}
-      </Stack>
-    </Box>
+      </div>
+    </div>
   );
 }
 

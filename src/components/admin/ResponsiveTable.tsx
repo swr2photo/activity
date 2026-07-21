@@ -1,23 +1,17 @@
 // components/admin/ResponsiveTable.tsx
-import React from 'react';
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
+  TableHeader,
   TableRow,
-  Paper,
-  useTheme,
-  useMediaQuery,
-  Box,
-  Typography,
-  Chip,
-  IconButton,
-  Card,
-  CardContent,
-  Stack
-} from '@mui/material';
+} from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 interface Column {
   id: string;
@@ -45,123 +39,114 @@ export const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
   actions,
   emptyMessage = 'ไม่มีข้อมูล'
 }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   if (isMobile) {
-    // Mobile Card View
     return (
-      <Box>
+      <div>
         {data.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <Typography variant="body1" color="text.secondary">
-              {emptyMessage}
-            </Typography>
-          </Box>
+          <div className="py-8 text-center">
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          </div>
         ) : (
           data.map((row) => (
-            <Card 
-              key={row[keyField]} 
-              sx={{ 
-                mb: 2, 
-                cursor: onRowClick ? 'pointer' : 'default',
-                '&:hover': onRowClick ? { bgcolor: 'action.hover' } : {}
-              }}
+            <Card
+              key={row[keyField]}
+              className={cn('mb-4', onRowClick && 'cursor-pointer hover:bg-muted/50')}
               onClick={() => onRowClick?.(row)}
             >
-              <CardContent>
-                <Stack spacing={2}>
-                  {columns
-                    .filter(col => !col.hideOnMobile)
-                    .map((column) => (
-                      <Box key={column.id}>
-                        <Typography variant="caption" color="text.secondary">
-                          {column.label}
-                        </Typography>
-                        <Box>
-                          {column.format ? column.format(row[column.id]) : row[column.id]}
-                        </Box>
-                      </Box>
-                    ))}
-                  
-                  {actions && (
-                    <Box sx={{ pt: 1, borderTop: 1, borderColor: 'divider' }}>
-                      {actions(row)}
-                    </Box>
-                  )}
-                </Stack>
+              <CardContent className="space-y-4 pt-6">
+                {columns
+                  .filter((col) => !col.hideOnMobile)
+                  .map((column) => (
+                    <div key={column.id}>
+                      <p className="text-xs text-muted-foreground">{column.label}</p>
+                      <div>
+                        {column.format ? column.format(row[column.id]) : row[column.id]}
+                      </div>
+                    </div>
+                  ))}
+
+                {actions && (
+                  <div className="border-t pt-3">{actions(row)}</div>
+                )}
               </CardContent>
             </Card>
           ))
         )}
-      </Box>
+      </div>
     );
   }
 
-  // Desktop Table View
   return (
-    <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
-      <Table stickyHeader>
-        <TableHead>
+    <div className="overflow-hidden rounded-lg border bg-card">
+      <Table>
+        <TableHeader>
           <TableRow>
             {columns.map((column) => (
-              <TableCell
+              <TableHead
                 key={column.id}
-                align={column.align}
+                className={cn(
+                  'bg-muted/50 font-bold',
+                  column.align === 'center' && 'text-center',
+                  column.align === 'right' && 'text-right'
+                )}
                 style={{ minWidth: column.minWidth }}
-                sx={{ 
-                  fontWeight: 700,
-                  bgcolor: 'grey.50'
-                }}
               >
                 {column.label}
-              </TableCell>
+              </TableHead>
             ))}
             {actions && (
-              <TableCell align="center" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>
+              <TableHead className="bg-muted/50 text-center font-bold">
                 การดำเนินการ
-              </TableCell>
+              </TableHead>
             )}
           </TableRow>
-        </TableHead>
+        </TableHeader>
         <TableBody>
           {data.length === 0 ? (
             <TableRow>
-              <TableCell 
-                colSpan={columns.length + (actions ? 1 : 0)} 
-                sx={{ textAlign: 'center', py: 4 }}
+              <TableCell
+                colSpan={columns.length + (actions ? 1 : 0)}
+                className="py-8 text-center"
               >
-                <Typography variant="body1" color="text.secondary">
-                  {emptyMessage}
-                </Typography>
+                <p className="text-sm text-muted-foreground">{emptyMessage}</p>
               </TableCell>
             </TableRow>
           ) : (
             data.map((row) => (
-              <TableRow 
-                hover 
+              <TableRow
                 key={row[keyField]}
                 onClick={() => onRowClick?.(row)}
-                sx={{ 
-                  cursor: onRowClick ? 'pointer' : 'default',
-                  '&:last-child td, &:last-child th': { border: 0 }
-                }}
+                className={cn(onRowClick && 'cursor-pointer')}
               >
                 {columns.map((column) => (
-                  <TableCell key={column.id} align={column.align}>
+                  <TableCell
+                    key={column.id}
+                    className={cn(
+                      column.align === 'center' && 'text-center',
+                      column.align === 'right' && 'text-right'
+                    )}
+                  >
                     {column.format ? column.format(row[column.id]) : row[column.id]}
                   </TableCell>
                 ))}
                 {actions && (
-                  <TableCell align="center">
-                    {actions(row)}
-                  </TableCell>
+                  <TableCell className="text-center">{actions(row)}</TableCell>
                 )}
               </TableRow>
             ))
           )}
         </TableBody>
       </Table>
-    </TableContainer>
+    </div>
   );
 };

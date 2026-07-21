@@ -2,30 +2,21 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Box,
-  Typography,
-  TextField,
-  InputAdornment,
-  IconButton,
-  Button,
-  Chip,
-  Stack,
-  Paper,
-  CircularProgress,
-  Grid,
-  ButtonGroup,
-} from "@mui/material";
-import {
-  Search as SearchIcon,
-  Clear as ClearIcon,
-  Download as DownloadIcon,
-  Refresh as RefreshIcon,
-  ArrowBack as ArrowBackIcon,
-  People as PeopleIcon,
-} from "@mui/icons-material";
+  Search,
+  X,
+  Download,
+  RefreshCw,
+  ArrowLeft,
+  Users,
+} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
 import { adminDb as db } from "../../../lib/firebase";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 
 type ActivityRecord = {
   id: string;
@@ -37,117 +28,54 @@ type ActivityRecord = {
   timestamp: Date;
 };
 
-const Table: React.FC<{ rows: ActivityRecord[] }> = ({ rows }) => {
+const RecordsTable: React.FC<{ rows: ActivityRecord[] }> = ({ rows }) => {
   if (rows.length === 0) {
     return (
-      <Box sx={{ textAlign: "center", py: 6, color: "text.secondary" }}>
+      <div className="py-12 text-center text-muted-foreground">
         ไม่มีข้อมูลการลงทะเบียน
-      </Box>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ overflowX: "auto" }}>
-      <Box component="table" sx={{ width: "100%", borderCollapse: "collapse" }}>
-        <Box component="thead">
-          <Box component="tr">
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr>
             {["วันที่/เวลา", "รหัสผู้เข้าร่วม", "ชื่อ", "นามสกุล", "สังกัด", "รหัสกิจกรรม"].map(
               (h) => (
-                <Box
-                  key={h}
-                  component="th"
-                  sx={{
-                    p: 2,
-                    textAlign: "left",
-                    borderBottom: "1px solid",
-                    borderColor: "divider",
-                  }}
-                >
-                  <Typography variant="subtitle2" fontWeight="bold">
-                    {h}
-                  </Typography>
-                </Box>
+                <th key={h} className="border-b p-4 text-left text-sm font-bold">
+                  {h}
+                </th>
               )
             )}
-          </Box>
-        </Box>
-        <Box component="tbody">
+          </tr>
+        </thead>
+        <tbody>
           {rows.map((r) => (
-            <Box key={r.id} component="tr">
-              <Box
-                component="td"
-                sx={{
-                  p: 2,
-                  borderBottom: "1px solid",
-                  borderColor: "divider",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <Stack spacing={0}>
-                  <Typography variant="body2" fontWeight={600}>
-                    {r.timestamp.toLocaleDateString("th-TH")}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {r.timestamp.toLocaleTimeString("th-TH")}
-                  </Typography>
-                </Stack>
-              </Box>
-
-              <Box
-                component="td"
-                sx={{
-                  p: 2,
-                  borderBottom: "1px solid",
-                  borderColor: "divider",
-                  fontFamily: "monospace",
-                  fontWeight: 700,
-                }}
-              >
-                {r.studentId}
-              </Box>
-
-              <Box
-                component="td"
-                sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}
-              >
-                {r.firstName}
-              </Box>
-
-              <Box
-                component="td"
-                sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}
-              >
-                {r.lastName}
-              </Box>
-
-              <Box
-                component="td"
-                sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}
-              >
-                <Chip
-                  size="small"
-                  variant="outlined"
-                  color="secondary"
-                  label={r.department || "-"}
-                />
-              </Box>
-
-              <Box
-                component="td"
-                sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}
-              >
-                <Chip
-                  size="small"
-                  color="primary"
-                  label={r.activityCode}
-                  sx={{ fontWeight: 700 }}
-                />
-              </Box>
-            </Box>
+            <tr key={r.id}>
+              <td className="whitespace-nowrap border-b p-4">
+                <p className="text-sm font-semibold">
+                  {r.timestamp.toLocaleDateString("th-TH")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {r.timestamp.toLocaleTimeString("th-TH")}
+                </p>
+              </td>
+              <td className="border-b p-4 font-mono font-bold">{r.studentId}</td>
+              <td className="border-b p-4">{r.firstName}</td>
+              <td className="border-b p-4">{r.lastName}</td>
+              <td className="border-b p-4">
+                <Badge variant="outline">{r.department || "-"}</Badge>
+              </td>
+              <td className="border-b p-4">
+                <Badge className="font-bold">{r.activityCode}</Badge>
+              </td>
+            </tr>
           ))}
-        </Box>
-      </Box>
-    </Box>
+        </tbody>
+      </table>
+    </div>
   );
 };
 
@@ -163,12 +91,13 @@ export default function RecordsClient() {
   const filtered = useMemo(() => {
     if (!q) return all;
     const s = q.toLowerCase();
-    return all.filter((r) =>
-      r.activityCode.toLowerCase().includes(s) ||
-      r.studentId.includes(q) ||
-      r.firstName.toLowerCase().includes(s) ||
-      r.lastName.toLowerCase().includes(s) ||
-      (r.department || "").toLowerCase().includes(s)
+    return all.filter(
+      (r) =>
+        r.activityCode.toLowerCase().includes(s) ||
+        r.studentId.includes(q) ||
+        r.firstName.toLowerCase().includes(s) ||
+        r.lastName.toLowerCase().includes(s) ||
+        (r.department || "").toLowerCase().includes(s)
     );
   }, [all, q]);
 
@@ -183,7 +112,6 @@ export default function RecordsClient() {
     try {
       const col = collection(db, "activityRecords");
 
-      // ถ้ามี where ให้ตัด orderBy ออก แล้ว sort ฝั่ง client
       let snap;
       if (activityFromQuery) {
         snap = await getDocs(
@@ -266,97 +194,88 @@ export default function RecordsClient() {
   };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: "auto" }}>
+    <div className="mx-auto max-w-[1200px] p-4 md:p-6">
       {/* Header */}
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-        <IconButton onClick={() => router.back()}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography
-          variant="h5"
-          fontWeight={800}
-          sx={{ display: "flex", alignItems: "center", gap: 1 }}
-        >
-          <PeopleIcon /> รายชื่อผู้ลงทะเบียน
-        </Typography>
-      </Stack>
+      <div className="mb-4 flex items-center gap-2">
+        <Button size="icon" variant="ghost" onClick={() => router.back()}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <h1 className="flex items-center gap-2 text-2xl font-extrabold">
+          <Users className="h-6 w-6" /> รายชื่อผู้ลงทะเบียน
+        </h1>
+      </div>
 
       {/* Filters & Actions */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid size={{ xs: 12, md: "auto" }}>
-            <Stack direction="row" spacing={1} alignItems="center">
-              {activityFromQuery ? (
-                <Chip color="primary" label={`กิจกรรม: ${activityFromQuery}`} />
-              ) : (
-                <Chip color="default" label="ทุกกิจกรรม" />
-              )}
-              <Chip label={`ทั้งหมด: ${all.length}`} />
-              <Chip label={`ผู้เข้าร่วม: ${stats.uniqueStudents}`} />
-              <Chip label={`กิจกรรม: ${stats.uniqueActivities}`} />
-            </Stack>
-          </Grid>
+      <Card className="mb-4">
+        <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center">
+          <div className="flex flex-wrap items-center gap-2">
+            {activityFromQuery ? (
+              <Badge>กิจกรรม: {activityFromQuery}</Badge>
+            ) : (
+              <Badge variant="secondary">ทุกกิจกรรม</Badge>
+            )}
+            <Badge variant="outline">ทั้งหมด: {all.length}</Badge>
+            <Badge variant="outline">ผู้เข้าร่วม: {stats.uniqueStudents}</Badge>
+            <Badge variant="outline">กิจกรรม: {stats.uniqueActivities}</Badge>
+          </div>
 
-          {/* ตัวดันให้กินพื้นที่ที่เหลือ */}
-          <Grid size="grow" />
+          <div className="flex-1" />
 
-          <Grid size={{ xs: 12, md: 4 }}>
-            <TextField
-              fullWidth
-              size="small"
-              label="ค้นหา"
+          <div className="relative w-full md:max-w-xs">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9 pr-9"
+              placeholder="รหัสกิจกรรม, รหัสผู้เข้าร่วม, ชื่อ..."
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="รหัสกิจกรรม, รหัสผู้เข้าร่วม, ชื่อ..."
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon />
-                  </InputAdornment>
-                ),
-                endAdornment: q ? (
-                  <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => setQ("")}>
-                      <ClearIcon />
-                    </IconButton>
-                  </InputAdornment>
-                ) : undefined,
-              }}
             />
-          </Grid>
+            {q && (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"
+                onClick={() => setQ("")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
 
-          <Grid size={{ xs: 12, md: "auto" }}>
-            <ButtonGroup variant="contained" size="small">
-              <Button
-                startIcon={<RefreshIcon />}
-                onClick={fetchRecords}
-                disabled={loading}
-              >
-                รีเฟรช
-              </Button>
-              <Button
-                startIcon={<DownloadIcon />}
-                color="success"
-                onClick={exportCSV}
-                disabled={filtered.length === 0}
-              >
-                ส่งออก CSV
-              </Button>
-            </ButtonGroup>
-          </Grid>
-        </Grid>
-      </Paper>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={fetchRecords}
+              disabled={loading}
+            >
+              <RefreshCw className="h-4 w-4" />
+              รีเฟรช
+            </Button>
+            <Button
+              size="sm"
+              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+              onClick={exportCSV}
+              disabled={filtered.length === 0}
+            >
+              <Download className="h-4 w-4" />
+              ส่งออก CSV
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Table */}
-      <Paper sx={{ p: 2 }}>
-        {loading ? (
-          <Box sx={{ textAlign: "center", py: 6 }}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <Table rows={filtered} />
-        )}
-      </Paper>
-    </Box>
+      <Card>
+        <CardContent className="pt-6">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Spinner size="lg" />
+            </div>
+          ) : (
+            <RecordsTable rows={filtered} />
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

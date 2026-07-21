@@ -1,7 +1,8 @@
 'use client';
+
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { GoogleMap, MarkerF, CircleF, useLoadScript } from '@react-google-maps/api';
-import { Box, Button, Stack, Typography, Slider } from '@mui/material';
+import { Button } from '@/components/ui/button';
 import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
 
 export interface LocationPickerProps {
@@ -20,7 +21,10 @@ export interface LocationPickerProps {
 
 const mapContainerStyle = { width: '100%', height: '320px' } as const;
 
-const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
+const libraries: ('places' | 'geometry' | 'drawing' | 'visualization')[] = [
+  'places',
+  'geometry',
+];
 
 const LocationPicker: React.FC<LocationPickerProps> = ({
   location,
@@ -37,16 +41,25 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
     libraries,
   });
 
-  const [markerPos, setMarkerPos] = useState({ lat: location.latitude, lng: location.longitude });
+  const [markerPos, setMarkerPos] = useState({
+    lat: location.latitude,
+    lng: location.longitude,
+  });
   const [r, setR] = useState<number>(Math.max(5, radius));
 
-  // keep in sync with parent
-  useEffect(() => setMarkerPos({ lat: location.latitude, lng: location.longitude }), [location.latitude, location.longitude]);
+  useEffect(
+    () => setMarkerPos({ lat: location.latitude, lng: location.longitude }),
+    [location.latitude, location.longitude]
+  );
   useEffect(() => setR(Math.max(5, radius)), [radius]);
 
   const handleUseCurrentLocation = () => {
     if (!navigator.geolocation) {
-      void alertDialog('ไม่รองรับตำแหน่ง', 'เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง', 'warning');
+      void alertDialog(
+        'ไม่รองรับตำแหน่ง',
+        'เบราว์เซอร์ของคุณไม่รองรับการเข้าถึงตำแหน่ง',
+        'warning'
+      );
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -58,8 +71,10 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
       },
       (error) => {
         let msg = 'ไม่สามารถดึงตำแหน่งปัจจุบันได้: ';
-        if (error.code === error.PERMISSION_DENIED) msg += 'ผู้ใช้ปฏิเสธการเข้าถึงตำแหน่ง';
-        else if (error.code === error.POSITION_UNAVAILABLE) msg += 'ไม่สามารถระบุตำแหน่งได้';
+        if (error.code === error.PERMISSION_DENIED)
+          msg += 'ผู้ใช้ปฏิเสธการเข้าถึงตำแหน่ง';
+        else if (error.code === error.POSITION_UNAVAILABLE)
+          msg += 'ไม่สามารถระบุตำแหน่งได้';
         else if (error.code === error.TIMEOUT) msg += 'หมดเวลาในการขอตำแหน่ง';
         else msg += 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ';
         void alertDialog('ไม่สามารถดึงตำแหน่งได้', msg, 'warning');
@@ -68,58 +83,82 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
     );
   };
 
-  const onMapClick = useCallback((e: google.maps.MapMouseEvent) => {
-    if (!e.latLng) return;
-    const lat = e.latLng.lat();
-    const lng = e.latLng.lng();
-    setMarkerPos({ lat, lng });
-    onLocationChange(lat, lng);
-  }, [onLocationChange]);
+  const onMapClick = useCallback(
+    (e: google.maps.MapMouseEvent) => {
+      if (!e.latLng) return;
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
+      setMarkerPos({ lat, lng });
+      onLocationChange(lat, lng);
+    },
+    [onLocationChange]
+  );
 
-  const onMarkerDragEnd = useCallback((e: google.maps.MapMouseEvent) => {
-    if (!e.latLng) return;
-    const lat = e.latLng.lat();
-    const lng = e.latLng.lng();
-    setMarkerPos({ lat, lng });
-    onLocationChange(lat, lng);
-  }, [onLocationChange]);
+  const onMarkerDragEnd = useCallback(
+    (e: google.maps.MapMouseEvent) => {
+      if (!e.latLng) return;
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
+      setMarkerPos({ lat, lng });
+      onLocationChange(lat, lng);
+    },
+    [onLocationChange]
+  );
 
-  const handleRadiusChange = (_: Event, value: number | number[]) => {
-    const next = Math.max(5, Array.isArray(value) ? value[0] : value);
+  const handleRadiusInput = (value: number) => {
+    const next = Math.max(5, value);
     setR(next);
   };
 
-  const handleRadiusCommit = (_: Event | React.SyntheticEvent, value: number | number[]) => {
-    const next = Math.max(5, Array.isArray(value) ? value[0] : value);
+  const handleRadiusCommit = (value: number) => {
+    const next = Math.max(5, value);
     if (onRadiusChange) onRadiusChange(next);
   };
 
-  if (loadError) return <div style={{ color: 'red', padding: 10 }}>โหลดแผนที่ล้มเหลว: {loadError.message}</div>;
-  if (!isLoaded) return <div style={{ padding: 10, textAlign: 'center' }}>กำลังโหลดแผนที่...</div>;
+  if (loadError)
+    return (
+      <div className="p-2.5 text-destructive">
+        โหลดแผนที่ล้มเหลว: {loadError.message}
+      </div>
+    );
+  if (!isLoaded)
+    return <div className="p-2.5 text-center">กำลังโหลดแผนที่...</div>;
 
   const center = useMemo(() => markerPos, [markerPos]);
 
   return (
     <>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-        <Button variant="contained" size="small" onClick={handleUseCurrentLocation}>ใช้ตำแหน่งปัจจุบัน</Button>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <Button size="sm" onClick={handleUseCurrentLocation}>
+          ใช้ตำแหน่งปัจจุบัน
+        </Button>
         {editableRadius && (
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ width: 320 }}>
-            <Typography variant="caption">รัศมี</Typography>
-            <Slider
-              size="small"
+          <div className="flex w-80 items-center gap-3">
+            <span className="shrink-0 text-xs text-muted-foreground">รัศมี</span>
+            <input
+              type="range"
+              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
               value={r}
               min={5}
               max={5000}
               step={5}
-              onChange={handleRadiusChange}
-              onChangeCommitted={handleRadiusCommit}
-              valueLabelDisplay="auto"
-              valueLabelFormat={(v) => `${v} ม.`}
+              onChange={(e) => handleRadiusInput(Number(e.target.value))}
+              onMouseUp={(e) =>
+                handleRadiusCommit(Number((e.target as HTMLInputElement).value))
+              }
+              onTouchEnd={(e) =>
+                handleRadiusCommit(
+                  Number((e.target as HTMLInputElement).value)
+                )
+              }
+              aria-label={`รัศมี ${r} เมตร`}
             />
-          </Stack>
+            <span className="shrink-0 text-xs font-medium tabular-nums">
+              {r} ม.
+            </span>
+          </div>
         )}
-      </Stack>
+      </div>
 
       <GoogleMap
         mapContainerStyle={mapContainerStyle}
@@ -134,16 +173,24 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
           fullscreenControl: true,
         }}
       >
-        {/* Geofence center (draggable) */}
         <MarkerF position={markerPos} draggable onDragEnd={onMarkerDragEnd} />
         <CircleF
           center={markerPos}
           radius={r}
-          options={{ fillColor: '#1976d2', fillOpacity: 0.18, strokeColor: '#1976d2', strokeOpacity: 0.55, strokeWeight: 2 }}
+          options={{
+            fillColor: '#1976d2',
+            fillOpacity: 0.18,
+            strokeColor: '#1976d2',
+            strokeOpacity: 0.55,
+            strokeWeight: 2,
+          }}
         />
 
-        {/* Optional: show user's current location */}
-        {userLocation && <MarkerF position={{ lat: userLocation.lat, lng: userLocation.lng }} />}
+        {userLocation && (
+          <MarkerF
+            position={{ lat: userLocation.lat, lng: userLocation.lng }}
+          />
+        )}
       </GoogleMap>
     </>
   );

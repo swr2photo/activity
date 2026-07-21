@@ -268,6 +268,8 @@ export interface Activity {
   dynamicQREnabled?: boolean;
   dynamicToken?: string;
   previousDynamicToken?: string;
+  /** จุดลงทะเบียนหน้างานที่แอดมินตั้ง — ใช้ในข้อความเมื่อ QR หมดอายุ */
+  onsiteRegistrationPoint?: string;
   dynamicQrBgUrl?: string;
   customCode?: string;
   clicksCount?: number;
@@ -411,6 +413,7 @@ export const getActivitiesByDepartment = async (
       dynamicQREnabled: data.dynamicQREnabled === true,
       dynamicToken: data.dynamicToken,
       previousDynamicToken: data.previousDynamicToken,
+      onsiteRegistrationPoint: data.onsiteRegistrationPoint || '',
       dynamicQrBgUrl: data.dynamicQrBgUrl,
       sessions: data.sessions?.map((s: any) => ({
         ...s,
@@ -455,6 +458,7 @@ export const subscribeActivities = (
       dynamicQREnabled: data.dynamicQREnabled === true,
       dynamicToken: data.dynamicToken,
       previousDynamicToken: data.previousDynamicToken,
+      onsiteRegistrationPoint: data.onsiteRegistrationPoint || '',
       dynamicQrBgUrl: data.dynamicQrBgUrl,
       customCode: data.customCode,
       clicksCount: data.clicksCount ?? 0,
@@ -584,6 +588,7 @@ export type CreateActivityInput = {
   dynamicQREnabled?: boolean;
   dynamicToken?: string;
   previousDynamicToken?: string;
+  onsiteRegistrationPoint?: string;
 };
 
 export type UpdateActivityInput = Partial<CreateActivityInput> & {

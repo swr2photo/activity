@@ -2,48 +2,28 @@
 import React, { useEffect, useMemo, useState, Suspense, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  CircularProgress,
-  Container,
-  Grid,
-  Skeleton,
-  Stack,
-  Typography,
-  Snackbar,
-  Alert as MuiAlert,
-} from '@mui/material';
-import { alpha } from '@mui/material/styles';
-import {
-  Refresh as RefreshIcon,
-  Warning as WarningIcon,
-  GpsFixed as GpsFixedIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
+  RefreshCw as RefreshIcon,
+  Crosshair as GpsFixedIcon,
+  CircleCheck as CheckIcon,
+  CircleAlert as ErrorIcon,
   Lock as LockIcon,
-  Info as InfoIcon,
-  AccessTime as AccessTimeIcon,
-  PlaceOutlined as PlaceIcon,
-  EventAvailableOutlined as EventStartIcon,
-  EventBusyOutlined as EventEndIcon,
-  GroupsOutlined as GroupsIcon,
-  ArticleOutlined as ArticleIcon,
-  ViewAgendaOutlined as SessionsIcon,
-  MyLocationOutlined as MyLocationIcon,
-  RadarOutlined as RadarIcon,
-  PlayCircleOutline as PlayIcon,
-} from '@mui/icons-material';
+  Clock as AccessTimeIcon,
+  MapPin as PlaceIcon,
+  CalendarCheck as EventStartIcon,
+  CalendarX as EventEndIcon,
+  Users as GroupsIcon,
+  FileText as ArticleIcon,
+  LayoutList as SessionsIcon,
+  LocateFixed as MyLocationIcon,
+  Radar as RadarIcon,
+  PlayCircle as PlayIcon,
+} from 'lucide-react';
 import {
   addDoc,
   collection,
   doc,
   getDoc,
   getDocs,
-  increment,
   limit,
   onSnapshot,
   query,
@@ -52,6 +32,14 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils';
 
 // Components
 import Navbar from '../../components/Navbar';
@@ -69,7 +57,7 @@ import GeofenceMap from '../../components/maps/GeofenceMap';
 import Footer from '../../components/Footer';
 import SurveyForm from '../../components/activity/SurveyForm';
 import FullPageError, { FullPageErrorVariant } from '../../components/common/FullPageError';
-import { glassCardSx, pageColors, pageLayoutSx } from '../../lib/uiTheme';
+import { glassCardClass, pageColors, pageLayoutClass } from '../../lib/uiTheme';
 import Image from 'next/image';
 import 'quill/dist/quill.snow.css';
 
@@ -79,6 +67,11 @@ import { useAuth, UniversityUserProfile, isProfileComplete } from '../../lib/fir
 import { SessionManager } from '../../lib/sessionManager';
 import { AdminSettings } from '../../types';
 import { getSurveyWindowStatus } from '../../lib/surveyWindow';
+import {
+  dynamicQrExpiredMessage,
+  dynamicQrExpiredTitle,
+  type DynamicQrExpiredContext,
+} from '../../lib/dynamicQrMessages';
 
 /* ============================= Types ============================= */
 interface ActivityData {
@@ -111,6 +104,8 @@ interface ActivityData {
   dynamicQREnabled?: boolean;
   dynamicToken?: string;
   previousDynamicToken?: string;
+  /** จุดลงทะเบียนหน้างานที่แอดมินตั้ง */
+  onsiteRegistrationPoint?: string;
   sessions?: any[];
   surveyConfig?: any;
 }
@@ -276,21 +271,12 @@ const SectionIcon: React.FC<{
   color?: string;
   bg?: string;
 }> = ({ icon, color = pageColors.accentInfo, bg }) => (
-  <Box
-    sx={{
-      width: 40,
-      height: 40,
-      borderRadius: '12px',
-      display: 'grid',
-      placeItems: 'center',
-      flexShrink: 0,
-      color,
-      bgcolor: bg || alpha(color, 0.12),
-      '& .MuiSvgIcon-root': { fontSize: 22 },
-    }}
+  <div
+    className="grid h-10 w-10 shrink-0 place-items-center rounded-xl [&_svg]:h-[22px] [&_svg]:w-[22px]"
+    style={{ color, backgroundColor: bg || `${color}20` }}
   >
     {icon}
-  </Box>
+  </div>
 );
 
 const DetailSection: React.FC<{
@@ -300,29 +286,22 @@ const DetailSection: React.FC<{
   color?: string;
   children: React.ReactNode;
 }> = ({ icon, title, hint, color = pageColors.accentInfo, children }) => (
-  <Box
-    sx={{
-      p: { xs: 1.75, sm: 2 },
-      borderRadius: '16px',
-      border: `1px solid ${pageColors.border}`,
-      bgcolor: 'action.hover',
-    }}
-  >
-    <Stack direction="row" spacing={1.5} alignItems="flex-start" sx={{ mb: children ? 1.5 : 0 }}>
+  <div className="rounded-2xl border bg-accent/30 p-4" style={{ borderColor: pageColors.border }}>
+    <div className={cn('flex items-start gap-3', children ? 'mb-3' : '')}>
       <SectionIcon icon={icon} color={color} />
-      <Box sx={{ minWidth: 0, pt: 0.25 }}>
-        <Typography variant="subtitle2" fontWeight={800} sx={{ color: pageColors.textPrimary, lineHeight: 1.3 }}>
+      <div className="min-w-0 pt-0.5">
+        <p className="text-sm font-extrabold leading-tight" style={{ color: pageColors.textPrimary }}>
           {title}
-        </Typography>
+        </p>
         {hint && (
-          <Typography variant="caption" sx={{ color: pageColors.textSecondary, display: 'block', mt: 0.25 }}>
+          <p className="mt-0.5 block text-xs" style={{ color: pageColors.textSecondary }}>
             {hint}
-          </Typography>
+          </p>
         )}
-      </Box>
-    </Stack>
+      </div>
+    </div>
     {children}
-  </Box>
+  </div>
 );
 
 const MetaRow: React.FC<{
@@ -331,20 +310,17 @@ const MetaRow: React.FC<{
   value: React.ReactNode;
   color?: string;
 }> = ({ icon, label, value, color = pageColors.accentInfo }) => (
-  <Stack direction="row" spacing={1.25} alignItems="flex-start">
+  <div className="flex items-start gap-3">
     <SectionIcon icon={icon} color={color} />
-    <Box sx={{ minWidth: 0 }}>
-      <Typography
-        variant="caption"
-        sx={{ color: pageColors.textSecondary, fontWeight: 700, letterSpacing: 0.3, displayTransform: 'uppercase' }}
-      >
+    <div className="min-w-0">
+      <p className="text-[0.7rem] font-bold uppercase tracking-wide" style={{ color: pageColors.textSecondary }}>
         {label}
-      </Typography>
-      <Typography variant="body2" fontWeight={600} sx={{ color: pageColors.textPrimary, mt: 0.15, lineHeight: 1.4 }}>
+      </p>
+      <p className="mt-0.5 text-sm font-semibold leading-snug" style={{ color: pageColors.textPrimary }}>
         {value}
-      </Typography>
-    </Box>
-  </Stack>
+      </p>
+    </div>
+  </div>
 );
 
 /* ============================= Modern Activity Banner ============================= */
@@ -355,19 +331,7 @@ const ModernActivityBanner: React.FC<{
 }> = ({ activity, status, adminSettings }) => {
   const tintColor =
     activity.bannerTintColor || (adminSettings as any)?.branding?.primaryColor || '#1c1c1e';
-
   const hasImage = !!activity.bannerUrl;
-
-  const statusColor: 'default' | 'success' | 'warning' | 'error' | 'info' =
-    status.status === 'active'
-      ? 'success'
-      : status.status === 'upcoming'
-      ? 'info'
-      : status.status === 'full'
-      ? 'warning'
-      : status.status === 'ended' || status.status === 'inactive'
-      ? 'default'
-      : 'default';
 
   const statusLabel =
     status.status === 'active'
@@ -382,51 +346,33 @@ const ModernActivityBanner: React.FC<{
 
   const statusIcon =
     status.status === 'active' ? (
-      <PlayIcon />
+      <PlayIcon className="h-3.5 w-3.5" />
     ) : status.status === 'upcoming' ? (
-      <AccessTimeIcon />
+      <AccessTimeIcon className="h-3.5 w-3.5" />
     ) : status.status === 'full' ? (
-      <GroupsIcon />
+      <GroupsIcon className="h-3.5 w-3.5" />
     ) : (
-      <LockIcon />
+      <LockIcon className="h-3.5 w-3.5" />
     );
 
-  const statusChipSx = {
-    backdropFilter: 'blur(12px)',
-    WebkitBackdropFilter: 'blur(12px)',
-    fontWeight: 700,
-    borderRadius: '12px',
-    border: '1px solid rgba(255,255,255,0.2)',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-    '& .MuiChip-icon': { color: 'inherit' },
-    ...(status.status === 'active'
-      ? { bgcolor: 'rgba(52, 199, 89, 0.35)', color: '#fff' }
+  const statusBadgeClass =
+    status.status === 'active'
+      ? 'bg-[rgba(52,199,89,0.35)] text-white'
       : status.status === 'upcoming'
-      ? { bgcolor: 'rgba(0, 122, 255, 0.35)', color: '#fff' }
+      ? 'bg-[rgba(0,122,255,0.35)] text-white'
       : status.status === 'full'
-      ? { bgcolor: 'rgba(255, 149, 0, 0.35)', color: '#fff' }
-      : { bgcolor: 'rgba(0, 0, 0, 0.45)', color: '#fff' }),
-  };
+      ? 'bg-[rgba(255,149,0,0.35)] text-white'
+      : 'bg-black/45 text-white';
 
   return (
-    <Card elevation={0} sx={{ ...glassCardSx, mb: 3, overflow: 'hidden', p: 0 }}>
-      <Box
-        sx={{
-          position: 'relative',
-          height: { xs: 180, md: 220 },
-          bgcolor: activity.bannerColor || tintColor || '#1c1c1e',
-          overflow: 'hidden',
-        }}
+    <Card className={cn(glassCardClass, 'mb-6 overflow-hidden border-0 p-0 shadow-none')}>
+      <div
+        className="relative h-[180px] overflow-hidden md:h-[220px]"
+        style={{ backgroundColor: activity.bannerColor || tintColor || '#1c1c1e' }}
       >
         {hasImage && (
           <>
-            <Box
-              sx={{
-                position: 'absolute',
-                width: '100%',
-                height: '100%',
-              }}
-            >
+            <div className="absolute inset-0">
               <Image
                 src={activity.bannerUrl!}
                 alt={activity.activityName}
@@ -435,84 +381,74 @@ const ModernActivityBanner: React.FC<{
                 style={{ objectFit: activity.bannerAspect === 'contain' ? 'contain' : 'cover' }}
                 priority
               />
-            </Box>
-            <Box
-              sx={{
-                position: 'absolute',
-                inset: 0,
-                background: `linear-gradient(180deg, transparent 40%, ${alpha('#000', 0.55)} 100%)`,
-              }}
+            </div>
+            <div
+              className="absolute inset-0"
+              style={{ background: 'linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.55) 100%)' }}
             />
           </>
         )}
-        <Box sx={{ position: 'absolute', top: 12, left: 12 }}>
-          <Chip
-            icon={statusIcon}
-            label={statusLabel}
-            color={statusColor}
-            size="small"
-            sx={statusChipSx}
-          />
-        </Box>
-      </Box>
+        <div className="absolute left-3 top-3">
+          <Badge
+            className={cn(
+              'gap-1 rounded-xl border border-white/20 font-bold shadow-md backdrop-blur-md',
+              statusBadgeClass
+            )}
+          >
+            {statusIcon}
+            {statusLabel}
+          </Badge>
+        </div>
+      </div>
 
-      <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
-        <Typography
-          variant="h5"
-          fontWeight={800}
-          sx={{ color: pageColors.textPrimary, letterSpacing: '-0.02em', mb: 2 }}
+      <CardContent className="p-6 md:p-6">
+        <h2
+          className="mb-4 text-xl font-extrabold tracking-tight"
+          style={{ color: pageColors.textPrimary }}
         >
           {activity.activityName}
-        </Typography>
+        </h2>
 
-        <Grid container spacing={2.25}>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {activity.location && (
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <MetaRow
-                icon={<PlaceIcon />}
-                label="สถานที่"
-                value={activity.location}
-                color={pageColors.accentError}
-              />
-            </Grid>
-          )}
-          <Grid size={{ xs: 12, sm: activity.location ? 6 : 12 }}>
             <MetaRow
-              icon={<AccessTimeIcon />}
-              label="ช่วงเวลา"
-              value={
-                <>
-                  {formatDateTime(activity.startDateTime)}
-                  <Box component="span" sx={{ color: pageColors.textSecondary, mx: 0.75 }}>
-                    →
-                  </Box>
-                  {formatDateTime(activity.endDateTime)}
-                </>
-              }
-              color={pageColors.accentInfo}
+              icon={<PlaceIcon />}
+              label="สถานที่"
+              value={activity.location}
+              color={pageColors.accentError}
             />
-          </Grid>
+          )}
+          <MetaRow
+            icon={<AccessTimeIcon />}
+            label="ช่วงเวลา"
+            value={
+              <>
+                {formatDateTime(activity.startDateTime)}
+                <span className="mx-2" style={{ color: pageColors.textSecondary }}>
+                  →
+                </span>
+                {formatDateTime(activity.endDateTime)}
+              </>
+            }
+            color={pageColors.accentInfo}
+          />
           {activity.maxParticipants > 0 && (
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <MetaRow
-                icon={<GroupsIcon />}
-                label="ผู้สมัคร"
-                value={`${activity.currentParticipants}/${activity.maxParticipants} คน`}
-                color={pageColors.appleGreen}
-              />
-            </Grid>
+            <MetaRow
+              icon={<GroupsIcon />}
+              label="ผู้สมัคร"
+              value={`${activity.currentParticipants}/${activity.maxParticipants} คน`}
+              color={pageColors.appleGreen}
+            />
           )}
           {activity.sessions && activity.sessions.length > 0 && (
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <MetaRow
-                icon={<SessionsIcon />}
-                label="รอบย่อย"
-                value={`${activity.sessions.length} รอบ`}
-                color={pageColors.accentWarning}
-              />
-            </Grid>
+            <MetaRow
+              icon={<SessionsIcon />}
+              label="รอบย่อย"
+              value={`${activity.sessions.length} รอบ`}
+              color={pageColors.accentWarning}
+            />
           )}
-        </Grid>
+        </div>
       </CardContent>
     </Card>
   );
@@ -521,9 +457,15 @@ const ModernActivityBanner: React.FC<{
 const SessionCard: React.FC<{ session: any; isCheckedIn: boolean }> = ({ session, isCheckedIn }) => {
   const [timeLeft, setTimeLeft] = useState<{ d: number; h: number; m: number; s: number } | null>(null);
 
-  const sStart = useMemo(() => session.startDateTime?.toDate?.() || new Date(session.startDateTime), [session.startDateTime]);
-  const sEnd = useMemo(() => session.endDateTime?.toDate?.() || new Date(session.endDateTime), [session.endDateTime]);
-  
+  const sStart = useMemo(
+    () => session.startDateTime?.toDate?.() || new Date(session.startDateTime),
+    [session.startDateTime]
+  );
+  const sEnd = useMemo(
+    () => session.endDateTime?.toDate?.() || new Date(session.endDateTime),
+    [session.endDateTime]
+  );
+
   useEffect(() => {
     const updateCountdown = () => {
       const now = new Date();
@@ -538,7 +480,6 @@ const SessionCard: React.FC<{ session: any; isCheckedIn: boolean }> = ({ session
         setTimeLeft(null);
       }
     };
-    
     updateCountdown();
     const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
@@ -548,110 +489,90 @@ const SessionCard: React.FC<{ session: any; isCheckedIn: boolean }> = ({ session
   const isActive = now >= sStart && now <= sEnd;
   const isUpcoming = now < sStart;
 
-  const getStatusDisplay = () => {
-    if (isCheckedIn) return { label: 'เช็คอินแล้ว', color: 'success' as const, variant: 'filled' as const, icon: <CheckIcon fontSize="small" /> };
-    if (isActive) return { label: 'กำลังเปิด', color: 'primary' as const, variant: 'filled' as const };
-    if (isUpcoming) return { label: '', color: 'info' as const, variant: 'outlined' as const, icon: <LockIcon fontSize="small" color="action" /> };
-    return { label: 'สิ้นสุดแล้ว', color: 'default' as const, variant: 'outlined' as const, icon: <LockIcon fontSize="small" /> };
-  };
-
-  const status = getStatusDisplay();
+  const statusLabel = isCheckedIn
+    ? 'เช็คอินแล้ว'
+    : isActive
+      ? 'กำลังเปิด'
+      : isUpcoming
+        ? ''
+        : 'สิ้นสุดแล้ว';
 
   return (
-    <Card variant="outlined" sx={{ 
-      bgcolor: isCheckedIn ? 'success.50' : isActive ? 'primary.50' : 'action.hover',
-      borderColor: isCheckedIn ? 'success.main' : isActive ? 'primary.main' : 'divider',
-      opacity: (isActive || isCheckedIn || isUpcoming) ? 1 : 0.65,
-      position: 'relative',
-      overflow: 'hidden'
-    }}>
-      {/* Loading animation for upcoming session */}
-      {isUpcoming && timeLeft && (
-        <Box sx={{ position: 'absolute', bottom: 0, left: 0, height: 3, bgcolor: 'info.main', width: '100%', opacity: 0.3 }}>
-          <Box sx={{ 
-            height: '100%', bgcolor: 'info.main', width: '30%',
-            animation: 'slide 2s infinite ease-in-out',
-            '@keyframes slide': {
-              '0%': { transform: 'translateX(-100%)' },
-              '100%': { transform: 'translateX(400%)' }
-            }
-          }} />
-        </Box>
+    <Card
+      className={cn(
+        'relative overflow-hidden border',
+        isCheckedIn
+          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20'
+          : isActive
+            ? 'border-primary bg-primary/5'
+            : 'border-border bg-accent/40',
+        !(isActive || isCheckedIn || isUpcoming) && 'opacity-65'
       )}
-      
-      <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
-          <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ minWidth: 0, flex: 1 }}>
-            <Box
-              sx={{
-                width: 34,
-                height: 34,
-                borderRadius: '10px',
-                display: 'grid',
-                placeItems: 'center',
-                flexShrink: 0,
-                bgcolor: isCheckedIn
-                  ? alpha('#34c759', 0.15)
+    >
+      {isUpcoming && timeLeft && (
+        <div className="absolute bottom-0 left-0 h-0.5 w-full bg-sky-500/30">
+          <div className="h-full w-[30%] animate-[slide_2s_infinite_ease-in-out] bg-sky-500" />
+        </div>
+      )}
+
+      <CardContent className="py-3 last:pb-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div
+              className={cn(
+                'grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px]',
+                isCheckedIn
+                  ? 'bg-emerald-500/15 text-emerald-600'
                   : isActive
-                    ? alpha('#007aff', 0.15)
-                    : 'action.hover',
-                color: isCheckedIn ? 'success.main' : isActive ? 'primary.main' : 'text.secondary',
-              }}
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-accent text-muted-foreground'
+              )}
             >
               {isCheckedIn ? (
-                <CheckIcon fontSize="small" />
+                <CheckIcon className="h-4 w-4" />
               ) : isActive ? (
-                <PlayIcon fontSize="small" />
+                <PlayIcon className="h-4 w-4" />
               ) : (
-                <LockIcon fontSize="small" />
+                <LockIcon className="h-4 w-4" />
               )}
-            </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography
-                variant="body2"
-                fontWeight="bold"
-                color={isCheckedIn ? 'success.main' : isActive ? 'primary.main' : 'text.primary'}
+            </div>
+            <div className="min-w-0">
+              <p
+                className={cn(
+                  'text-sm font-bold',
+                  isCheckedIn ? 'text-emerald-600' : isActive ? 'text-primary' : ''
+                )}
               >
                 {session.name}
-              </Typography>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}
-              >
-                <AccessTimeIcon sx={{ fontSize: 14 }} />
+              </p>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                <AccessTimeIcon className="h-3.5 w-3.5" />
                 {formatDateTime(sStart)} – {formatDateTime(sEnd)}
-              </Typography>
-
+              </p>
               {isUpcoming && timeLeft && (
-                <Typography
-                  variant="caption"
-                  color="info.main"
-                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, fontWeight: 600 }}
-                >
-                  <AccessTimeIcon sx={{ fontSize: 14 }} />
+                <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-sky-600">
+                  <AccessTimeIcon className="h-3.5 w-3.5" />
                   เปิดในอีก {timeLeft.d > 0 ? `${timeLeft.d} วัน ` : ''}
                   {timeLeft.h > 0 ? `${timeLeft.h} ชม. ` : ''}
                   {timeLeft.m} นาที {timeLeft.s} วินาที
-                </Typography>
+                </p>
               )}
-            </Box>
-          </Stack>
-          {status.label ? (
-            <Chip
-              size="small"
-              label={status.label}
-              color={status.color}
-              variant={status.variant}
-              icon={status.icon}
-              sx={{ fontWeight: 600 }}
-            />
+            </div>
+          </div>
+          {statusLabel ? (
+            <Badge
+              variant={isCheckedIn ? 'success' : isActive ? 'default' : 'outline'}
+              className="gap-1 font-semibold"
+            >
+              {isCheckedIn && <CheckIcon className="h-3.5 w-3.5" />}
+              {statusLabel}
+            </Badge>
           ) : (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 0.5 }}>
-              {status.icon}
-            </Box>
+            <div className="flex items-center p-1">
+              <LockIcon className="h-4 w-4 text-muted-foreground" />
+            </div>
           )}
-        </Stack>
+        </div>
       </CardContent>
     </Card>
   );
@@ -670,6 +591,7 @@ const RegisterPageContent: React.FC = () => {
   const [activityData, setActivityData] = useState<ActivityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [qrExpireMeta, setQrExpireMeta] = useState<DynamicQrExpiredContext | null>(null);
   const [validActivity, setValidActivity] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -948,21 +870,32 @@ const RegisterPageContent: React.FC = () => {
           dynamicQREnabled: docData.dynamicQREnabled || false,
           dynamicToken: docData.dynamicToken,
           previousDynamicToken: docData.previousDynamicToken,
+          onsiteRegistrationPoint: docData.onsiteRegistrationPoint || '',
         } as ActivityData;
 
         setActivityData(activity);
         
         // Dynamic QR Validation (HMAC ตามเวลา + fallback token เก่า)
         if (activity.dynamicQREnabled) {
+          const expireCtx = (reason: DynamicQrExpiredContext['reason']): DynamicQrExpiredContext => ({
+            dynamicQREnabled: true,
+            onsiteRegistrationPoint: activity.onsiteRegistrationPoint,
+            location: activity.location,
+            reason,
+          });
+
           const dt = searchParams.get('dt');
           if (!dt) {
-            setError('QR Code หมดอายุ หรือไม่ถูกต้อง กรุณาสแกนใหม่จากหน้าจอจุดลงทะเบียน');
+            const ctx = expireCtx('missing_dt');
+            setQrExpireMeta(ctx);
+            setError(dynamicQrExpiredMessage(ctx));
             setValidActivity(false);
             setLoading(false);
             return;
           }
 
           let valid = false;
+          let apiReason: string | null = null;
           try {
             const res = await fetch(
               `/api/dynamic-qr/validate?code=${encodeURIComponent(activity.activityCode)}&dt=${encodeURIComponent(dt)}`,
@@ -970,13 +903,16 @@ const RegisterPageContent: React.FC = () => {
             );
             const data = await res.json();
             valid = Boolean(data?.valid);
+            apiReason = data?.reason || null;
           } catch {
             // ถ้า API ล้ม ใช้เทียบ token เก่าในเอกสารชั่วคราว
             valid = dt === activity.dynamicToken || dt === activity.previousDynamicToken;
           }
 
           if (!valid) {
-            setError('QR Code หมดอายุ หรือไม่ถูกต้อง กรุณาสแกนใหม่จากหน้าจอจุดลงทะเบียน');
+            const ctx = expireCtx(apiReason === 'invalid' ? 'invalid' : 'expired');
+            setQrExpireMeta(ctx);
+            setError(dynamicQrExpiredMessage(ctx));
             setValidActivity(false);
             setLoading(false);
             return;
@@ -1357,15 +1293,11 @@ const RegisterPageContent: React.FC = () => {
   // ยังต้องทำแบบประเมิน
   const needsSurvey = isSurveyPeriodOpen && !surveyCompleted;
 
-  /* ============================= Render ============================= */
-  // ระหว่างโหลด แสดง skeleton โครงหน้าจริงแทนหน้าสปินเนอร์ ให้รู้สึกว่าเข้าหน้าได้ทันที
+    /* ============================= Render ============================= */
   if (loading || authLoading) {
     return <RegisterPageSkeleton />;
   }
 
-  /* ============================= Full-page errors ============================= */
-
-  // IP ถูกจำกัดชั่วคราว
   if (ipBlocked) {
     return (
       <>
@@ -1384,7 +1316,6 @@ const RegisterPageContent: React.FC = () => {
     );
   }
 
-  // บัญชีถูกระงับโดยแอดมิน — บล็อกทุกอย่าง
   if (user && userData && (userData as any).isActive === false) {
     return (
       <>
@@ -1403,8 +1334,6 @@ const RegisterPageContent: React.FC = () => {
     );
   }
 
-  // กิจกรรมโหมดผู้ใช้เดียว / เช็กอินครบแล้ว — บล็อกการลงทะเบียน
-  // (ยกเว้นช่วงที่ต้องเปิดให้ทำแบบประเมิน จะยังใช้หน้าปกติ)
   if (
     singleUserBlocked &&
     user &&
@@ -1429,7 +1358,6 @@ const RegisterPageContent: React.FC = () => {
     );
   }
 
-  // ข้อผิดพลาดทั่วไป (ระบบปิด / ไม่พบกิจกรรม / QR หมดอายุ / โหลดล้มเหลว ฯลฯ)
   if (
     error &&
     !isDuplicateRegistration &&
@@ -1450,10 +1378,12 @@ const RegisterPageContent: React.FC = () => {
       variant = 'locked';
       code = 'ACCESS_DENIED';
       title = 'ไม่สามารถเข้าใช้งานได้';
-    } else if (error.includes('หมดอายุ')) {
+    } else if (error.includes('หมดอายุ') || error.includes('จุดลงทะเบียน') || qrExpireMeta) {
       variant = 'expired';
       code = 'QR_EXPIRED';
-      title = 'QR Code หมดอายุแล้ว';
+      title = qrExpireMeta
+        ? dynamicQrExpiredTitle(qrExpireMeta)
+        : 'QR Code หมดอายุแล้ว';
     } else if (error.includes('ไม่พบ')) {
       variant = 'notfound';
       code = 'NOT_FOUND';
@@ -1477,14 +1407,7 @@ const RegisterPageContent: React.FC = () => {
     );
   }
 
-  // กิจกรรมสิ้นสุดแล้ว — แสดงจอแจ้งเตือนเต็มหน้าแทนหน้าลงทะเบียนปกติ
-  // ยกเว้นช่วงเปิดทำแบบประเมิน (ให้เข้าหน้าปกติเพื่อล็อกอิน/ทำแบบประเมินได้)
-  if (
-    activityData &&
-    statusInfo?.status === 'ended' &&
-    !successMessage &&
-    !canEnterSurveyFlow
-  ) {
+  if (activityData && statusInfo?.status === 'ended' && !successMessage && !canEnterSurveyFlow) {
     const endedAt = statusInfo.endTime ? formatDateTime(statusInfo.endTime) : null;
     const surveyExpiredForUser =
       Boolean(activityData.surveyConfig?.enabled) &&
@@ -1525,42 +1448,47 @@ const RegisterPageContent: React.FC = () => {
     <>
       <Navbar />
 
-      <Box sx={{ ...pageLayoutSx, flex: 1 }}>
-        <Container maxWidth="md" sx={{ flex: 1, pt: { xs: 2, md: 3 }, pb: 4 }}>
+      <div className={cn(pageLayoutClass, 'flex-1')}>
+        <div className="mx-auto w-full max-w-3xl flex-1 px-4 pb-8 pt-4 md:pt-6">
           {deadlineCountdown && (
-            <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }} icon={<AccessTimeIcon />}>
-              จะปิดการลงทะเบียนในอีก <b>{deadlineCountdown}</b>
+            <Alert variant="warning" className="mb-4 rounded-xl">
+              <AlertDescription>
+                จะปิดการลงทะเบียนในอีก <b>{deadlineCountdown}</b>
+              </AlertDescription>
             </Alert>
           )}
 
-          {/* Banner + Status */}
           {activityData && statusInfo && !ipBlocked && !singleUserBlocked && (
             <ModernActivityBanner activity={activityData} status={statusInfo} adminSettings={adminSettings} />
           )}
 
-          {/* Success */}
           {successMessage && <SuccessAlert message={successMessage} onClose={() => setSuccessMessage('')} />}
 
-          {/* แบบประเมินค้าง — อยู่บนสุด ซ่อนข้อความลงทะเบียนแล้ว/สิ้นสุดกิจกรรม */}
           {needsSurvey && activityData && (
-            <Box sx={{ mb: 3 }}>
+            <div className="mb-6">
               {!user && (
-                <Alert severity="info" icon={<LockIcon />} sx={{ mb: 2, borderRadius: 3 }}>
-                  กรุณาเข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยเพื่อทำแบบประเมินหลังกิจกรรม
+                <Alert variant="info" className="mb-4 rounded-xl">
+                  <AlertDescription>
+                    กรุณาเข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยเพื่อทำแบบประเมินหลังกิจกรรม
+                  </AlertDescription>
                 </Alert>
               )}
               {user && !hasRegisteredRecord && (
-                <Alert severity="warning" icon={<WarningIcon />} sx={{ mb: 2, borderRadius: 3 }}>
-                  ไม่พบประวัติการลงทะเบียนกิจกรรมนี้ในบัญชีของคุณ จึงยังไม่สามารถทำแบบประเมินได้
+                <Alert variant="warning" className="mb-4 rounded-xl">
+                  <AlertDescription>
+                    ไม่พบประวัติการลงทะเบียนกิจกรรมนี้ในบัญชีของคุณ จึงยังไม่สามารถทำแบบประเมินได้
+                  </AlertDescription>
                 </Alert>
               )}
               {user && hasRegisteredRecord && !isEligibleForSurvey && (
-                <Alert severity="warning" icon={<InfoIcon />} sx={{ mb: 2, borderRadius: 3 }}>
-                  คุณยังไม่ผ่านเงื่อนไขการทำแบบประเมิน (เช่น ต้องเช็กอินครบตามที่ผู้ดูแลกำหนด)
+                <Alert variant="warning" className="mb-4 rounded-xl">
+                  <AlertDescription>
+                    คุณยังไม่ผ่านเงื่อนไขการทำแบบประเมิน (เช่น ต้องเช็กอินครบตามที่ผู้ดูแลกำหนด)
+                  </AlertDescription>
                 </Alert>
               )}
               {(!user || sessionExpired) && !ipBlocked && (
-                <Box sx={{ mb: 2 }}>
+                <div className="mb-4">
                   <MicrosoftAuthSection
                     activityData={activityData}
                     onLoginSuccess={handleLoginSuccess}
@@ -1568,7 +1496,7 @@ const RegisterPageContent: React.FC = () => {
                     onPreLoginCheck={handlePreLoginCheck}
                     checkingIP={checkingPreLogin}
                   />
-                </Box>
+                </div>
               )}
               {user && isEligibleForSurvey && (
                 <SurveyForm
@@ -1583,51 +1511,46 @@ const RegisterPageContent: React.FC = () => {
                 />
               )}
               {(surveyWindow.openTime || surveyWindow.closeTime) && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                <p className="mt-2 block text-xs text-muted-foreground">
                   {surveyWindow.openTime && surveyWindow.closeTime
                     ? `ช่วงทำแบบประเมิน: ${formatDateTime(surveyWindow.openTime)} – ${formatDateTime(surveyWindow.closeTime)} น.`
                     : surveyWindow.closeTime
                       ? `เปิดทำแบบประเมินถึง ${formatDateTime(surveyWindow.closeTime)} น.`
                       : `เปิดทำแบบประเมินตั้งแต่ ${formatDateTime(surveyWindow.openTime)} น.`}
-                </Typography>
+                </p>
               )}
-            </Box>
+            </div>
           )}
 
           {isSurveyPeriodOpen && surveyCompleted && (
-            <Alert severity="success" icon={<CheckIcon />} sx={{ mb: 2, borderRadius: 3 }}>
-              ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว
+            <Alert variant="success" className="mb-4 rounded-xl">
+              <AlertDescription>ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว</AlertDescription>
             </Alert>
           )}
 
-          {/* Single-user block */}
           {singleUserBlocked && user && !sessionExpired && (
-            <Alert severity="error" sx={{ mb: 2 }} icon={<WarningIcon />}>
-              <Typography variant="body1" fontWeight="medium">
-                ไม่สามารถลงทะเบียนได้
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {singleUserMessage}
-              </Typography>
-              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                <Button color="inherit" size="small" onClick={handleLogout} variant="outlined">
-                  ออกจากระบบ
-                </Button>
-                <Button color="inherit" size="small" onClick={() => window.close()} variant="outlined">
-                  ปิดหน้าต่าง
-                </Button>
-              </Box>
+            <Alert variant="destructive" className="mb-4">
+              <AlertTitle>ไม่สามารถลงทะเบียนได้</AlertTitle>
+              <AlertDescription>
+                <p className="text-muted-foreground">{singleUserMessage}</p>
+                <div className="mt-3 flex gap-2">
+                  <Button variant="outline" size="sm" onClick={handleLogout}>
+                    ออกจากระบบ
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => window.close()}>
+                    ปิดหน้าต่าง
+                  </Button>
+                </div>
+              </AlertDescription>
             </Alert>
           )}
 
-          {/* ซ่อนเมื่อยังค้างแบบประเมิน — ไม่ให้แย่งโฟกัสกับฟอร์ม */}
           {isDuplicateRegistration &&
             user &&
             !sessionExpired &&
             !singleUserBlocked &&
             !needsSurvey && <DuplicateRegistrationAlert />}
 
-          {/* Banner สำหรับรอบถัดไป หากเช็กอินรอบปัจจุบันแล้ว แต่ยังไม่ครบทุกรอบ */}
           {activityData && !isDuplicateRegistration && hasRegisteredRecord && !singleUserBlocked && !sessionExpired && (() => {
             const now = new Date();
             const activeSession = activityData.sessions?.find((s: any) => {
@@ -1636,7 +1559,7 @@ const RegisterPageContent: React.FC = () => {
               return now >= sStart && now <= sEnd;
             });
             const isActiveCheckedIn = activeSession && checkedInSessions.includes(activeSession.id);
-            
+
             if (isActiveCheckedIn) {
               const sorted = [...(activityData.sessions ?? [])].sort((a, b) => {
                 const aTime = a.startDateTime?.toDate?.()?.getTime() || new Date(a.startDateTime).getTime();
@@ -1647,32 +1570,27 @@ const RegisterPageContent: React.FC = () => {
                 const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
                 return now < sStart;
               });
-              
+
               if (nextSession) {
                 const nStart = nextSession.startDateTime?.toDate?.() || new Date(nextSession.startDateTime);
                 return (
-                  <Alert 
-                    severity="info" 
-                    icon={<AccessTimeIcon />}
-                    sx={{ 
-                      mb: 3, 
-                      background: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', 
-                      border: '1px solid #0284c7',
-                      borderRadius: 3
-                    }}
+                  <Alert
+                    variant="info"
+                    className="mb-6 rounded-xl border border-sky-600"
+                    style={{ background: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)' }}
                   >
-                    <Typography variant="body1" gutterBottom fontWeight="bold" color="info.dark">
-                      เช็กอินรอบปัจจุบันเรียบร้อยแล้ว
-                    </Typography>
-                    <Typography variant="body2" color="text.primary">
-                      รอบถัดไป: <b>{nextSession.name}</b> จะเปิดให้เช็กอินในวันที่ {nStart.toLocaleString('th-TH', {
+                    <AlertTitle className="font-bold text-sky-900">เช็กอินรอบปัจจุบันเรียบร้อยแล้ว</AlertTitle>
+                    <AlertDescription className="text-foreground">
+                      รอบถัดไป: <b>{nextSession.name}</b> จะเปิดให้เช็กอินในวันที่{' '}
+                      {nStart.toLocaleString('th-TH', {
                         day: 'numeric',
                         month: 'long',
                         year: 'numeric',
                         hour: '2-digit',
-                        minute: '2-digit'
-                      })} น.
-                    </Typography>
+                        minute: '2-digit',
+                      })}{' '}
+                      น.
+                    </AlertDescription>
                   </Alert>
                 );
               }
@@ -1694,7 +1612,6 @@ const RegisterPageContent: React.FC = () => {
             />
           )}
 
-          {/* ✅ Map + GPS — แสดงเฉพาะหลังเช็กประวัติแล้ว และยังต้องลงทะเบียน */}
           {activityData &&
             statusInfo?.status === 'active' &&
             isAuthed &&
@@ -1703,7 +1620,7 @@ const RegisterPageContent: React.FC = () => {
             !isDuplicateRegistration &&
             !singleUserBlocked && (
               <>
-                <Box sx={{ mb: 2 }}>
+                <div className="mb-4">
                   <GeofenceMap
                     center={{ lat: activityData.latitude, lng: activityData.longitude }}
                     radius={activityData.checkInRadius}
@@ -1712,25 +1629,20 @@ const RegisterPageContent: React.FC = () => {
                     onUseCurrentLocation={triggerGeoCheck}
                     title={activityData.activityName}
                   />
-                </Box>
+                </div>
 
-                {/* GPS Status Card */}
-                <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
-                  <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
-                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
+                <Card className={cn(glassCardClass, 'mb-4 border-0 shadow-none')}>
+                  <CardContent className="p-4 sm:p-6">
+                    <div className="mb-4 flex items-center gap-3">
                       <SectionIcon icon={<GpsFixedIcon />} color={pageColors.accentInfo} />
-                      <Box>
-                        <Typography variant="h6" fontWeight={800} sx={{ lineHeight: 1.2 }}>
-                          สถานะตำแหน่ง
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          ต้องอยู่ในรัศมีที่กำหนดจึงลงทะเบียนได้
-                        </Typography>
-                      </Box>
-                    </Stack>
+                      <div>
+                        <h3 className="text-lg font-extrabold leading-tight">สถานะตำแหน่ง</h3>
+                        <p className="text-xs text-muted-foreground">ต้องอยู่ในรัศมีที่กำหนดจึงลงทะเบียนได้</p>
+                      </div>
+                    </div>
 
-                    <Grid container spacing={2}>
-                      <Grid size={{ xs: 12, md: 7 }}>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                      <div className="md:col-span-7">
                         <DetailSection
                           icon={<MyLocationIcon />}
                           title={
@@ -1760,171 +1672,111 @@ const RegisterPageContent: React.FC = () => {
                           }
                         >
                           {!geoLoading && !geoSupported && (
-                            <Alert severity="error" icon={<ErrorIcon />} sx={{ borderRadius: 2 }}>
-                              อุปกรณ์ของคุณไม่รองรับการระบุตำแหน่ง
+                            <Alert variant="destructive" className="rounded-lg">
+                              <AlertDescription>อุปกรณ์ของคุณไม่รองรับการระบุตำแหน่ง</AlertDescription>
                             </Alert>
                           )}
                           {!geoLoading && geoSupported && geoError && (
-                            <Alert severity="warning" icon={<WarningIcon />} sx={{ borderRadius: 2 }}>
-                              {geoError}
+                            <Alert variant="warning" className="rounded-lg">
+                              <AlertDescription>{geoError}</AlertDescription>
                             </Alert>
                           )}
                           {!geoLoading && geoSupported && !geoError && (
-                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                              <Chip
-                                size="small"
-                                icon={inRadius ? <CheckIcon /> : <ErrorIcon />}
-                                label={inRadius ? 'พร้อมลงทะเบียน' : 'ยังไม่พร้อม'}
-                                color={inRadius ? 'success' : 'error'}
-                                variant="filled"
-                                sx={{ fontWeight: 700 }}
-                              />
-                              <Chip
-                                size="small"
-                                icon={<RadarIcon />}
-                                label={`รัศมี ${activityData.checkInRadius} ม.`}
-                                variant="outlined"
-                                sx={{ fontWeight: 600 }}
-                              />
-                            </Stack>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant={inRadius ? 'success' : 'destructive'} className="gap-1 font-bold">
+                                {inRadius ? <CheckIcon className="h-3.5 w-3.5" /> : <ErrorIcon className="h-3.5 w-3.5" />}
+                                {inRadius ? 'พร้อมลงทะเบียน' : 'ยังไม่พร้อม'}
+                              </Badge>
+                              <Badge variant="outline" className="gap-1 font-semibold">
+                                <RadarIcon className="h-3.5 w-3.5" />
+                                รัศมี {activityData.checkInRadius} ม.
+                              </Badge>
+                            </div>
                           )}
                         </DetailSection>
-                      </Grid>
-                      <Grid size={{ xs: 12, md: 5 }}>
-                        <Stack spacing={1.25} justifyContent="center" sx={{ height: '100%' }}>
-                          <Button
-                            variant="contained"
-                            startIcon={<RefreshIcon />}
-                            onClick={triggerGeoCheck}
-                            disabled={geoLoading}
-                            sx={{ borderRadius: 3, fontWeight: 700, py: 1.25 }}
-                          >
-                            {geoLoading ? 'กำลังตรวจ...' : 'ตรวจตำแหน่งอีกครั้ง'}
-                          </Button>
-                          <Typography variant="caption" color="text.secondary" sx={{ textAlign: { md: 'center' } }}>
-                            เปิด GPS และอนุญาตสิทธิ์ตำแหน่งบนอุปกรณ์
-                          </Typography>
-                        </Stack>
-                      </Grid>
-                    </Grid>
+                      </div>
+                      <div className="flex flex-col justify-center gap-3 md:col-span-5">
+                        <Button
+                          className="rounded-xl py-3 font-bold"
+                          onClick={triggerGeoCheck}
+                          disabled={geoLoading}
+                        >
+                          {geoLoading ? <Spinner size="sm" className="text-primary-foreground" /> : <RefreshIcon className="h-4 w-4" />}
+                          {geoLoading ? 'กำลังตรวจ...' : 'ตรวจตำแหน่งอีกครั้ง'}
+                        </Button>
+                        <p className="text-xs text-muted-foreground md:text-center">
+                          เปิด GPS และอนุญาตสิทธิ์ตำแหน่งบนอุปกรณ์
+                        </p>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </>
             )}
 
-          {/* รายละเอียดกิจกรรม — ซ่อนชั่วคราวเมื่อค้างแบบประเมิน เพื่อโฟกัสฟอร์ม */}
           {activityData && !ipBlocked && !singleUserBlocked && !needsSurvey && (
-            <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
-              <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
-                <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2.5 }}>
+            <Card className={cn(glassCardClass, 'mb-4 border-0 shadow-none')}>
+              <CardContent className="p-4 sm:p-6">
+                <div className="mb-5 flex items-center gap-3">
                   <SectionIcon icon={<ArticleIcon />} color={pageColors.accentInfo} />
-                  <Box>
-                    <Typography variant="h6" fontWeight={800} sx={{ lineHeight: 1.2 }}>
-                      รายละเอียดกิจกรรม
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      ข้อมูลสำคัญก่อนลงทะเบียน
-                    </Typography>
-                  </Box>
-                </Stack>
+                  <div>
+                    <h3 className="text-lg font-extrabold leading-tight">รายละเอียดกิจกรรม</h3>
+                    <p className="text-xs text-muted-foreground">ข้อมูลสำคัญก่อนลงทะเบียน</p>
+                  </div>
+                </div>
 
-                <Stack spacing={1.75}>
-                  <Grid container spacing={1.75}>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <DetailSection
-                        icon={<EventStartIcon />}
-                        title="วันเวลาเริ่ม"
-                        color={pageColors.appleGreen}
-                      >
-                        <Typography variant="body2" fontWeight={600}>
-                          {formatDateTime(activityData.startDateTime)}
-                        </Typography>
-                      </DetailSection>
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <DetailSection
-                        icon={<EventEndIcon />}
-                        title="วันเวลาสิ้นสุด"
-                        color={pageColors.accentError}
-                      >
-                        <Typography variant="body2" fontWeight={600}>
-                          {formatDateTime(activityData.endDateTime)}
-                        </Typography>
-                      </DetailSection>
-                    </Grid>
-                  </Grid>
+                <div className="flex flex-col gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <DetailSection icon={<EventStartIcon />} title="วันเวลาเริ่ม" color={pageColors.appleGreen}>
+                      <p className="text-sm font-semibold">{formatDateTime(activityData.startDateTime)}</p>
+                    </DetailSection>
+                    <DetailSection icon={<EventEndIcon />} title="วันเวลาสิ้นสุด" color={pageColors.accentError}>
+                      <p className="text-sm font-semibold">{formatDateTime(activityData.endDateTime)}</p>
+                    </DetailSection>
+                  </div>
 
                   {activityData.location && (
-                    <DetailSection
-                      icon={<PlaceIcon />}
-                      title="สถานที่"
-                      color={pageColors.accentWarning}
-                    >
-                      <Typography variant="body2" fontWeight={600}>
-                        {activityData.location}
-                      </Typography>
+                    <DetailSection icon={<PlaceIcon />} title="สถานที่" color={pageColors.accentWarning}>
+                      <p className="text-sm font-semibold">{activityData.location}</p>
                       {typeof activityData.checkInRadius === 'number' && activityData.checkInRadius > 0 && (
-                        <Chip
-                          size="small"
-                          icon={<RadarIcon />}
-                          label={`รัศมีเช็กอิน ${activityData.checkInRadius} เมตร`}
-                          sx={{ mt: 1, fontWeight: 600 }}
-                          variant="outlined"
-                        />
+                        <Badge variant="outline" className="mt-2 gap-1 font-semibold">
+                          <RadarIcon className="h-3.5 w-3.5" />
+                          รัศมีเช็กอิน {activityData.checkInRadius} เมตร
+                        </Badge>
                       )}
                     </DetailSection>
                   )}
 
                   {activityData.maxParticipants > 0 && (
-                    <DetailSection
-                      icon={<GroupsIcon />}
-                      title="จำนวนผู้สมัคร"
-                      color={pageColors.accentInfo}
-                    >
-                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                        <Typography variant="body2" fontWeight={700}>
+                    <DetailSection icon={<GroupsIcon />} title="จำนวนผู้สมัคร" color={pageColors.accentInfo}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-bold">
                           {activityData.currentParticipants}/{activityData.maxParticipants} คน
-                        </Typography>
-                        <Chip
-                          size="small"
-                          label={
-                            activityData.currentParticipants >= activityData.maxParticipants
-                              ? 'เต็มแล้ว'
-                              : `เหลืออีก ${Math.max(0, activityData.maxParticipants - activityData.currentParticipants)} ที่นั่ง`
-                          }
-                          color={
+                        </p>
+                        <Badge
+                          variant={
                             activityData.currentParticipants >= activityData.maxParticipants
                               ? 'warning'
                               : 'success'
                           }
-                          variant="outlined"
-                          sx={{ fontWeight: 700 }}
-                        />
-                      </Stack>
+                          className="font-bold"
+                        >
+                          {activityData.currentParticipants >= activityData.maxParticipants
+                            ? 'เต็มแล้ว'
+                            : `เหลืออีก ${Math.max(0, activityData.maxParticipants - activityData.currentParticipants)} ที่นั่ง`}
+                        </Badge>
+                      </div>
                     </DetailSection>
                   )}
 
-                  <DetailSection
-                    icon={<ArticleIcon />}
-                    title="คำอธิบาย"
-                    color="#636366"
-                  >
+                  <DetailSection icon={<ArticleIcon />} title="คำอธิบาย" color="#636366">
                     {activityData.description ? (
-                      <Box
-                        className="ql-editor"
-                        sx={{
-                          p: 0,
-                          minHeight: 'auto',
-                          fontSize: '0.875rem',
-                          color: 'text.secondary',
-                          '& img': { maxWidth: '100%', borderRadius: 2 },
-                        }}
+                      <div
+                        className="ql-editor min-h-0 p-0 text-sm text-muted-foreground [&_img]:max-w-full [&_img]:rounded-lg"
                         dangerouslySetInnerHTML={{ __html: activityData.description }}
                       />
                     ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        ไม่มีคำอธิบายเพิ่มเติม
-                      </Typography>
+                      <p className="text-sm text-muted-foreground">ไม่มีคำอธิบายเพิ่มเติม</p>
                     )}
                   </DetailSection>
 
@@ -1935,14 +1787,12 @@ const RegisterPageContent: React.FC = () => {
                       hint="กรุณาเช็กอินให้ครบตามรอบที่กำหนด"
                       color={pageColors.accentWarning}
                     >
-                      <Alert
-                        severity="info"
-                        icon={<InfoIcon fontSize="small" />}
-                        sx={{ mb: 1.5, borderRadius: 2, py: 0.5 }}
-                      >
-                        แต่ละรอบมีช่วงเวลาของตัวเอง — เปิดหน้านี้ใหม่เมื่อถึงเวลารอบถัดไป
+                      <Alert variant="info" className="mb-3 rounded-lg py-2">
+                        <AlertDescription>
+                          แต่ละรอบมีช่วงเวลาของตัวเอง — เปิดหน้านี้ใหม่เมื่อถึงเวลารอบถัดไป
+                        </AlertDescription>
                       </Alert>
-                      <Stack spacing={1}>
+                      <div className="flex flex-col gap-2">
                         {activityData.sessions.map((session: any, index: number) => {
                           const isCheckedIn = checkedInSessions.includes(session.id);
                           return (
@@ -1953,15 +1803,14 @@ const RegisterPageContent: React.FC = () => {
                             />
                           );
                         })}
-                      </Stack>
+                      </div>
                     </DetailSection>
                   )}
-                </Stack>
+                </div>
               </CardContent>
             </Card>
           )}
 
-          {/* Microsoft login — แสดงเสมอเพื่อให้เข้าสู่ระบบรอได้ (ยกเว้นช่วงค้างแบบประเมินที่แสดงด้านบนแล้ว) */}
           {shouldShowMicrosoftLogin() && activityData && !needsSurvey && (
             <MicrosoftAuthSection
               activityData={activityData}
@@ -1972,7 +1821,6 @@ const RegisterPageContent: React.FC = () => {
             />
           )}
 
-          {/* Profile setup */}
           {user &&
             needsProfileSetup &&
             !ipBlocked &&
@@ -1981,7 +1829,6 @@ const RegisterPageContent: React.FC = () => {
             !sessionValidating &&
             !singleUserBlocked && <ProfileSetupAlert onEditProfile={() => setShowProfileDialog(true)} />}
 
-          {/* Registration form */}
           {statusInfo?.status === 'active' && adminSettings && activityCode && canProceedToRegistration() && activityData && (
             <ActivityRegistrationForm
               activityCode={activityCode}
@@ -2014,11 +1861,10 @@ const RegisterPageContent: React.FC = () => {
             />
           )}
 
-          {/* Profile dialog */}
           <ProfileEditDialog
             open={showProfileDialog}
             onClose={() => {
-              if (needsProfileSetup) return; // prevent close if profile is mandatory
+              if (needsProfileSetup) return;
               setShowProfileDialog(false);
             }}
             user={user}
@@ -2027,87 +1873,87 @@ const RegisterPageContent: React.FC = () => {
             isFirstTimeSetup={needsProfileSetup}
           />
 
-          {/* (สำรอง) Snackbar เดิม */}
-          <Snackbar
-            open={snack.open}
-            autoHideDuration={4000}
-            onClose={() => setSnack((s) => ({ ...s, open: false }))}
-            anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-          >
-            <MuiAlert
-              onClose={() => setSnack((s) => ({ ...s, open: false }))}
-              severity={snack.severity}
-              variant="filled"
-              sx={{ width: '100%' }}
-            >
-              {snack.text}
-            </MuiAlert>
-          </Snackbar>
-        </Container>
+          {snack.open && (
+            <div className="fixed left-1/2 top-4 z-50 w-[min(100%-2rem,28rem)] -translate-x-1/2">
+              <Alert
+                variant={
+                  snack.severity === 'success'
+                    ? 'success'
+                    : snack.severity === 'warning'
+                      ? 'warning'
+                      : 'info'
+                }
+                className="shadow-lg"
+              >
+                <AlertDescription className="flex items-center justify-between gap-2">
+                  <span>{snack.text}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 shrink-0 px-2"
+                    onClick={() => setSnack((s) => ({ ...s, open: false }))}
+                  >
+                    ปิด
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
+        </div>
         <Footer />
-      </Box>
+      </div>
     </>
   );
 };
 
 /* ============================= Loading Skeleton ============================= */
-// โครงหน้าจำลองระหว่างโหลดข้อมูล — แสดงเลย์เอาต์จริงทันทีแทนหน้าสปินเนอร์
 const RegisterPageSkeleton: React.FC = () => (
   <>
     <Navbar />
-    <Box sx={{ ...pageLayoutSx, flex: 1 }}>
-    <Container maxWidth="md" sx={{ flex: 1, pt: { xs: 2, md: 3 }, pb: 4 }}>
-      {/* Banner */}
-      <Skeleton
-        variant="rounded"
-        width="100%"
-        sx={{ height: { xs: 160, md: 220 }, borderRadius: '24px', mb: 3 }}
-      />
-
-      {/* Activity details card */}
-      <Card elevation={0} sx={{ ...glassCardSx, mb: 2 }}>
-        <CardContent>
-          <Skeleton width="45%" height={30} sx={{ borderRadius: '8px', mb: 2 }} />
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <Skeleton width="35%" height={16} sx={{ borderRadius: '6px', mb: 0.5 }} />
-              <Skeleton width="70%" height={22} sx={{ borderRadius: '6px' }} />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <Skeleton width="35%" height={16} sx={{ borderRadius: '6px', mb: 0.5 }} />
-              <Skeleton width="70%" height={22} sx={{ borderRadius: '6px' }} />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <Skeleton width="25%" height={16} sx={{ borderRadius: '6px', mb: 0.5 }} />
-              <Skeleton width="100%" height={20} sx={{ borderRadius: '6px' }} />
-              <Skeleton width="85%" height={20} sx={{ borderRadius: '6px' }} />
-              <Skeleton width="60%" height={20} sx={{ borderRadius: '6px' }} />
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-
-      {/* Login / form card */}
-      <Card elevation={0} sx={{ ...glassCardSx }}>
-        <CardContent>
-          <Skeleton width="35%" height={28} sx={{ borderRadius: '8px', mb: 2 }} />
-          <Skeleton variant="rounded" width="100%" height={52} sx={{ borderRadius: '14px', mb: 1.5 }} />
-          <Skeleton variant="rounded" width="100%" height={52} sx={{ borderRadius: '14px' }} />
-        </CardContent>
-      </Card>
-    </Container>
-    </Box>
+    <div className={cn(pageLayoutClass, 'flex-1')}>
+      <div className="mx-auto w-full max-w-3xl flex-1 px-4 pb-8 pt-4 md:pt-6">
+        <Skeleton className="mb-6 h-40 w-full rounded-3xl md:h-[220px]" />
+        <Card className={cn(glassCardClass, 'mb-4 border-0 shadow-none')}>
+          <CardContent className="pt-6">
+            <Skeleton className="mb-4 h-7 w-[45%] rounded-lg" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <Skeleton className="mb-1 h-4 w-[35%] rounded-md" />
+                <Skeleton className="h-5 w-[70%] rounded-md" />
+              </div>
+              <div>
+                <Skeleton className="mb-1 h-4 w-[35%] rounded-md" />
+                <Skeleton className="h-5 w-[70%] rounded-md" />
+              </div>
+              <div className="md:col-span-2">
+                <Skeleton className="mb-1 h-4 w-[25%] rounded-md" />
+                <Skeleton className="mb-1 h-5 w-full rounded-md" />
+                <Skeleton className="mb-1 h-5 w-[85%] rounded-md" />
+                <Skeleton className="h-5 w-[60%] rounded-md" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className={cn(glassCardClass, 'border-0 shadow-none')}>
+          <CardContent className="pt-6">
+            <Skeleton className="mb-4 h-7 w-[35%] rounded-lg" />
+            <Skeleton className="mb-3 h-13 w-full rounded-[14px]" />
+            <Skeleton className="h-13 w-full rounded-[14px]" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   </>
 );
 
 /* ============================= Page Wrapper with Suspense ============================= */
 const RegisterPage: React.FC = () => {
   return (
-    <Box sx={pageLayoutSx}>
+    <div className={pageLayoutClass}>
       <Suspense fallback={<RegisterPageSkeleton />}>
         <RegisterPageContent />
       </Suspense>
-    </Box>
+    </div>
   );
 };
 

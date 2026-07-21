@@ -2,58 +2,42 @@
 'use client';
 
 import React from 'react';
-import { Box, Button, Card, CardContent, Typography, Stack } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
-import HomeIcon from '@mui/icons-material/Home';
-import MapIcon from '@mui/icons-material/Map';
+import { Home, Map } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { glassCardClass } from '@/lib/uiTheme';
+import { cn } from '@/lib/utils';
 
 export default function NotFoundPage() {
-  const theme = useTheme();
   const router = useRouter();
 
   return (
-    <Box
-      sx={{
-        minHeight: '70vh',
-        display: 'grid',
-        placeItems: 'center',
-        px: 2,
-        py: { xs: 4, md: 8 },
-        background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)}, transparent)`,
-      }}
-    >
-      <Card
-        elevation={0}
-        sx={{
-          width: '100%',
-          maxWidth: 680,
-          borderRadius: 3,
-          overflow: 'hidden',
-          border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
-        }}
-      >
-        <CardContent sx={{ p: { xs: 3, md: 4 }, textAlign: 'center' }}>
-          <Typography variant="h2" fontWeight={800} sx={{ mb: 1 }}>
+    <div className="grid min-h-[70vh] place-items-center bg-gradient-to-br from-primary/10 to-transparent px-2 py-8 md:py-16">
+      <Card className={cn(glassCardClass, 'w-full max-w-[680px] overflow-hidden shadow-none')}>
+        <CardContent className="p-6 text-center md:p-8">
+          <h1 className="mb-1 text-5xl font-extrabold tracking-tight text-foreground md:text-6xl">
             404
-          </Typography>
-          <Typography variant="h6" fontWeight={700}>
+          </h1>
+          <h2 className="text-lg font-bold text-foreground">
             ไม่พบหน้าที่คุณต้องการ
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 3 }}>
+          </h2>
+          <p className="mb-6 mt-1 text-sm text-muted-foreground">
             ลิงก์อาจหมดอายุหรือถูกย้ายไปยังที่อื่น
-          </Typography>
+          </p>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="center">
-            <Button variant="contained" startIcon={<HomeIcon />} onClick={() => router.push('/')}>
+          <div className="flex flex-col justify-center gap-2 sm:flex-row">
+            <Button onClick={() => router.push('/')}>
+              <Home className="h-4 w-4" />
               กลับหน้าหลัก
             </Button>
-            <Button variant="outlined" startIcon={<MapIcon />} onClick={() => router.back()}>
+            <Button variant="outline" onClick={() => router.back()}>
+              <Map className="h-4 w-4" />
               กลับหน้าก่อนหน้า
             </Button>
-          </Stack>
+          </div>
         </CardContent>
       </Card>
-    </Box>
+    </div>
   );
 }

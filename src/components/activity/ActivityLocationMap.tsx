@@ -1,22 +1,15 @@
-// components/activity/ActivityLocationMap.tsx
 'use client';
+
 import React from 'react';
-import {
-  Alert,
-  Box,
-  CircularProgress,
-  Typography
-} from '@mui/material';
-import {
-  CheckCircle as CheckIcon,
-  Close as CloseIcon
-} from '@mui/icons-material';
+import { CheckCircle2, X } from 'lucide-react';
 import { GoogleMap, MarkerF, CircleF, useLoadScript } from '@react-google-maps/api';
+import { Alert } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
 
 interface ActivityLocationMapProps {
-  latitude: number; 
-  longitude: number; 
-  radius: number; 
+  latitude: number;
+  longitude: number;
+  radius: number;
   activityName: string;
   userLocation?: { lat: number; lng: number } | null;
 }
@@ -26,15 +19,17 @@ const mapContainerStyle = {
   height: '300px',
 };
 
-// กำหนด libraries array นอก component
-const libraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
+const libraries: ('places' | 'geometry' | 'drawing' | 'visualization')[] = [
+  'places',
+  'geometry',
+];
 
-const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({ 
-  latitude, 
-  longitude, 
-  radius, 
-  activityName, 
-  userLocation 
+const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({
+  latitude,
+  longitude,
+  radius,
+  activityName,
+  userLocation,
 }) => {
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
@@ -43,24 +38,29 @@ const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({
 
   const center = { lat: latitude, lng: longitude };
 
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371e3; // Earth's radius in meters
-    const φ1 = lat1 * Math.PI/180; // φ, λ in radians
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
+  const calculateDistance = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ): number => {
+    const R = 6371e3;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    return R * c; // Distance in meters
+    return R * c;
   };
 
   if (loadError) {
     return (
-      <Alert severity="error">
+      <Alert variant="destructive">
         ไม่สามารถโหลดแผนที่ได้: {loadError.message}
       </Alert>
     );
@@ -68,26 +68,20 @@ const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({
 
   if (!isLoaded) {
     return (
-      <Box sx={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        height: '300px',
-        flexDirection: 'column',
-        gap: 2,
-        bgcolor: 'grey.50',
-        borderRadius: 1
-      }}>
-        <CircularProgress size={32} />
-        <Typography variant="body2" color="text.secondary">
-          กำลังโหลดแผนที่...
-        </Typography>
-      </Box>
+      <div className="flex h-[300px] flex-col items-center justify-center gap-2 rounded-md bg-muted/50">
+        <Spinner size="lg" />
+        <p className="text-sm text-muted-foreground">กำลังโหลดแผนที่...</p>
+      </div>
     );
   }
 
+  const distance = userLocation
+    ? calculateDistance(userLocation.lat, userLocation.lng, latitude, longitude)
+    : 0;
+  const inRadius = userLocation ? distance <= radius : false;
+
   return (
-    <Box>
+    <div>
       <GoogleMap
         mapContainerStyle={mapContainerStyle}
         zoom={16}
@@ -100,10 +94,9 @@ const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({
           streetViewControl: false,
           rotateControl: false,
           fullscreenControl: true,
-          mapTypeId: 'roadmap'
+          mapTypeId: 'roadmap',
         }}
       >
-        {/* Activity Location Marker */}
         <MarkerF
           position={center}
           title={`ตำแหน่งกิจกรรม: ${activityName}`}
@@ -113,8 +106,7 @@ const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({
             anchor: new window.google.maps.Point(16, 32),
           }}
         />
-        
-        {/* User Location Marker */}
+
         {userLocation && (
           <MarkerF
             position={userLocation}
@@ -126,8 +118,7 @@ const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({
             }}
           />
         )}
-        
-        {/* Check-in Radius Circle */}
+
         <CircleF
           center={center}
           radius={radius}
@@ -140,119 +131,79 @@ const ActivityLocationMap: React.FC<ActivityLocationMapProps> = ({
           }}
         />
       </GoogleMap>
-      
-      {/* Location Status Info */}
+
       {userLocation && (
-        <Box sx={{ 
-          mt: 2, 
-          p: 2, 
-          bgcolor: 'grey.50', 
-          borderRadius: 1,
-          border: '1px solid',
-          borderColor: 'grey.200'
-        }}>
-          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
-            ข้อมูลตำแหน่ง
-          </Typography>
-          
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              ระยะห่างจากจุดกิจกรรม: <strong>{Math.round(calculateDistance(
-                userLocation.lat, userLocation.lng, 
-                latitude, longitude
-              ))} เมตร</strong>
-            </Typography>
-            
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {calculateDistance(userLocation.lat, userLocation.lng, latitude, longitude) <= radius ? (
+        <div className="mt-4 rounded-md border border-border bg-muted/50 p-4">
+          <p className="mb-2 text-sm font-bold">ข้อมูลตำแหน่ง</p>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-muted-foreground">
+              ระยะห่างจากจุดกิจกรรม:{' '}
+              <strong>{Math.round(distance)} เมตร</strong>
+            </p>
+
+            <div className="flex items-center gap-2">
+              {inRadius ? (
                 <>
-                  <CheckIcon sx={{ color: 'success.main', fontSize: 20 }} />
-                  <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  <p className="text-sm font-bold text-emerald-600">
                     ✅ อยู่ในพื้นที่กิจกรรม - สามารถเช็คอินได้
-                  </Typography>
+                  </p>
                 </>
               ) : (
                 <>
-                  <CloseIcon sx={{ color: 'error.main', fontSize: 20 }} />
-                  <Typography variant="body2" sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                  <X className="h-5 w-5 text-destructive" />
+                  <p className="text-sm font-bold text-destructive">
                     ❌ อยู่นอกพื้นที่กิจกรรม - ไม่สามารถเช็คอินได้
-                  </Typography>
+                  </p>
                 </>
               )}
-            </Box>
-            
-            <Box sx={{ 
-              mt: 1, 
-              p: 1.5, 
-              bgcolor: 'info.50', 
-              borderRadius: 1,
-              border: '1px solid',
-              borderColor: 'info.200'
-            }}>
-              <Typography variant="caption" color="info.dark">
-                <strong>หมายเหตุ:</strong> คุณต้องอยู่ในรัศมี {radius} เมตร จากจุดกิจกรรมเพื่อทำการเช็คอิน
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
+            </div>
+
+            <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/30">
+              <p className="text-xs text-blue-800 dark:text-blue-300">
+                <strong>หมายเหตุ:</strong> คุณต้องอยู่ในรัศมี {radius} เมตร
+                จากจุดกิจกรรมเพื่อทำการเช็คอิน
+              </p>
+            </div>
+          </div>
+        </div>
       )}
-      
-      {/* Map Legend */}
-      <Box sx={{ 
-        mt: 2, 
-        p: 2, 
-        bgcolor: 'primary.50', 
-        borderRadius: 1,
-        border: '1px solid',
-        borderColor: 'primary.200'
-      }}>
-        <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.dark' }}>
-          คำอธิบายสัญลักษณ์
-        </Typography>
-        
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ 
-              width: 16, 
-              height: 16, 
-              bgcolor: '#EF4444', 
-              borderRadius: '50% 50% 50% 0%',
-              transform: 'rotate(-45deg)',
-              border: '2px solid white'
-            }} />
-            <Typography variant="caption" color="text.secondary">
-              จุดกิจกรรม
-            </Typography>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ 
-              width: 16, 
-              height: 16, 
-              bgcolor: '#3B82F6', 
-              borderRadius: '50%',
-              border: '2px solid white'
-            }} />
-            <Typography variant="caption" color="text.secondary">
+
+      <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-4">
+        <p className="mb-2 text-sm font-bold text-primary">คำอธิบายสัญลักษณ์</p>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <div
+              className="h-4 w-4 border-2 border-white bg-[#EF4444]"
+              style={{
+                borderRadius: '50% 50% 50% 0%',
+                transform: 'rotate(-45deg)',
+              }}
+            />
+            <span className="text-xs text-muted-foreground">จุดกิจกรรม</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded-full border-2 border-white bg-[#3B82F6]" />
+            <span className="text-xs text-muted-foreground">
               ตำแหน่งของคุณ {!userLocation && '(ยังไม่ได้ค้นหา)'}
-            </Typography>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ 
-              width: 16, 
-              height: 16, 
-              bgcolor: 'rgba(16, 185, 129, 0.2)', 
-              border: '2px solid #10B981',
-              borderRadius: '50%'
-            }} />
-            <Typography variant="caption" color="text.secondary">
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div
+              className="h-4 w-4 rounded-full border-2 border-[#10B981]"
+              style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)' }}
+            />
+            <span className="text-xs text-muted-foreground">
               พื้นที่เช็คอิน (รัศมี {radius} เมตร)
-            </Typography>
-          </Box>
-        </Box>
-      </Box>
-    </Box>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 

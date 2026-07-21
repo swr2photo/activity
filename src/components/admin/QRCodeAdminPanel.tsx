@@ -3,51 +3,46 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import Grid from '@mui/material/Grid';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Separator } from '@/components/ui/separator';
 import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  Button,
-  Chip,
-  IconButton,
-  Paper,
-  Tooltip,
-  Container,
   Dialog,
-  DialogTitle,
   DialogContent,
-  DialogActions,
-  TextField,
-  Switch,
-  FormControlLabel,
-  Stack,
-  Divider,
-  Alert,
-  CircularProgress,
-  InputAdornment,
-  MenuItem,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
   Select,
-  FormControl,
-  InputLabel,
-  Slider,
-  Menu,
-  ListItemIcon,
-  ListItemText,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  AppBar,
-  Toolbar,
-  Slide,
-  Autocomplete,
-  Radio,
-  Checkbox,
-} from '@mui/material';
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const LOCATION_OPTIONS = [
   'หอประชุมใหญ่',
@@ -60,32 +55,30 @@ const LOCATION_OPTIONS = [
   'โรงอาหาร',
   'ออนไลน์ (Online)',
 ];
-import type { TransitionProps } from '@mui/material/transitions';
-import { MonitorPlay } from 'lucide-react';
-
 import {
-  QrCode2 as QrCodeIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Visibility as ViewIcon,
+  MonitorPlay,
+  QrCode as QrCodeIcon,
+  Plus as AddIcon,
+  Pencil as EditIcon,
+  Trash2 as DeleteIcon,
+  Eye as ViewIcon,
   Image as ImageIcon,
-  Clear as ClearIcon,
-  ColorLens as ColorIcon,
+  X as ClearIcon,
+  Palette as ColorIcon,
   Shuffle as ShuffleIcon,
-  ContentCopy as CopyIcon,
-  Preview as PreviewIcon,
-  Place as PlaceIcon,
+  Copy as CopyIcon,
+  Eye as PreviewIcon,
+  MapPin as PlaceIcon,
   Download as DownloadIcon,
-  People as PeopleIcon,
-  GridView as GridIcon,
-  TableRows as TableIcon,
-  MyLocation as MyLocationIcon,
-  Badge as BadgeIcon,
-  Close as CloseIcon,
-  AttachFile as AttachFileIcon,
-  AutoAwesome as SparklesIcon,
-} from '@mui/icons-material';
+  Users as PeopleIcon,
+  LayoutGrid as GridIcon,
+  Rows3 as TableIcon,
+  LocateFixed as MyLocationIcon,
+  Tag as BadgeIcon,
+  X as CloseIcon,
+  Paperclip as AttachFileIcon,
+  Sparkles as SparklesIcon,
+} from 'lucide-react';
 
 
 import dayjs, { Dayjs } from 'dayjs';
@@ -126,7 +119,7 @@ import GeofenceMap from '../maps/GeofenceMap';
 import { useLoadScript } from '@react-google-maps/api';
 import { PageHeader } from './shared/PageHeader';
 import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
-import { useSnackbar } from 'notistack';
+import { useSnackbar } from '@/lib/toast';
 
 /* ===================== Small utils ===================== */
 const clean = <T extends Record<string, any>>(obj: T): T => {
@@ -329,6 +322,8 @@ type CreateForm = {
   
   // Dynamic QR Code (Rolling QR)
   dynamicQREnabled: boolean;
+  /** ชื่อจุดลงทะเบียนหน้างาน (แสดงตอน QR หมดอายุ) */
+  onsiteRegistrationPoint: string;
 
   // กิจกรรมย่อย (Sessions)
   sessions: { id: string; name: string; startDateTime: Dayjs | null; endDateTime: Dayjs | null; files?: ActivityFile[] }[];
@@ -385,6 +380,7 @@ const defaultForm: CreateForm = {
   regCodeAssigned: 0,
   
   dynamicQREnabled: false,
+  onsiteRegistrationPoint: '',
   sessions: [],
   surveyConfig: {
     enabled: false,
@@ -628,63 +624,53 @@ const FileConfigSection: React.FC<{
   };
 
   return (
-    <Box sx={{ mt: 1.5 }}>
-      <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <AttachFileIcon sx={{ fontSize: '1.1rem' }} /> {title} ({files.length})
-      </Typography>
-      
+    <div className="mt-3">
+      <p className="mb-2 text-sm font-medium flex items-center gap-1">
+        <AttachFileIcon className="h-4 w-4" /> {title} ({files.length})
+      </p>
+
       {files.length > 0 && (
-        <Stack spacing={1.5} sx={{ mb: 1.5 }}>
+        <div className="mb-3 flex flex-col gap-3">
           {files.map((file, idx) => (
-            <Box 
-              key={file.id} 
-              sx={{ 
-                p: 1.5, 
-                border: '1px dashed', 
-                borderColor: 'divider', 
-                borderRadius: 2, 
-                bgcolor: 'action.hover' 
-              }}
+            <div
+              key={file.id}
+              className="p-3 border border-dashed border-border rounded-lg bg-muted/50"
             >
-              <Grid container spacing={1.5} alignItems="center">
-                <Grid size={{ xs: 12, sm: 4 }}>
-                  <TextField
-                    label="ชื่อเอกสาร/หัวข้อข้อความ"
-                    size="small"
-                    fullWidth
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                <div className="sm:col-span-4 flex flex-col gap-1.5">
+                  <Label className="text-xs">ชื่อเอกสาร/หัวข้อข้อความ</Label>
+                  <Input
                     value={file.name}
                     onChange={(e) => updateFile(idx, 'name', e.target.value)}
                     placeholder="เช่น คู่มืออบรม.pdf"
                   />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 3 }}>
-                  <TextField
-                    select
-                    label="ประเภท"
-                    size="small"
-                    fullWidth
-                    value={file.type}
-                    onChange={(e) => updateFile(idx, 'type', e.target.value)}
-                    slotProps={{ select: { native: true } }}
-                  >
-                    <option value="pdf">ไฟล์ PDF</option>
-                    <option value="image">รูปภาพ (Image)</option>
-                    <option value="link">ลิงก์เว็บไซต์ (Link)</option>
-                    <option value="text">ข้อความ/คำอธิบาย (Text)</option>
-                  </TextField>
-                </Grid>
-                <Grid size={{ xs: 12, sm: 4 }}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <TextField
-                      label={file.type === 'text' ? 'ข้อความ/คำอธิบาย' : 'URL ของไฟล์/ลิงก์'}
-                      size="small"
-                      fullWidth
+                </div>
+                <div className="sm:col-span-3 flex flex-col gap-1.5">
+                  <Label className="text-xs">ประเภท</Label>
+                  <Select value={file.type} onValueChange={(v) => updateFile(idx, 'type', v)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pdf">ไฟล์ PDF</SelectItem>
+                      <SelectItem value="image">รูปภาพ (Image)</SelectItem>
+                      <SelectItem value="link">ลิงก์เว็บไซต์ (Link)</SelectItem>
+                      <SelectItem value="text">ข้อความ/คำอธิบาย (Text)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-4 flex flex-col gap-1.5">
+                  <Label className="text-xs">
+                    {file.type === 'text' ? 'ข้อความ/คำอธิบาย' : 'URL ของไฟล์/ลิงก์'}
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
                       value={file.url}
                       onChange={(e) => updateFile(idx, 'url', e.target.value)}
                       placeholder={file.type === 'text' ? 'กรอกรายละเอียดข้อความที่นี่' : 'https://...'}
                     />
                     {file.type !== 'text' && (
-                      <Box>
+                      <div>
                         <input
                           accept={file.type === 'image' ? 'image/*' : 'application/pdf,*/*'}
                           style={{ display: 'none' }}
@@ -695,54 +681,49 @@ const FileConfigSection: React.FC<{
                         />
                         <label htmlFor={`upload-file-btn-${file.id}`}>
                           <Button
-                            variant="outlined"
-                            component="span"
-                            size="small"
+                            asChild
+                            variant="outline"
+                            size="sm"
                             disabled={uploadingId !== null}
-                            sx={{ height: 40, px: 2, minWidth: '95px' }}
+                            className="min-w-[95px] cursor-pointer"
                           >
-                            {uploadingId === file.id ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              'อัปโหลด'
-                            )}
+                            <span>
+                              {uploadingId === file.id ? <Spinner size="sm" /> : 'อัปโหลด'}
+                            </span>
                           </Button>
                         </label>
-                      </Box>
+                      </div>
                     )}
-                  </Stack>
-                </Grid>
-                <Grid size={{ xs: 12, sm: 1 }} sx={{ textAlign: 'right' }}>
-                  <IconButton size="small" color="error" onClick={() => removeFile(idx)}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Grid>
-                <Grid size={{ xs: 12 }}>
-                  <TextField
-                    label="รายละเอียดเพิ่มเติม (ระบุหรือไม่ก็ได้)"
-                    size="small"
-                    fullWidth
+                  </div>
+                </div>
+                <div className="sm:col-span-1 flex justify-end">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => removeFile(idx)}
+                  >
+                    <DeleteIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="sm:col-span-12 flex flex-col gap-1.5">
+                  <Label className="text-xs">รายละเอียดเพิ่มเติม (ระบุหรือไม่ก็ได้)</Label>
+                  <Input
                     value={file.description || ''}
                     onChange={(e) => updateFile(idx, 'description', e.target.value)}
                     placeholder="เช่น ให้อ่านก่อนเข้าร่วมกิจกรรม..."
                   />
-                </Grid>
-              </Grid>
-            </Box>
+                </div>
+              </div>
+            </div>
           ))}
-        </Stack>
+        </div>
       )}
-      
-      <Button
-        variant="outlined"
-        size="small"
-        startIcon={<AddIcon />}
-        onClick={addFile}
-        sx={{ borderRadius: 2 }}
-      >
-        เพิ่มไฟล์/ลิงก์/ข้อความ
+
+      <Button variant="outline" size="sm" className="gap-2" onClick={addFile}>
+        <AddIcon className="h-4 w-4" /> เพิ่มไฟล์/ลิงก์/ข้อความ
       </Button>
-    </Box>
+    </div>
   );
 };
 
@@ -759,7 +740,8 @@ const GooglePlaceAutocomplete: React.FC<{
   isLoaded: boolean;
 }> = ({ value, onChange, isLoaded }) => {
   const [options, setOptions] = useState<string[]>([]);
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(value || '');
+  const datalistId = React.useId();
 
   // Fetch suggestions from Google Places API
   useEffect(() => {
@@ -814,34 +796,30 @@ const GooglePlaceAutocomplete: React.FC<{
   };
 
   return (
-    <Autocomplete
-      freeSolo
-      options={options}
-      value={value || ''}
-      onChange={(_, newValue) => handleSelect(newValue)}
-      inputValue={inputValue}
-      onInputChange={(_, newInputValue) => setInputValue(newInputValue)}
-      renderInput={(params) => (
-        <TextField
-          {...params}
-          label="สถานที่จัดกิจกรรม (ค้นหาจาก Google Maps)"
-          placeholder="พิมพ์ชื่อสถานที่เพื่อค้นหา..."
-          fullWidth
-          size="small"
-        />
-      )}
-    />
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-xs">สถานที่จัดกิจกรรม (ค้นหาจาก Google Maps)</Label>
+      <Input
+        list={datalistId}
+        value={inputValue}
+        placeholder="พิมพ์ชื่อสถานที่เพื่อค้นหา..."
+        onChange={(e) => {
+          const v = e.target.value;
+          setInputValue(v);
+          if (options.includes(v)) {
+            handleSelect(v);
+          } else {
+            onChange(v);
+          }
+        }}
+      />
+      <datalist id={datalistId}>
+        {options.map((opt) => (
+          <option key={opt} value={opt} />
+        ))}
+      </datalist>
+    </div>
   );
 };
-
-const Transition = React.forwardRef(function Transition(
-  props: TransitionProps & {
-    children: React.ReactElement;
-  },
-  ref: React.Ref<unknown>,
-) {
-  return <Slide direction="up" ref={ref} {...props} />;
-});
 
 const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => {
   const confirm = useConfirm();
@@ -1349,6 +1327,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         registrationCodeAssigned: shouldSaveReg ? 0 : undefined,
 
         dynamicQREnabled: form.dynamicQREnabled,
+        onsiteRegistrationPoint: form.onsiteRegistrationPoint.trim() || undefined,
 
         sessions: form.sessions.map(s => ({
           ...s,
@@ -1458,6 +1437,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         regCodeAssigned: regAssigned,
         
         dynamicQREnabled: a.dynamicQREnabled ?? qr?.dynamicQREnabled ?? false,
+        onsiteRegistrationPoint:
+          (a as any).onsiteRegistrationPoint ||
+          (qr as any)?.onsiteRegistrationPoint ||
+          '',
 
         sessions: a.sessions?.map(s => ({
           ...s,
@@ -1635,6 +1618,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           registrationCodeAssigned: shouldSaveReg ? regAssigned : undefined,
 
           dynamicQREnabled: form.dynamicQREnabled,
+          onsiteRegistrationPoint: form.onsiteRegistrationPoint.trim() || undefined,
 
           sessions: form.sessions.map(s => ({
             ...s,
@@ -1782,89 +1766,44 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       : { background: 'linear-gradient(135deg,#4f46e5,#06b6d4)' };
 
     return (
-      <Paper
-        elevation={0}
-        sx={{
-          borderRadius: 0,
-          overflow: 'hidden',
-          border: 'none',
-          width: '100%',
-          bgcolor: 'transparent',
-          boxShadow: 'none',
-        }}
-      >
-        <Box sx={{ height: { xs: 72, sm: 96 }, ...style }} />
-        <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
-          <Stack spacing={0.75} alignItems="center">
-            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              {dept}
-            </Typography>
-            <Typography
-              variant="subtitle1"
-              fontWeight={800}
-              textAlign="center"
-              sx={{
-                fontSize: { xs: '1rem', sm: '1.1rem' },
-                lineHeight: 1.3,
-                px: 0.5,
-                wordBreak: 'break-word',
-              }}
-            >
+      <div className="w-full overflow-hidden bg-transparent">
+        <div className="h-[72px] sm:h-24" style={style} />
+        <div className="p-3 sm:p-4">
+          <div className="flex flex-col items-center gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">{dept}</span>
+            <p className="text-base sm:text-[1.1rem] font-extrabold text-center leading-tight px-1 break-words">
               {title}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ px: 0.5 }}>
-              {when}
-            </Typography>
+            </p>
+            <span className="text-xs text-muted-foreground text-center px-1">{when}</span>
             {place && (
-              <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <PlaceIcon fontSize="inherit" />
+              <span className="text-xs text-muted-foreground text-center flex items-center gap-1">
+                <PlaceIcon className="h-3 w-3" />
                 {place}
-              </Typography>
+              </span>
             )}
-            <Box
-              sx={{
-                mt: 1,
-                p: { xs: 0.75, sm: 1 },
-                borderRadius: 2,
-                border: '1px dashed',
-                borderColor: 'divider',
-                position: 'relative',
-                width: 'min(200px, 70vw)',
-                aspectRatio: '1 / 1',
-              }}
-            >
+            <div className="mt-2 p-1.5 sm:p-2 rounded-lg border border-dashed border-border relative w-[min(200px,70vw)] aspect-square">
               {qr ? (
-                <Box component="img" src={qr} alt="QR" sx={{ width: '100%', height: '100%', display: 'block' }} />
+                <img src={qr} alt="QR" className="w-full h-full block" />
               ) : (
-                <Box sx={{ width: '100%', height: '100%', bgcolor: 'action.hover', borderRadius: 1 }} />
+                <div className="w-full h-full bg-muted rounded" />
               )}
               {!scanEnabled && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    inset: 0,
-                    bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(0,0,0,.55)' : 'rgba(255,255,255,.65)'),
-                    borderRadius: 2,
-                    display: 'grid',
-                    placeItems: 'center',
-                    p: 1,
-                  }}
-                >
-                  <Chip color="warning" size="small" label="ปิดการสแกนชั่วคราว" />
-                </Box>
+                <div className="absolute inset-0 rounded-lg grid place-items-center p-2 bg-white/[.65] dark:bg-black/[.55]">
+                  <Badge variant="warning">ปิดการสแกนชั่วคราว</Badge>
+                </div>
               )}
-            </Box>
-            <Chip size="small" label={code} sx={{ fontFamily: 'ui-monospace, monospace', maxWidth: '100%' }} />
-          </Stack>
-        </Box>
-      </Paper>
+            </div>
+            <Badge variant="secondary" className="font-mono max-w-full">{code}</Badge>
+          </div>
+        </div>
+      </div>
     );
   };
 
   const MainActivityFilesSection = () => {
     return (
-      <Grid size={{ xs: 12 }}>
-        <Divider sx={{ my: 1 }} />
+      <div className="col-span-12">
+        <Separator className="my-2" />
         <FileConfigSection
           title="เอกสาร/ไฟล์แนบ/ข้อความ สำหรับกิจกรรมหลัก"
           files={form.files || []}
@@ -1872,27 +1811,25 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           activityCode={form.activityCode}
           department={currentAdmin.department}
         />
-      </Grid>
+      </div>
     );
   };
 
   const SessionsSection = () => {
     return (
-      <Grid size={{ xs: 12 }}>
-        <Divider sx={{ my: 1 }} />
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+      <div className="col-span-12">
+        <Separator className="my-2" />
+        <p className="mb-2 text-sm font-medium">
           กิจกรรมย่อย / รอบกิจกรรม (Sessions)
-        </Typography>
-        <Stack spacing={2}>
+        </p>
+        <div className="flex flex-col gap-4">
           {form.sessions.map((s, i) => (
-            <Card key={s.id} variant="outlined">
-              <CardContent sx={{ py: 1.5, px: 2 }}>
-                <Grid container spacing={2} alignItems="center">
-                  <Grid size={{ xs: 12, md: 4 }}>
-                    <TextField
-                      label="ชื่อกิจกรรมย่อย"
-                      fullWidth
-                      size="small"
+            <Card key={s.id} className="border-border">
+              <CardContent className="py-3 px-4">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                  <div className="md:col-span-4 flex flex-col gap-1.5">
+                    <Label className="text-xs">ชื่อกิจกรรมย่อย</Label>
+                    <Input
                       value={s.name}
                       onChange={(e) => {
                         const newSessions = [...form.sessions];
@@ -1900,8 +1837,8 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                         updateForm('sessions', newSessions as any);
                       }}
                     />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 3 }}>
+                  </div>
+                  <div className="md:col-span-3">
                     <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
                       <DatePicker
                         showTime
@@ -1917,8 +1854,8 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                         getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                       />
                     </ConfigProvider>
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 3 }}>
+                  </div>
+                  <div className="md:col-span-3">
                     <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
                       <DatePicker
                         showTime
@@ -1934,19 +1871,21 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                         getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                       />
                     </ConfigProvider>
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 2 }} sx={{ textAlign: 'right' }}>
-                    <IconButton
-                      color="error"
+                  </div>
+                  <div className="md:col-span-2 flex justify-end">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="text-destructive"
                       onClick={() => {
                         const newSessions = form.sessions.filter((_, idx) => idx !== i);
                         updateForm('sessions', newSessions as any);
                       }}
                     >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
+                      <DeleteIcon className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="md:col-span-12">
                     <FileConfigSection
                       title="เอกสาร/ไฟล์แนบสำหรับกิจกรรมย่อยนี้"
                       files={s.files || []}
@@ -1958,14 +1897,14 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                       activityCode={form.activityCode}
                       department={currentAdmin.department}
                     />
-                  </Grid>
-                </Grid>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           ))}
           <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
+            variant="outline"
+            className="gap-2 self-start"
             onClick={() => {
               updateForm('sessions', [
                 ...form.sessions,
@@ -1973,53 +1912,51 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               ] as any);
             }}
           >
-            เพิ่มรอบกิจกรรมย่อย
+            <AddIcon className="h-4 w-4" /> เพิ่มรอบกิจกรรมย่อย
           </Button>
-        </Stack>
-      </Grid>
+        </div>
+      </div>
     );
   };
 
   const SurveyConfigSection = () => {
     return (
-      <Grid size={{ xs: 12 }}>
-        <Divider sx={{ my: 1 }} />
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-          <Typography variant="subtitle2">แบบประเมินเมื่อสิ้นสุดกิจกรรม (Survey)</Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={form.surveyConfig.enabled}
-                onChange={(e) => {
-                  const enabled = e.target.checked;
-                  const openAt = form.surveyConfig.openAt || form.endDateTime || dayjs();
-                  const closeAt =
-                    form.surveyConfig.closeAt ||
-                    (openAt ? openAt.add(1, 'day') : dayjs().add(1, 'day'));
-                  updateForm('surveyConfig', {
-                    ...form.surveyConfig,
-                    enabled,
-                    openAt,
-                    closeAt,
-                  } as any);
-                }}
-              />
-            }
-            label="เปิดใช้งาน"
-          />
-        </Stack>
+      <div className="col-span-12">
+        <Separator className="my-2" />
+        <div className="flex flex-row items-center justify-between mb-2">
+          <p className="text-sm font-medium">แบบประเมินเมื่อสิ้นสุดกิจกรรม (Survey)</p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Switch
+              checked={form.surveyConfig.enabled}
+              onCheckedChange={(checked) => {
+                const enabled = checked;
+                const openAt = form.surveyConfig.openAt || form.endDateTime || dayjs();
+                const closeAt =
+                  form.surveyConfig.closeAt ||
+                  (openAt ? openAt.add(1, 'day') : dayjs().add(1, 'day'));
+                updateForm('surveyConfig', {
+                  ...form.surveyConfig,
+                  enabled,
+                  openAt,
+                  closeAt,
+                } as any);
+              }}
+            />
+            <span className="text-sm">เปิดใช้งาน</span>
+          </label>
+        </div>
 
         {form.surveyConfig.enabled && (
-          <Stack spacing={2}>
+          <div className="flex flex-col gap-4">
             {/* วันเวลาเปิด–ปิดแบบประเมิน */}
-            <Typography variant="body2" fontWeight={600}>
+            <p className="text-sm font-semibold">
               ช่วงเวลาเปิด–ปิดแบบประเมิน
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1 }}>
+            </p>
+            <span className="block -mt-3 text-xs text-muted-foreground">
               กำหนดวันและเวลาที่ผู้ใช้สามารถเข้าทำแบบประเมินได้โดยตรง
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, sm: 6 }}>
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
                 <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
                   <DatePicker
                     showTime
@@ -2033,8 +1970,8 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                   />
                 </ConfigProvider>
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
+              </div>
+              <div>
                 <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
                   <DatePicker
                     showTime
@@ -2048,91 +1985,82 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                   />
                 </ConfigProvider>
-              </Grid>
-            </Grid>
+              </div>
+            </div>
             {form.surveyConfig.openAt &&
               form.surveyConfig.closeAt &&
               form.surveyConfig.closeAt.isBefore(form.surveyConfig.openAt) && (
-                <Alert severity="warning" sx={{ borderRadius: 2 }}>
-                  เวลาปิดต้องอยู่หลังเวลาเปิด
+                <Alert variant="warning">
+                  <AlertDescription>เวลาปิดต้องอยู่หลังเวลาเปิด</AlertDescription>
                 </Alert>
               )}
             {/* เงื่อนไขการเข้าถึงแบบประเมิน */}
-            <Box>
-              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>เงื่อนไขการเข้าถึงแบบประเมิน</Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            <div>
+              <p className="mb-2 text-sm font-semibold">เงื่อนไขการเข้าถึงแบบประเมิน</p>
+              <span className="block mb-3 text-xs text-muted-foreground">
                 กำหนดว่าผู้ใช้ต้องเช็กอินกิจกรรมย่อยใดบ้าง จึงจะมีสิทธิ์ทำแบบประเมิน
-              </Typography>
-              <Stack spacing={1}>
+              </span>
+              <RadioGroup
+                value={(form.surveyConfig as any).sessionEligibility || 'any'}
+                onValueChange={(v) => updateForm('surveyConfig', { ...form.surveyConfig, sessionEligibility: v } as any)}
+                className="gap-2"
+              >
                 {(['any', 'all', 'specific'] as const).map((mode) => (
-                  <FormControlLabel
-                    key={mode}
-                    control={
-                      <Radio
-                        size="small"
-                        checked={(form.surveyConfig as any).sessionEligibility === mode || (mode === 'any' && !(form.surveyConfig as any).sessionEligibility)}
-                        onChange={() => updateForm('surveyConfig', { ...form.surveyConfig, sessionEligibility: mode } as any)}
-                      />
-                    }
-                    label={
-                      mode === 'any' ? 'เช็กอินอย่างน้อย 1 กิจกรรมย่อย (ค่าเริ่มต้น)'
-                      : mode === 'all' ? 'ต้องเช็กอินครบทุกกิจกรรมย่อย'
-                      : 'กำหนดเองว่าต้องเช็กอินกิจกรรมย่อยใดบ้าง'
-                    }
-                  />
+                  <label key={mode} className="flex items-center gap-2 cursor-pointer text-sm">
+                    <RadioGroupItem value={mode} />
+                    <span>
+                      {mode === 'any' ? 'เช็กอินอย่างน้อย 1 กิจกรรมย่อย (ค่าเริ่มต้น)'
+                        : mode === 'all' ? 'ต้องเช็กอินครบทุกกิจกรรมย่อย'
+                        : 'กำหนดเองว่าต้องเช็กอินกิจกรรมย่อยใดบ้าง'}
+                    </span>
+                  </label>
                 ))}
-              </Stack>
+              </RadioGroup>
 
               {/* Checkbox list เมื่อเลือก specific */}
               {(form.surveyConfig as any).sessionEligibility === 'specific' && (
-                <Box sx={{ mt: 1.5, pl: 2, borderLeft: '3px solid', borderColor: 'primary.main' }}>
+                <div className="mt-3 pl-4 border-l-[3px] border-primary">
                   {form.sessions.length === 0 ? (
-                    <Typography variant="caption" color="warning.main">
+                    <span className="text-xs text-amber-600 dark:text-amber-400">
                       ยังไม่มีกิจกรรมย่อย กรุณาเพิ่มรอบกิจกรรมย่อยก่อน
-                    </Typography>
+                    </span>
                   ) : (
-                    <Stack spacing={0.5}>
-                      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
+                    <div className="flex flex-col gap-1">
+                      <span className="mb-1 text-xs text-muted-foreground">
                         เลือกกิจกรรมย่อยที่ต้องเช็กอิน (เลือกได้หลายอัน):
-                      </Typography>
+                      </span>
                       {form.sessions.map((s) => {
                         const rid = (form.surveyConfig as any).requiredSessionIds ?? [];
                         const checked = rid.includes(s.id);
                         return (
-                          <FormControlLabel
-                            key={s.id}
-                            control={
-                              <Checkbox
-                                size="small"
-                                checked={checked}
-                                onChange={(e) => {
-                                  const current: string[] = [...((form.surveyConfig as any).requiredSessionIds ?? [])];
-                                  const next = e.target.checked
-                                    ? [...current, s.id]
-                                    : current.filter((id) => id !== s.id);
-                                  updateForm('surveyConfig', { ...form.surveyConfig, requiredSessionIds: next } as any);
-                                }}
-                              />
-                            }
-                            label={s.name || `รอบ ${s.id}`}
-                          />
+                          <label key={s.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(c) => {
+                                const current: string[] = [...((form.surveyConfig as any).requiredSessionIds ?? [])];
+                                const next = c
+                                  ? [...current, s.id]
+                                  : current.filter((id) => id !== s.id);
+                                updateForm('surveyConfig', { ...form.surveyConfig, requiredSessionIds: next } as any);
+                              }}
+                            />
+                            <span>{s.name || `รอบ ${s.id}`}</span>
+                          </label>
                         );
                       })}
-                    </Stack>
+                    </div>
                   )}
-                </Box>
+                </div>
               )}
-            </Box>
+            </div>
 
             {form.surveyConfig.questions.map((q, i) => (
-              <Card key={q.id} variant="outlined">
-                <CardContent sx={{ py: 1.5, px: 2 }}>
-                  <Grid container spacing={2} alignItems="center">
-                    <Grid size={{ xs: 12, md: 6 }}>
-                      <TextField
-                        label="คำถาม"
-                        fullWidth
-                        size="small"
+              <Card key={q.id} className="border-border">
+                <CardContent className="py-3 px-4">
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                    <div className="md:col-span-6 flex flex-col gap-1.5">
+                      <Label className="text-xs">คำถาม</Label>
+                      <Input
                         value={q.question}
                         onChange={(e) => {
                           const newQs = [...form.surveyConfig.questions];
@@ -2140,87 +2068,87 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                           updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
                         }}
                       />
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 3 }}>
-                      <TextField
-                        select
-                        label="ประเภท"
-                        fullWidth
-                        size="small"
+                    </div>
+                    <div className="md:col-span-3 flex flex-col gap-1.5">
+                      <Label className="text-xs">ประเภท</Label>
+                      <Select
                         value={q.type}
-                        onChange={(e) => {
+                        onValueChange={(v) => {
                           const newQs = [...form.surveyConfig.questions];
-                          newQs[i].type = e.target.value as any;
+                          newQs[i].type = v as any;
                           updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
                         }}
-                        slotProps={{ select: { native: true } }}
                       >
-                        <option value="text">ข้อความ</option>
-                        <option value="choice">ตัวเลือก</option>
-                        <option value="rating">ให้ดาว (1-5)</option>
-                      </TextField>
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 2 }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={q.required || false}
-                            onChange={(e) => {
-                              const newQs = [...form.surveyConfig.questions];
-                              newQs[i].required = e.target.checked;
-                              updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                            }}
-                          />
-                        }
-                        label="จำเป็น"
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 1 }} sx={{ textAlign: 'right' }}>
-                      <IconButton
-                        color="error"
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="text">ข้อความ</SelectItem>
+                          <SelectItem value="choice">ตัวเลือก</SelectItem>
+                          <SelectItem value="rating">ให้ดาว (1-5)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="flex items-center gap-2 cursor-pointer text-sm">
+                        <Switch
+                          checked={q.required || false}
+                          onCheckedChange={(checked) => {
+                            const newQs = [...form.surveyConfig.questions];
+                            newQs[i].required = checked;
+                            updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                          }}
+                        />
+                        <span>จำเป็น</span>
+                      </label>
+                    </div>
+                    <div className="md:col-span-1 flex justify-end">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-destructive"
                         onClick={() => {
                           const newQs = form.surveyConfig.questions.filter((_, idx) => idx !== i);
                           updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
                         }}
                       >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Grid>
-                    
+                        <DeleteIcon className="h-4 w-4" />
+                      </Button>
+                    </div>
+
                     {/* Options for Text validation type */}
                     {q.type === 'text' && (
-                      <Grid size={{ xs: 12 }}>
-                        <Box sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 2, border: '1px dashed', borderColor: 'divider' }}>
-                          <Typography variant="caption" fontWeight={700} sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+                      <div className="md:col-span-12">
+                        <div className="p-3 bg-muted/50 rounded-lg border border-dashed border-border">
+                          <span className="block mb-2 text-xs font-bold text-muted-foreground">
                             เงื่อนไขความถูกต้องของคำตอบ (Validation)
-                          </Typography>
-                          <Grid container spacing={1.5}>
-                            <Grid size={{ xs: 12, sm: 3 }}>
-                              <TextField
-                                select
-                                label="ประเภทข้อมูล"
-                                fullWidth
-                                size="small"
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                            <div className="sm:col-span-3 flex flex-col gap-1.5">
+                              <Label className="text-xs">ประเภทข้อมูล</Label>
+                              <Select
                                 value={q.validationType || 'any'}
-                                onChange={(e) => {
+                                onValueChange={(v) => {
                                   const newQs = [...form.surveyConfig.questions];
-                                  newQs[i] = { ...newQs[i], validationType: e.target.value as any };
+                                  newQs[i] = { ...newQs[i], validationType: v as any };
                                   updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
                                 }}
-                                slotProps={{ select: { native: true } }}
                               >
-                                <option value="any">ทั่วไป (ใดๆ)</option>
-                                <option value="number">ตัวเลขเท่านั้น</option>
-                                <option value="thai">ภาษาไทยเท่านั้น</option>
-                                <option value="english">ภาษาอังกฤษเท่านั้น</option>
-                                <option value="email">รูปแบบอีเมล</option>
-                              </TextField>
-                            </Grid>
-                            <Grid size={{ xs: 12, sm: 3 }}>
-                              <TextField
-                                label="มีคำขึ้นต้น (Prefix)"
-                                fullWidth
-                                size="small"
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="any">ทั่วไป (ใดๆ)</SelectItem>
+                                  <SelectItem value="number">ตัวเลขเท่านั้น</SelectItem>
+                                  <SelectItem value="thai">ภาษาไทยเท่านั้น</SelectItem>
+                                  <SelectItem value="english">ภาษาอังกฤษเท่านั้น</SelectItem>
+                                  <SelectItem value="email">รูปแบบอีเมล</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="sm:col-span-3 flex flex-col gap-1.5">
+                              <Label className="text-xs">มีคำขึ้นต้น (Prefix)</Label>
+                              <Input
                                 value={q.prefix || ''}
                                 onChange={(e) => {
                                   const newQs = [...form.surveyConfig.questions];
@@ -2229,12 +2157,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                                 }}
                                 placeholder="เช่น 6 หรือ 08"
                               />
-                            </Grid>
-                            <Grid size={{ xs: 12, sm: 3 }}>
-                              <TextField
-                                label="มีคำลงท้าย (Postfix)"
-                                fullWidth
-                                size="small"
+                            </div>
+                            <div className="sm:col-span-3 flex flex-col gap-1.5">
+                              <Label className="text-xs">มีคำลงท้าย (Postfix)</Label>
+                              <Input
                                 value={q.postfix || ''}
                                 onChange={(e) => {
                                   const newQs = [...form.surveyConfig.questions];
@@ -2243,50 +2169,49 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                                 }}
                                 placeholder="เช่น .txt"
                               />
-                            </Grid>
-                            <Grid size={{ xs: 12, sm: 3 }}>
-                              <FormControlLabel
-                                control={
-                                  <Switch
-                                    checked={q.allowSpaces !== false}
-                                    disabled={q.validationType === 'email' || q.validationType === 'number'}
-                                    onChange={(e) => {
-                                      const newQs = [...form.surveyConfig.questions];
-                                      newQs[i] = { ...newQs[i], allowSpaces: e.target.checked };
-                                      updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                                    }}
-                                  />
-                                }
-                                label="อนุญาตเว้นวรรค"
-                              />
-                            </Grid>
-                          </Grid>
-                        </Box>
-                      </Grid>
+                            </div>
+                            <div className="sm:col-span-3">
+                              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                <Switch
+                                  checked={q.allowSpaces !== false}
+                                  disabled={q.validationType === 'email' || q.validationType === 'number'}
+                                  onCheckedChange={(checked) => {
+                                    const newQs = [...form.surveyConfig.questions];
+                                    newQs[i] = { ...newQs[i], allowSpaces: checked };
+                                    updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                                  }}
+                                />
+                                <span>อนุญาตเว้นวรรค</span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     )}
 
                     {/* Options for Choice type */}
                     {q.type === 'choice' && (
-                      <Grid size={{ xs: 12 }}>
-                        <Stack spacing={1}>
+                      <div className="md:col-span-12">
+                        <div className="flex flex-col gap-2">
                           {(q.options || []).map((opt, optIdx) => (
-                            <Box key={optIdx} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <TextField
-                                label={`ตัวเลือกที่ ${optIdx + 1}`}
-                                fullWidth
-                                size="small"
-                                value={opt}
-                                onChange={(e) => {
-                                  const newQs = [...form.surveyConfig.questions];
-                                  const newOpts = [...(newQs[i].options || [])];
-                                  newOpts[optIdx] = e.target.value;
-                                  newQs[i].options = newOpts;
-                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                                }}
-                              />
-                              <IconButton
-                                size="small"
-                                color="error"
+                            <div key={optIdx} className="flex items-end gap-2">
+                              <div className="flex-1 flex flex-col gap-1.5">
+                                <Label className="text-xs">{`ตัวเลือกที่ ${optIdx + 1}`}</Label>
+                                <Input
+                                  value={opt}
+                                  onChange={(e) => {
+                                    const newQs = [...form.surveyConfig.questions];
+                                    const newOpts = [...(newQs[i].options || [])];
+                                    newOpts[optIdx] = e.target.value;
+                                    newQs[i].options = newOpts;
+                                    updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
+                                  }}
+                                />
+                              </div>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="text-destructive"
                                 onClick={() => {
                                   const newQs = [...form.surveyConfig.questions];
                                   const newOpts = [...(newQs[i].options || [])];
@@ -2295,15 +2220,14 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                                   updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
                                 }}
                               >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Box>
+                                <DeleteIcon className="h-4 w-4" />
+                              </Button>
+                            </div>
                           ))}
                           <Button
-                            variant="text"
-                            size="small"
-                            startIcon={<AddIcon />}
-                            sx={{ alignSelf: 'flex-start' }}
+                            variant="ghost"
+                            size="sm"
+                            className="gap-2 self-start"
                             onClick={() => {
                               const newQs = [...form.surveyConfig.questions];
                               const newOpts = [...(newQs[i].options || [])];
@@ -2312,18 +2236,18 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                               updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
                             }}
                           >
-                            เพิ่มตัวเลือก
+                            <AddIcon className="h-4 w-4" /> เพิ่มตัวเลือก
                           </Button>
-                        </Stack>
-                      </Grid>
+                        </div>
+                      </div>
                     )}
-                  </Grid>
+                  </div>
                 </CardContent>
               </Card>
             ))}
             <Button
-              variant="outlined"
-              startIcon={<AddIcon />}
+              variant="outline"
+              className="gap-2 self-start"
               onClick={() => {
                 updateForm('surveyConfig', {
                   ...form.surveyConfig,
@@ -2334,11 +2258,11 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                 } as any);
               }}
             >
-              เพิ่มคำถาม
+              <AddIcon className="h-4 w-4" /> เพิ่มคำถาม
             </Button>
-          </Stack>
+          </div>
         )}
-      </Grid>
+      </div>
     );
   };
 
@@ -2354,117 +2278,111 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         : 0;
 
     return (
-      <Grid size={{ xs: 12 }}>
-        <Divider sx={{ my: 1 }} />
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+      <div className="col-span-12">
+        <Separator className="my-2" />
+        <p className="mb-2 text-sm font-medium">
           รหัสลงทะเบียน (เช่น CS01 - CS92)
-        </Typography>
+        </p>
 
-        <Stack spacing={1.25}>
-          <FormControlLabel
-            control={<Switch checked={enabled} onChange={(e) => updateForm('regCodeEnabled', e.target.checked as any)} />}
-            label="เปิดใช้รหัสลงทะเบียนแบบ Prefix + เลขรัน"
-          />
+        <div className="flex flex-col gap-3">
+          <label className="flex items-center gap-2 cursor-pointer text-sm">
+            <Switch checked={enabled} onCheckedChange={(checked) => updateForm('regCodeEnabled', checked as any)} />
+            <span>เปิดใช้รหัสลงทะเบียนแบบ Prefix + เลขรัน</span>
+          </label>
 
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <TextField
-                label="Prefix (ตัวอักษร)"
-                fullWidth
-                value={form.regCodePrefix}
-                onChange={(e) => updateForm('regCodePrefix', e.target.value.toUpperCase() as any)}
-                disabled={!enabled}
-                helperText="A-Z 1-6 ตัว เช่น CS"
-                error={!!invalidPrefix}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <BadgeIcon />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+            <div className="sm:col-span-4 flex flex-col gap-1.5">
+              <Label className="text-xs">Prefix (ตัวอักษร)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                  <BadgeIcon className="h-4 w-4" />
+                </span>
+                <Input
+                  className={`pl-9 ${invalidPrefix ? 'border-destructive' : ''}`}
+                  value={form.regCodePrefix}
+                  onChange={(e) => updateForm('regCodePrefix', e.target.value.toUpperCase() as any)}
+                  disabled={!enabled}
+                />
+              </div>
+              <p className={`text-xs ${invalidPrefix ? 'text-destructive' : 'text-muted-foreground'}`}>A-Z 1-6 ตัว เช่น CS</p>
+            </div>
 
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <TextField
-                label="จำนวนหลักของเลข"
-                fullWidth
+            <div className="sm:col-span-4 flex flex-col gap-1.5">
+              <Label className="text-xs">จำนวนหลักของเลข</Label>
+              <Input
                 type="number"
+                min={1}
+                max={6}
                 value={form.regCodeDigits}
                 onChange={(e) => updateForm('regCodeDigits', Number(e.target.value) as any)}
                 disabled={!enabled}
-                helperText="เช่น 2 -> 01"
-                inputProps={{ min: 1, max: 6 }}
               />
-            </Grid>
+              <p className="text-xs text-muted-foreground">เช่น 2 -&gt; 01</p>
+            </div>
 
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <TextField
-                label="เริ่มที่เลข"
-                fullWidth
+            <div className="sm:col-span-4 flex flex-col gap-1.5">
+              <Label className="text-xs">เริ่มที่เลข</Label>
+              <Input
                 type="number"
+                min={1}
+                max={1_000_000}
                 value={form.regCodeStart}
                 onChange={(e) => updateForm('regCodeStart', Number(e.target.value) as any)}
                 disabled={!enabled}
-                helperText="เช่น 1 -> CS01"
-                inputProps={{ min: 1, max: 1_000_000 }}
               />
-            </Grid>
+              <p className="text-xs text-muted-foreground">เช่น 1 -&gt; CS01</p>
+            </div>
 
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                label="จำนวนรหัสทั้งหมด"
-                fullWidth
+            <div className="sm:col-span-6 flex flex-col gap-1.5">
+              <Label className="text-xs">จำนวนรหัสทั้งหมด</Label>
+              <Input
                 type="number"
+                min={0}
+                max={1_000_000}
+                className={invalidTotal ? 'border-destructive' : ''}
                 value={form.regCodeTotal}
                 onChange={(e) => updateForm('regCodeTotal', Number(e.target.value) as any)}
                 disabled={!enabled}
-                helperText="เช่น 92 -> CS01..CS92"
-                error={!!invalidTotal}
-                inputProps={{ min: 0, max: 1_000_000 }}
               />
-            </Grid>
+              <p className={`text-xs ${invalidTotal ? 'text-destructive' : 'text-muted-foreground'}`}>เช่น 92 -&gt; CS01..CS92</p>
+            </div>
 
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Card variant="outlined" sx={{ height: '100%' }}>
-                <CardContent>
-                  <Typography variant="body2" color="text.secondary">
+            <div className="sm:col-span-6">
+              <Card className="h-full border-border">
+                <CardContent className="p-6">
+                  <p className="text-sm text-muted-foreground">
                     ช่วงรหัสที่จะเปิดให้แจก
-                  </Typography>
-                  <Typography variant="h6" fontWeight={800} sx={{ mt: 0.5 }}>
+                  </p>
+                  <p className="mt-1 text-lg font-extrabold">
                     {enabled
                       ? regRangeText(form.regCodePrefix, form.regCodeStart, form.regCodeTotal, form.regCodeDigits)
                       : '-'}
-                  </Typography>
+                  </p>
 
-                  <Divider sx={{ my: 1 }} />
+                  <Separator className="my-2" />
 
-                  <Typography variant="body2" color="text.secondary">
+                  <p className="text-sm text-muted-foreground">
                     สถานะการแจก (ระบบจะอัปเดตเมื่อมีการลงทะเบียนจริง)
-                  </Typography>
-                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 0.75 }}>
-                    <Chip size="small" label={`แจกแล้ว: ${Number(form.regCodeAssigned || 0)}`} />
-                    <Chip size="small" label={`คงเหลือ: ${remaining}`} />
-                    <Chip
-                      size="small"
-                      label={
-                        enabled && isValidPrefix(form.regCodePrefix) && Number(form.regCodeTotal || 0) > 0
-                          ? `ถัดไป: ${formatRegCode(form.regCodePrefix, Number(form.regCodeNext || form.regCodeStart || 1), clamp(Number(form.regCodeDigits || 2), 1, 6))}`
-                          : 'ถัดไป: -'
-                      }
-                    />
-                  </Stack>
+                  </p>
+                  <div className="mt-2 flex flex-row flex-wrap gap-2">
+                    <Badge variant="secondary">{`แจกแล้ว: ${Number(form.regCodeAssigned || 0)}`}</Badge>
+                    <Badge variant="secondary">{`คงเหลือ: ${remaining}`}</Badge>
+                    <Badge variant="secondary">
+                      {enabled && isValidPrefix(form.regCodePrefix) && Number(form.regCodeTotal || 0) > 0
+                        ? `ถัดไป: ${formatRegCode(form.regCodePrefix, Number(form.regCodeNext || form.regCodeStart || 1), clamp(Number(form.regCodeDigits || 2), 1, 6))}`
+                        : 'ถัดไป: -'}
+                    </Badge>
+                  </div>
 
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                  <span className="block mt-2 text-xs text-muted-foreground">
                     หมายเหตุ: การแจกเลขต้องทำใน flow ลงทะเบียน (แนะนำให้ใช้ Firestore transaction เพื่อกันเลขซ้ำ)
-                  </Typography>
+                  </span>
                 </CardContent>
               </Card>
-            </Grid>
-          </Grid>
-        </Stack>
-      </Grid>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   };
 
@@ -2496,7 +2414,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
               >
-                <GridIcon fontSize="small" />
+                <GridIcon className="h-4 w-4" />
                 <span className="hidden sm:inline">การ์ด</span>
               </button>
               <button
@@ -2509,17 +2427,15 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
               >
-                <TableIcon fontSize="small" />
+                <TableIcon className="h-4 w-4" />
                 <span className="hidden sm:inline">ตาราง</span>
               </button>
             </div>
             <Button
-              variant="contained"
-              startIcon={<AddIcon />}
+              className="gap-2 w-full sm:w-auto whitespace-nowrap"
               onClick={handleOpenCreate}
-              sx={{ width: { xs: '100%', sm: 'auto' }, whiteSpace: 'nowrap' }}
             >
-              สร้างกิจกรรมใหม่
+              <AddIcon className="h-4 w-4" /> สร้างกิจกรรมใหม่
             </Button>
           </div>
         }
@@ -2527,43 +2443,43 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3 }}>
-          <CardContent sx={{ textAlign: 'center', py: { xs: 2, sm: 2.5 }, '&:last-child': { pb: { xs: 2, sm: 2.5 } } }}>
-            <Typography variant="h4" color="primary" fontWeight={800} sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+        <Card className="border-border rounded-2xl">
+          <CardContent className="text-center py-4 sm:py-5">
+            <p className="text-primary font-extrabold text-[1.75rem] sm:text-[2.125rem]">
               {activeCount}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+            </p>
+            <p className="text-muted-foreground text-xs sm:text-sm">
               เปิดอยู่
-            </Typography>
+            </p>
           </CardContent>
         </Card>
-        <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3 }}>
-          <CardContent sx={{ textAlign: 'center', py: { xs: 2, sm: 2.5 }, '&:last-child': { pb: { xs: 2, sm: 2.5 } } }}>
-            <Typography variant="h4" color="success.main" fontWeight={800} sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+        <Card className="border-border rounded-2xl">
+          <CardContent className="text-center py-4 sm:py-5">
+            <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[1.75rem] sm:text-[2.125rem]">
               {activities.length}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+            </p>
+            <p className="text-muted-foreground text-xs sm:text-sm">
               ทั้งหมด
-            </Typography>
+            </p>
           </CardContent>
         </Card>
       </div>
 
       {/* List */}
-      <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
-        <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3 }, '&:last-child': { pb: { xs: 1.5, sm: 2, md: 3 } } }}>
+      <Card className="border-border rounded-2xl overflow-hidden">
+        <CardContent className="p-3 sm:p-4 md:p-6">
           {loading ? (
-            <Box sx={{ textAlign: 'center', py: 6 }}>
-              <CircularProgress />
-            </Box>
+            <div className="text-center py-12 flex justify-center">
+              <Spinner size="lg" />
+            </div>
           ) : activities.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: { xs: 5, sm: 6 }, px: 2 }}>
-              <QrCodeIcon sx={{ fontSize: { xs: 48, sm: 64 }, color: 'text.disabled' }} />
-              <Typography sx={{ mt: 1 }} color="text.secondary">ยังไม่มีกิจกรรม</Typography>
-              <Button sx={{ mt: 2 }} variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>
-                สร้างกิจกรรมใหม่
+            <div className="text-center py-10 sm:py-12 px-2">
+              <QrCodeIcon className="mx-auto h-12 w-12 sm:h-16 sm:w-16 text-muted-foreground/40" />
+              <p className="mt-2 text-muted-foreground">ยังไม่มีกิจกรรม</p>
+              <Button className="mt-4 gap-2" onClick={handleOpenCreate}>
+                <AddIcon className="h-4 w-4" /> สร้างกิจกรรมใหม่
               </Button>
-            </Box>
+            </div>
           ) : view === 'cards' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
               {activities.map((a) => {
@@ -2590,64 +2506,83 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
                     <div className="px-3 pb-3 pt-1 space-y-2 border-t border-slate-100 dark:border-slate-800 mt-auto">
                       <div className="flex justify-center">
-                        <Chip size="small" label={st.label} color={st.color} />
+                        <Badge variant={st.color === 'default' ? 'secondary' : st.color}>{st.label}</Badge>
                       </div>
 
                       <Button
-                        size="small"
-                        fullWidth
-                        variant={a.isActive ? 'outlined' : 'contained'}
-                        color={a.isActive ? 'warning' : 'success'}
+                        size="sm"
+                        className={`w-full ${a.isActive ? 'border-amber-500/60 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                        variant={a.isActive ? 'outline' : 'default'}
                         onClick={() => handleToggle(a)}
                       >
                         {a.isActive ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}
                       </Button>
 
                       {/* ปุ่มจัดการ — ห่อได้บนมือถือ ไม่ล้นจอ */}
-                      <div className="flex flex-wrap justify-center gap-1.5">
-                        <Tooltip title="แก้ไข">
-                          <IconButton color="primary" size="small" onClick={() => openEditDialog(a)} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="ดาวน์โหลด">
-                          <IconButton color="secondary" size="small" onClick={(e) => openDownloadMenu(e, a)} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
-                            <DownloadIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="รายชื่อผู้ลงทะเบียน">
-                          <IconButton
-                            color="info"
-                            size="small"
-                            onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}
-                            sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}
-                          >
-                            <PeopleIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="ดูหน้าลงทะเบียน">
-                          <IconButton color="info" size="small" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
-                            <ViewIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        {a.dynamicQREnabled && (
-                          <Tooltip title="เปิดหน้าจอ Dynamic QR">
-                            <IconButton
-                              color="secondary"
-                              size="small"
-                              onClick={() => window.open(`/admin/dynamic-qr/${a.activityCode}`, '_blank')}
-                              sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}
-                            >
-                              <MonitorPlay size={18} />
-                            </IconButton>
+                      <TooltipProvider>
+                        <div className="flex flex-wrap justify-center gap-1.5">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-9 w-9 border border-border text-primary" onClick={() => openEditDialog(a)}>
+                                <EditIcon className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>แก้ไข</TooltipContent>
                           </Tooltip>
-                        )}
-                        <Tooltip title="ลบ">
-                          <IconButton color="error" size="small" onClick={() => handleDeleteActivity(a)} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-9 w-9 border border-border" onClick={(e) => openDownloadMenu(e, a)}>
+                                <DownloadIcon className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>ดาวน์โหลด</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 border border-border text-blue-600 dark:text-blue-400"
+                                onClick={() => window.open(`/admin/records?activity=${encodeURIComponent(a.activityCode)}`, '_blank')}
+                              >
+                                <PeopleIcon className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>รายชื่อผู้ลงทะเบียน</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-9 w-9 border border-border text-blue-600 dark:text-blue-400" onClick={() => window.open(makeRegisterUrl(a.activityCode), '_blank')}>
+                                <ViewIcon className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>ดูหน้าลงทะเบียน</TooltipContent>
+                          </Tooltip>
+                          {a.dynamicQREnabled && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-9 w-9 border border-border"
+                                  onClick={() => window.open(`/admin/dynamic-qr/${a.activityCode}`, '_blank')}
+                                >
+                                  <MonitorPlay className="h-[18px] w-[18px]" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>เปิดหน้าจอ Dynamic QR</TooltipContent>
+                            </Tooltip>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-9 w-9 border border-border text-destructive" onClick={() => handleDeleteActivity(a)}>
+                                <DeleteIcon className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>ลบ</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TooltipProvider>
                     </div>
                   </div>
                 );
@@ -2672,61 +2607,58 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       </Card>
 
       {/* ====== เมนูดาวน์โหลด ====== */}
-      <Menu anchorEl={dlMenu.anchorEl} open={Boolean(dlMenu.anchorEl)} onClose={closeDownloadMenu}>
-        <MenuItem onClick={() => handleDownloadQr(512)}>
-          <ListItemIcon>
-            <DownloadIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="QR PNG (512px)" />
-        </MenuItem>
-        <MenuItem onClick={() => handleDownloadQr(1024)}>
-          <ListItemIcon>
-            <DownloadIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="QR PNG (1024px)" />
-        </MenuItem>
-        <MenuItem onClick={() => handleDownloadQr(2048)}>
-          <ListItemIcon>
-            <DownloadIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="QR PNG (2048px)" />
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={() => handleDownloadPoster('square')}>
-          <ListItemIcon>
-            <ImageIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="โปสเตอร์ (สี่เหลี่ยมแนวตั้ง)" />
-        </MenuItem>
-        <MenuItem onClick={() => handleDownloadPoster('a4')}>
-          <ListItemIcon>
-            <ImageIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="โปสเตอร์ (A4)" />
-        </MenuItem>
-      </Menu>
+      <DropdownMenu open={Boolean(dlMenu.anchorEl)} onOpenChange={(o) => { if (!o) closeDownloadMenu(); }}>
+        <DropdownMenuTrigger asChild>
+          <span
+            aria-hidden
+            style={{
+              position: 'fixed',
+              width: 0,
+              height: 0,
+              ...(dlMenu.anchorEl
+                ? (() => {
+                    const r = dlMenu.anchorEl.getBoundingClientRect();
+                    return { left: r.left, top: r.bottom };
+                  })()
+                : { left: 0, top: 0 }),
+            }}
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onClick={() => handleDownloadQr(512)}>
+            <DownloadIcon className="h-4 w-4" /> QR PNG (512px)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleDownloadQr(1024)}>
+            <DownloadIcon className="h-4 w-4" /> QR PNG (1024px)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleDownloadQr(2048)}>
+            <DownloadIcon className="h-4 w-4" /> QR PNG (2048px)
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => handleDownloadPoster('square')}>
+            <ImageIcon className="h-4 w-4" /> โปสเตอร์ (สี่เหลี่ยมแนวตั้ง)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleDownloadPoster('a4')}>
+            <ImageIcon className="h-4 w-4" /> โปสเตอร์ (A4)
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* ===================== Create Dialog ===================== */}
-      <Dialog 
-        fullScreen 
-        open={openCreate} 
-        onClose={handleCloseCreate}
-        TransitionComponent={Transition}
-      >
-        <AppBar position="sticky" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary' }}>
-          <Toolbar sx={{ gap: 1, flexWrap: 'wrap', minHeight: { xs: 56, sm: 64 }, py: { xs: 1, sm: 0 } }}>
-            <IconButton edge="start" color="inherit" onClick={handleCloseCreate} aria-label="close">
-              <CloseIcon />
-            </IconButton>
-            <Typography sx={{ flex: 1, fontWeight: 600, fontSize: { xs: '0.95rem', sm: '1.15rem' }, minWidth: 0 }} noWrap>
+      <Dialog open={openCreate} onOpenChange={(o) => { if (!o) handleCloseCreate(); }}>
+        <DialogContent className="max-w-none w-screen h-[100dvh] rounded-none p-0 gap-0 overflow-hidden flex flex-col [&>button]:hidden">
+          <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background px-3 sm:px-4 py-2 flex-row flex-wrap items-center gap-2 space-y-0 text-left">
+            <Button size="icon" variant="ghost" onClick={handleCloseCreate} aria-label="close">
+              <CloseIcon className="h-5 w-5" />
+            </Button>
+            <DialogTitle className="flex-1 min-w-0 truncate font-semibold text-[0.95rem] sm:text-[1.15rem]">
               สร้างกิจกรรม & QR Code
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ width: { xs: '100%', sm: 'auto' }, ml: { xs: 0, sm: 'auto' } }}>
+            </DialogTitle>
+            <div className="flex flex-row gap-2 w-full sm:w-auto sm:ml-auto">
               <Button
-                startIcon={<PreviewIcon />}
-                variant="outlined"
-                size="small"
-                sx={{ flex: { xs: 1, sm: 'none' } }}
+                variant="outline"
+                size="sm"
+                className="gap-2 flex-1 sm:flex-none"
                 onClick={async () => {
                   const code = form.activityCode.trim();
                   const url = code ? makeShortUrl(code) : '';
@@ -2735,133 +2667,142 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                   setOpenPreview(true);
                 }}
               >
-                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>พรีวิวหน้าลงทะเบียน</Box>
-                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>พรีวิว</Box>
+                <PreviewIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">พรีวิวหน้าลงทะเบียน</span>
+                <span className="inline sm:hidden">พรีวิว</span>
               </Button>
               <Button
                 autoFocus
-                variant="contained"
-                size="small"
-                sx={{ flex: { xs: 1, sm: 'none' }, whiteSpace: 'nowrap' }}
+                size="sm"
+                className="gap-2 flex-1 sm:flex-none whitespace-nowrap"
                 onClick={handleCreateSubmit}
                 disabled={saving}
-                startIcon={saving ? <CircularProgress size={18} /> : <AddIcon />}
               >
-                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>บันทึก & สร้าง QR</Box>
-                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>บันทึก</Box>
+                {saving ? <Spinner size="sm" /> : <AddIcon className="h-4 w-4" />}
+                <span className="hidden sm:inline">บันทึก & สร้าง QR</span>
+                <span className="inline sm:hidden">บันทึก</span>
               </Button>
-            </Stack>
-          </Toolbar>
-        </AppBar>
+            </div>
+          </DialogHeader>
 
-        <DialogContent sx={{ bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.50'), p: { xs: 1.5, sm: 2, md: 4 } }}>
-          <Container maxWidth="md" disableGutters>
-            <Paper elevation={0} sx={{ p: { xs: 2, md: 4 }, borderRadius: 3, border: 1, borderColor: 'divider' }}>
+          <div className="flex-1 overflow-y-auto bg-muted/40 p-3 sm:p-4 md:p-8">
+            <div className="mx-auto max-w-3xl">
+              <div className="p-4 md:p-8 rounded-2xl border border-border bg-background">
           {errMsg && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {errMsg}
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{errMsg}</AlertDescription>
             </Alert>
           )}
 
           <>
-            <Grid container spacing={2}>
+            <div className="grid grid-cols-12 gap-4">
               {/* สังกัด */}
-              <Grid size={{ xs: 12 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
-                    สังกัดที่จะบันทึก:
-                  </Typography>
-                  <Chip size="small" color="primary" variant="outlined" label={deptLabelOf(currentAdmin.department)} />
-                </Stack>
-              </Grid>
+              <div className="col-span-12">
+                <div className="flex flex-row items-center gap-2">
+                  <span className="text-sm text-muted-foreground">สังกัดที่จะบันทึก:</span>
+                  <Badge variant="outline" className="border-primary text-primary">{deptLabelOf(currentAdmin.department)}</Badge>
+                </div>
+              </div>
 
               {/* ชื่อ/รหัสกิจกรรม + สุ่ม/คัดลอก */}
-              <Grid size={{ xs: 12, md: 8 }}>
-                <TextField
-                  label="ชื่อกิจกรรม *"
-                  fullWidth
+              <div className="col-span-12 md:col-span-8 flex flex-col gap-1.5">
+                <Label>ชื่อกิจกรรม *</Label>
+                <Input
                   value={form.activityName}
                   onChange={(e) => updateForm('activityName', e.target.value as any)}
                 />
-              </Grid>
+              </div>
 
-              <Grid size={{ xs: 12, md: 4 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField
-                    label="รหัสกิจกรรม *"
-                    fullWidth
+              <div className="col-span-12 md:col-span-4 flex flex-col gap-1.5">
+                <Label>รหัสกิจกรรม *</Label>
+                <div className="flex flex-row items-center gap-2">
+                  <Input
                     value={form.activityCode}
+                    maxLength={64}
                     onChange={(e) => updateForm('activityCode', e.target.value.toUpperCase() as any)}
-                    inputProps={{ maxLength: 64 }}
                   />
-                  <Tooltip title="สุ่ม">
-                    <IconButton onClick={() => updateForm('activityCode', randomActivityCode() as any)}>
-                      <ShuffleIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="คัดลอก">
-                    <IconButton
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(form.activityCode);
-                        } catch {}
-                      }}
-                    >
-                      <CopyIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-              </Grid>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button size="icon" variant="ghost" className="shrink-0" onClick={() => updateForm('activityCode', randomActivityCode() as any)}>
+                          <ShuffleIcon className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>สุ่ม</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="shrink-0"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(form.activityCode);
+                            } catch {}
+                          }}
+                        >
+                          <CopyIcon className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>คัดลอก</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </div>
 
               {/* ส่วนหัว */}
-              <Grid size={{ xs: 12, md: 8 }}>
-                <TextField
-                  label="ส่วนหัว (จะแสดงบนหน้าลงทะเบียน)"
-                  fullWidth
+              <div className="col-span-12 md:col-span-8 flex flex-col gap-1.5">
+                <Label>ส่วนหัว (จะแสดงบนหน้าลงทะเบียน)</Label>
+                <Input
                   value={form.headerTitle}
                   onChange={(e) => updateForm('headerTitle', e.target.value as any)}
                   placeholder="เช่น ลงทะเบียนกิจกรรม Orientation"
                 />
-              </Grid>
+              </div>
 
               {/* โหมดแบนเนอร์ */}
-              <Grid size={{ xs: 12, md: 4 }}>
-                <FormControl fullWidth>
-                  <InputLabel>โหมดแบนเนอร์</InputLabel>
-                  <Select
-                    label="โหมดแบนเนอร์"
-                    value={form.bannerMode}
-                    onChange={(e) => updateForm('bannerMode', e.target.value as any)}
-                  >
-                    <MenuItem value="none">ไม่ใช้ (แสดงเป็นสี)</MenuItem>
-                    <MenuItem value="image">รูปภาพ</MenuItem>
-                    <MenuItem value="color">สี/Gradient</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
+              <div className="col-span-12 md:col-span-4 flex flex-col gap-1.5">
+                <Label>โหมดแบนเนอร์</Label>
+                <Select
+                  value={form.bannerMode}
+                  onValueChange={(v) => updateForm('bannerMode', v as any)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">ไม่ใช้ (แสดงเป็นสี)</SelectItem>
+                    <SelectItem value="image">รูปภาพ</SelectItem>
+                    <SelectItem value="color">สี/Gradient</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               {/* แบนเนอร์ตามโหมด */}
               {form.bannerMode === 'image' && (
-                <Grid size={{ xs: 12 }}>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
-                    <Button component="label" startIcon={<ImageIcon />} variant="outlined">
-                      เลือกรูปส่วนหัว
-                      <input
-                        hidden
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] || null;
-                          updateForm('bannerFile', file as any);
-                          if (file) updateForm('bannerUrl', URL.createObjectURL(file) as any);
-                        }}
-                      />
+                <div className="col-span-12">
+                  <div className="flex flex-col md:flex-row md:items-center gap-4">
+                    <Button asChild variant="outline" className="gap-2 cursor-pointer">
+                      <label>
+                        <ImageIcon className="h-4 w-4" />
+                        เลือกรูปส่วนหัว
+                        <input
+                          hidden
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            updateForm('bannerFile', file as any);
+                            if (file) updateForm('bannerUrl', URL.createObjectURL(file) as any);
+                          }}
+                        />
+                      </label>
                     </Button>
 
                     <Button
-                      variant="outlined"
-                      color="secondary"
-                      startIcon={<SparklesIcon />}
+                      variant="outline"
+                      className="gap-2"
                       onClick={() => {
                         if (form.activityName.trim()) {
                           setMagnificPrompt(`A beautiful premium promotional banner for university activity: ${form.activityName.trim()}`);
@@ -2872,123 +2813,118 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                         setMagnificOpen(true);
                       }}
                     >
+                      <SparklesIcon className="h-4 w-4" />
                       สร้างรูปด้วย Magnific AI
                     </Button>
 
 
                     {form.bannerUrl && (
-                      <Stack direction="row" spacing={1} alignItems="center">
+                      <div className="flex flex-row items-center gap-2">
                         <img src={form.bannerUrl} alt="banner-preview" style={{ height: 60, borderRadius: 8 }} />
                         <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={upscaling ? <CircularProgress size={14} color="inherit" /> : <SparklesIcon sx={{ fontSize: 16 }} />}
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
                           disabled={upscaling}
                           onClick={handleUpscaleBanner}
                         >
+                          {upscaling ? <Spinner size="sm" /> : <SparklesIcon className="h-4 w-4" />}
                           {upscaling ? 'กำลังปรับความคมชัด...' : 'เพิ่มความคมชัด (AI Upscale)'}
                         </Button>
-                        <IconButton
-                          color="error"
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive"
                           onClick={() => {
                             updateForm('bannerUrl', undefined as any);
                             updateForm('bannerFile', null as any);
                           }}
                         >
-                          <ClearIcon />
-                        </IconButton>
-                      </Stack>
+                          <ClearIcon className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
-                  </Stack>
+                  </div>
                   {upscaleError && (
-                    <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                    <span className="block mt-1 text-xs text-destructive">
                       {upscaleError}
-                    </Typography>
+                    </span>
                   )}
-                </Grid>
+                </div>
               )}
 
               {form.bannerMode === 'color' && (
-                <Grid size={{ xs: 12 }}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <TextField
-                      label="สี/Gradient (CSS)"
-                      fullWidth
-                      value={form.bannerColor}
-                      onChange={(e) => updateForm('bannerColor', e.target.value as any)}
-                      placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <ColorIcon />
-                          </InputAdornment>
-                        ),
-                      }}
+                <div className="col-span-12">
+                  <div className="flex flex-row items-center gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                        <ColorIcon className="h-4 w-4" />
+                      </span>
+                      <Input
+                        className="pl-9"
+                        value={form.bannerColor}
+                        onChange={(e) => updateForm('bannerColor', e.target.value as any)}
+                        placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
+                      />
+                    </div>
+                    <div
+                      className="w-12 h-12 rounded border border-black/10 shrink-0"
+                      style={{ background: form.bannerColor }}
                     />
-                    <Box
-                      sx={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 1,
-                        border: '1px solid rgba(0,0,0,.12)',
-                        background: form.bannerColor,
-                      }}
-                    />
-                  </Stack>
-                </Grid>
+                  </div>
+                </div>
               )}
 
               {/* สีทับ + ความทึบ */}
-              <Grid size={{ xs: 12, md: 7 }}>
-                <TextField
-                  label="สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก"
-                  fullWidth
-                  value={form.bannerTintColor}
-                  onChange={(e) => updateForm('bannerTintColor', e.target.value as any)}
-                  placeholder="#0ea5e9 หรือ rgba(14,165,233,1)"
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <ColorIcon />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Grid>
+              <div className="col-span-12 md:col-span-7 flex flex-col gap-1.5">
+                <Label>สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                    <ColorIcon className="h-4 w-4" />
+                  </span>
+                  <Input
+                    className="pl-9"
+                    value={form.bannerTintColor}
+                    onChange={(e) => updateForm('bannerTintColor', e.target.value as any)}
+                    placeholder="#0ea5e9 หรือ rgba(14,165,233,1)"
+                  />
+                </div>
+              </div>
 
-              <Grid size={{ xs: 12, md: 5 }}>
-                <Stack spacing={0.5}>
-                  <Typography variant="body2" fontWeight={600}>
+              <div className="col-span-12 md:col-span-5">
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-semibold">
                     ความทึบของสีทับ: {(form.bannerTintOpacity * 100).toFixed(0)}%
-                  </Typography>
-                  <Slider
+                  </p>
+                  <input
+                    type="range"
+                    className="w-full accent-primary"
                     value={Math.round(form.bannerTintOpacity * 100)}
-                    onChange={(_, v) => {
-                      const pct = Array.isArray(v) ? v[0] : v;
-                      updateForm('bannerTintOpacity', (Math.max(0, Math.min(100, Number(pct))) / 100) as any);
+                    onChange={(e) => {
+                      const pct = Number(e.target.value);
+                      updateForm('bannerTintOpacity', (Math.max(0, Math.min(100, pct)) / 100) as any);
                     }}
                     step={1}
                     min={0}
                     max={100}
-                    valueLabelDisplay="auto"
                   />
-                </Stack>
-              </Grid>
+                </div>
+              </div>
 
               {/* คำอธิบาย/สถานที่ */}
-              <Grid size={{ xs: 12 }}>
-                <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary', fontWeight: 500 }}>
+              <div className="col-span-12">
+                <p className="mb-2 text-sm text-muted-foreground font-medium">
                   รายละเอียดกิจกรรม (คำอธิบาย)
-                </Typography>
+                </p>
                 <QuillEditor
                   value={form.description}
                   onChange={(val) => updateForm('description', val as any)}
                   placeholder="เขียนรายละเอียดกิจกรรม และจัดรูปแบบได้ที่นี่..."
                   onUploadImage={uploadDescriptionImage}
                 />
-              </Grid>
+              </div>
 
-              <Grid size={{ xs: 12 }}>
+              <div className="col-span-12">
                 <GooglePlaceAutocomplete
                   value={form.location || ''}
                   isLoaded={isGoogleMapsLoaded}
@@ -3000,10 +2936,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     }
                   }}
                 />
-              </Grid>
+              </div>
 
               {/* แผนที่ */}
-              <Grid size={{ xs: 12 }}>
+              <div className="col-span-12">
                 <GeofenceMap
                   center={{
                     lat: typeof form.latitude === 'number' ? form.latitude : 13.7563,
@@ -3018,31 +2954,32 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                   }}
                   onUseCurrentLocation={useCurrentLocation}
                 />
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
-                  <MyLocationIcon fontSize="small" />
-                  <Typography variant="caption" color="text.secondary">
+                <div className="flex flex-row items-center gap-2 mt-2">
+                  <MyLocationIcon className="h-4 w-4" />
+                  <span className="text-xs text-muted-foreground">
                     กด “ตำแหน่งปัจจุบัน” เพื่อบันทึกจุดอย่างรวดเร็ว
-                  </Typography>
-                </Stack>
-              </Grid>
+                  </span>
+                </div>
+              </div>
 
               {/* เลือกระยะ */}
-              <Grid size={{ xs: 12 }}>
-                <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>
+              <div className="col-span-12">
+                <p className="mb-1 text-sm font-bold">
                   รัศมีเช็คอิน (เมตร): {form.checkInRadius}
-                </Typography>
-                <Slider
+                </p>
+                <input
+                  type="range"
+                  className="w-full accent-primary"
                   value={form.checkInRadius}
-                  onChange={(_, v) => updateForm('checkInRadius', (Array.isArray(v) ? v[0] : Number(v)) as any)}
-                  valueLabelDisplay="auto"
+                  onChange={(e) => updateForm('checkInRadius', Number(e.target.value) as any)}
                   step={10}
                   min={10}
                   max={2000}
                 />
-              </Grid>
+              </div>
 
               {/* เวลา */}
-              <Grid size={{ xs: 12, md: 6 }}>
+              <div className="col-span-12 md:col-span-6">
                 <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
                   <DatePicker
                     showTime
@@ -3054,9 +2991,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                   />
                 </ConfigProvider>
-              </Grid>
+              </div>
 
-              <Grid size={{ xs: 12, md: 6 }}>
+              <div className="col-span-12 md:col-span-6">
                 <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
                   <DatePicker
                     showTime
@@ -3068,57 +3005,62 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                   />
                 </ConfigProvider>
-              </Grid>
+              </div>
 
               {/* options */}
-              <Grid size={{ xs: 12, md: 6 }}>
-                <TextField
-                  label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)"
-                  fullWidth
+              <div className="col-span-12 md:col-span-6 flex flex-col gap-1.5">
+                <Label>จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)</Label>
+                <Input
                   value={form.maxParticipants ?? ''}
                   onChange={(e) => updateForm('maxParticipants', (e.target.value === '' ? undefined : Math.max(0, Number(e.target.value))) as any)}
                   placeholder="เช่น 300"
                 />
-              </Grid>
+              </div>
 
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Stack
-                  direction={{ xs: 'column', md: 'row' }}
-                  spacing={1}
-                  alignItems="center"
-                  justifyContent="flex-end"
-                  sx={{ height: '100%' }}
-                >
-                  <FormControlLabel
-                    control={<Switch checked={form.isActive} onChange={(e) => updateForm('isActive', e.target.checked as any)} />}
-                    label="เปิดใช้งาน"
-                  />
-                  <FormControlLabel
-                    control={<Switch checked={form.scanEnabled} onChange={(e) => updateForm('scanEnabled', e.target.checked as any)} />}
-                    label="เปิดให้สแกน QR"
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={form.requiresUniversityLogin}
-                        onChange={(e) => updateForm('requiresUniversityLogin', e.target.checked as any)}
-                      />
-                    }
-                    label="ต้องลงชื่อเข้าใช้มหาวิทยาลัย"
-                  />
-                  <FormControlLabel
-                    control={<Switch checked={form.singleUserMode} onChange={(e) => updateForm('singleUserMode', e.target.checked as any)} />}
-                    label="Single-user mode"
-                  />
-                  <FormControlLabel
-                    control={<Switch checked={form.dynamicQREnabled} onChange={(e) => updateForm('dynamicQREnabled', e.target.checked as any)} />}
-                    label="เปิดใช้งาน Dynamic QR (จอ Rolling QR)"
-                  />
-                  <Typography variant="caption" color="text.secondary" sx={{ pl: 4, display: 'block', mt: -0.5 }}>
+              <div className="col-span-12 md:col-span-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-end gap-2 h-full flex-wrap">
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Switch checked={form.isActive} onCheckedChange={(c) => updateForm('isActive', c as any)} />
+                    <span>เปิดใช้งาน</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Switch checked={form.scanEnabled} onCheckedChange={(c) => updateForm('scanEnabled', c as any)} />
+                    <span>เปิดให้สแกน QR</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Switch
+                      checked={form.requiresUniversityLogin}
+                      onCheckedChange={(c) => updateForm('requiresUniversityLogin', c as any)}
+                    />
+                    <span>ต้องลงชื่อเข้าใช้มหาวิทยาลัย</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Switch checked={form.singleUserMode} onCheckedChange={(c) => updateForm('singleUserMode', c as any)} />
+                    <span>Single-user mode</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Switch checked={form.dynamicQREnabled} onCheckedChange={(c) => updateForm('dynamicQREnabled', c as any)} />
+                    <span>เปิดใช้งาน Dynamic QR (จอ Rolling QR หน้างาน)</span>
+                  </label>
+                  <span className="block pl-10 -mt-1 text-xs text-muted-foreground">
                     QR หมุนตามเวลาทุก 45 วินาที (HMAC) — ภาพสแกนเก่าใช้ต่อไม่ได้ แต่ยังรับช่วงก่อนหน้าได้
-                  </Typography>
-                </Stack>
-              </Grid>
+                  </span>
+                  {form.dynamicQREnabled && (
+                    <div className="w-full space-y-1.5 pt-1">
+                      <Label htmlFor="onsite-reg-point">จุดลงทะเบียนหน้างาน (แสดงตอน QR หมดอายุ)</Label>
+                      <Input
+                        id="onsite-reg-point"
+                        value={form.onsiteRegistrationPoint}
+                        onChange={(e) => updateForm('onsiteRegistrationPoint', e.target.value as any)}
+                        placeholder="เช่น โต๊ะลงทะเบียน หน้าหอประชุม / จุดเช็กอิน ลานกิจกรรม"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        ผู้เข้าร่วมที่สแกน QR เก่าจะเห็นข้อความให้ไปสแกนใหม่ที่จุดนี้ — ถ้าเว้นว่างจะใช้ชื่อสถานที่กิจกรรมแทน
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* ✅ Registration code series */}
               {RegistrationSeriesSection()}
@@ -3127,12 +3069,12 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               {MainActivityFilesSection()}
 
               {/* พรีวิว QR */}
-              <Grid size={{ xs: 12 }}>
-                <Divider sx={{ my: 1 }} />
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              <div className="col-span-12">
+                <Separator className="my-2" />
+                <p className="mb-2 text-sm font-medium">
                   พรีวิว QR & รายละเอียด
-                </Typography>
-                <Box sx={{ borderRadius: 3, overflow: 'hidden', border: 1, borderColor: 'divider', bgcolor: 'background.paper', maxWidth: 420 }}>
+                </p>
+                <div className="rounded-2xl overflow-hidden border border-border bg-background max-w-[420px]">
                   <QrPreviewCard
                     title={form.activityName || 'กิจกรรม'}
                     code={form.activityCode}
@@ -3144,53 +3086,46 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     bannerUrl={form.bannerUrl}
                     bannerColor={form.bannerColor}
                   />
-                </Box>
-              </Grid>
-            </Grid>
+                </div>
+              </div>
+            </div>
           </>
-            </Paper>
-          </Container>
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
       {/* พรีวิวหน้าลงทะเบียน (mock) */}
-      <Dialog open={openPreview} onClose={() => setOpenPreview(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <PreviewIcon /> <Typography variant="h6">พรีวิวหน้าลงทะเบียน</Typography>
-          </Stack>
-        </DialogTitle>
+      <Dialog open={openPreview} onOpenChange={(o) => { if (!o) setOpenPreview(false); }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex flex-row items-center gap-2">
+              <PreviewIcon className="h-5 w-5" /> พรีวิวหน้าลงทะเบียน
+            </DialogTitle>
+          </DialogHeader>
 
-        <DialogContent dividers>
           {/* แบนเนอร์พรีวิว */}
           {(() => {
             const tint = form.bannerTintColor || '#0ea5e9';
             const op = Math.max(0, Math.min(1, form.bannerTintOpacity));
             const hasImage = form.bannerMode === 'image' && !!form.bannerUrl;
+            const bannerStyle: React.CSSProperties = hasImage
+              ? {
+                  backgroundImage: `url(${form.bannerUrl})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  height: 160,
+                }
+              : form.bannerMode === 'color' && form.bannerColor
+              ? { background: form.bannerColor, height: 120 }
+              : { background: tint, height: 120 };
             return (
-              <Box
-                sx={{
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                  mb: 2,
-                  position: 'relative',
-                  ...(hasImage
-                    ? {
-                        backgroundImage: `url(${form.bannerUrl})`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                        height: 160,
-                      }
-                    : form.bannerMode === 'color' && form.bannerColor
-                    ? { background: form.bannerColor, height: 120 }
-                    : { background: tint, height: 120 }),
-                }}
-              >
+              <div className="rounded-lg overflow-hidden mb-4 relative" style={bannerStyle}>
                 {hasImage && (
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      inset: 0,
+                  <div
+                    className="absolute inset-0"
+                    style={{
                       background: `linear-gradient(180deg, rgba(0,0,0,0) 0%, ${
                         op ? 'rgba(0,0,0,' + (op * 0.15).toFixed(2) + ')' : 'transparent'
                       } 35%, ${tint})`,
@@ -3199,26 +3134,31 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     }}
                   />
                 )}
-              </Box>
+              </div>
             );
           })()}
 
-          <Typography variant="h5" fontWeight={800} gutterBottom>
+          <h2 className="text-2xl font-extrabold mb-2">
             {form.activityName || 'กิจกรรม'}
-          </Typography>
+          </h2>
           {form.headerTitle && (
-            <Typography color="text.secondary" gutterBottom>
+            <p className="text-muted-foreground mb-2">
               {form.headerTitle}
-            </Typography>
+            </p>
           )}
 
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
-            <Chip size="small" label={`สังกัด: ${deptLabelOf(currentAdmin.department)}`} />
-            <Chip size="small" label={`${fmt(form.startDateTime)} - ${fmt(form.endDateTime)}`} />
-            {form.location && <Chip size="small" icon={<PlaceIcon />} label={form.location} />}
-            <Chip size="small" color={form.isActive ? 'success' : 'default'} label={form.isActive ? 'เปิดใช้งาน' : 'ปิดใช้งาน'} />
-            <Chip size="small" color={form.scanEnabled ? 'success' : 'warning'} label={form.scanEnabled ? 'สแกนได้' : 'ปิดการสแกน'} />
-          </Stack>
+          <div className="flex flex-row flex-wrap gap-2 mb-2">
+            <Badge variant="secondary">{`สังกัด: ${deptLabelOf(currentAdmin.department)}`}</Badge>
+            <Badge variant="secondary">{`${fmt(form.startDateTime)} - ${fmt(form.endDateTime)}`}</Badge>
+            {form.location && (
+              <Badge variant="secondary" className="gap-1">
+                <PlaceIcon className="h-3 w-3" />
+                {form.location}
+              </Badge>
+            )}
+            <Badge variant={form.isActive ? 'success' : 'secondary'}>{form.isActive ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}</Badge>
+            <Badge variant={form.scanEnabled ? 'success' : 'warning'}>{form.scanEnabled ? 'สแกนได้' : 'ปิดการสแกน'}</Badge>
+          </div>
 
           <GeofenceMap
             center={{
@@ -3229,7 +3169,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             title={form.activityName || 'จุดกิจกรรม'}
           />
 
-          <Box sx={{ mt: 2, maxWidth: 420, mx: 'auto', borderRadius: 3, overflow: 'hidden', border: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+          <div className="mt-4 max-w-[420px] mx-auto rounded-2xl overflow-hidden border border-border bg-background">
             <QrPreviewCard
               title={form.activityName || 'กิจกรรม'}
               code={form.activityCode}
@@ -3241,105 +3181,104 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               bannerUrl={form.bannerUrl}
               bannerColor={form.bannerColor}
             />
-          </Box>
-        </DialogContent>
+          </div>
 
-        <DialogActions>
-          <Button onClick={() => setOpenPreview(false)}>ปิด</Button>
-        </DialogActions>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenPreview(false)}>ปิด</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       {/* ===================== Edit Dialog ===================== */}
-      <Dialog 
-        fullScreen 
-        open={openEdit} 
-        onClose={handleCloseEdit}
-        TransitionComponent={Transition}
-      >
-        <AppBar position="sticky" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary' }}>
-          <Toolbar sx={{ gap: 1, flexWrap: 'wrap', minHeight: { xs: 56, sm: 64 }, py: { xs: 1, sm: 0 } }}>
-            <IconButton edge="start" color="inherit" onClick={handleCloseEdit} aria-label="close">
-              <CloseIcon />
-            </IconButton>
-            <Typography sx={{ flex: 1, fontWeight: 600, fontSize: { xs: '0.95rem', sm: '1.15rem' }, minWidth: 0 }} noWrap>
+      <Dialog open={openEdit} onOpenChange={(o) => { if (!o) handleCloseEdit(); }}>
+        <DialogContent className="max-w-none w-screen h-[100dvh] rounded-none p-0 gap-0 overflow-hidden flex flex-col [&>button]:hidden">
+          <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background px-3 sm:px-4 py-2 flex-row flex-wrap items-center gap-2 space-y-0 text-left">
+            <Button size="icon" variant="ghost" onClick={handleCloseEdit} aria-label="close">
+              <CloseIcon className="h-5 w-5" />
+            </Button>
+            <DialogTitle className="flex-1 min-w-0 truncate font-semibold text-[0.95rem] sm:text-[1.15rem]">
               แก้ไขกิจกรรม
-            </Typography>
+            </DialogTitle>
             <Button
               autoFocus
-              variant="contained"
-              size="small"
-              sx={{ width: { xs: '100%', sm: 'auto' } }}
+              size="sm"
+              className="gap-2 w-full sm:w-auto"
               onClick={handleEditSubmit}
               disabled={editing}
-              startIcon={editing ? <CircularProgress size={18} /> : <EditIcon />}
             >
+              {editing ? <Spinner size="sm" /> : <EditIcon className="h-4 w-4" />}
               บันทึกการแก้ไข
             </Button>
-          </Toolbar>
-        </AppBar>
+          </DialogHeader>
 
-        <DialogContent sx={{ bgcolor: (t) => (t.palette.mode === 'dark' ? 'grey.900' : 'grey.50'), p: { xs: 1.5, sm: 2, md: 4 } }}>
-          <Container maxWidth="md" disableGutters>
-            <Paper elevation={0} sx={{ p: { xs: 2, md: 4 }, borderRadius: 3, border: 1, borderColor: 'divider' }}>
+          <div className="flex-1 overflow-y-auto bg-muted/40 p-3 sm:p-4 md:p-8">
+            <div className="mx-auto max-w-3xl">
+              <div className="p-4 md:p-8 rounded-2xl border border-border bg-background">
           {errMsg && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {errMsg}
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{errMsg}</AlertDescription>
             </Alert>
           )}
 
           <>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, md: 8 }}>
-                <TextField
-                  label="ชื่อกิจกรรม *"
-                  fullWidth
+            <div className="grid grid-cols-12 gap-4">
+              <div className="col-span-12 md:col-span-8 flex flex-col gap-1.5">
+                <Label>ชื่อกิจกรรม *</Label>
+                <Input
                   value={form.activityName}
                   onChange={(e) => updateForm('activityName', e.target.value as any)}
                 />
-              </Grid>
+              </div>
 
-              <Grid size={{ xs: 12, md: 4 }}>
-                <TextField label="รหัสกิจกรรม" fullWidth value={form.activityCode} disabled />
-              </Grid>
+              <div className="col-span-12 md:col-span-4 flex flex-col gap-1.5">
+                <Label>รหัสกิจกรรม</Label>
+                <Input value={form.activityCode} disabled />
+              </div>
 
               {/* ส่วนหัว */}
-              <Grid size={{ xs: 12, md: 8 }}>
-                <TextField label="ส่วนหัว" fullWidth value={form.headerTitle} onChange={(e) => updateForm('headerTitle', e.target.value as any)} />
-              </Grid>
+              <div className="col-span-12 md:col-span-8 flex flex-col gap-1.5">
+                <Label>ส่วนหัว</Label>
+                <Input value={form.headerTitle} onChange={(e) => updateForm('headerTitle', e.target.value as any)} />
+              </div>
 
               {/* แบนเนอร์ */}
-              <Grid size={{ xs: 12, md: 4 }}>
-                <FormControl fullWidth>
-                  <InputLabel>โหมดแบนเนอร์</InputLabel>
-                  <Select label="โหมดแบนเนอร์" value={form.bannerMode} onChange={(e) => updateForm('bannerMode', e.target.value as any)}>
-                    <MenuItem value="none">ไม่ใช้ (แสดงเป็นสี)</MenuItem>
-                    <MenuItem value="image">รูปภาพ</MenuItem>
-                    <MenuItem value="color">สี/Gradient</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
+              <div className="col-span-12 md:col-span-4 flex flex-col gap-1.5">
+                <Label>โหมดแบนเนอร์</Label>
+                <Select value={form.bannerMode} onValueChange={(v) => updateForm('bannerMode', v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">ไม่ใช้ (แสดงเป็นสี)</SelectItem>
+                    <SelectItem value="image">รูปภาพ</SelectItem>
+                    <SelectItem value="color">สี/Gradient</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               {form.bannerMode === 'image' && (
-                <Grid size={{ xs: 12 }}>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
-                    <Button component="label" startIcon={<ImageIcon />} variant="outlined">
-                      เปลี่ยนรูปส่วนหัว
-                      <input
-                        hidden
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] || null;
-                          updateForm('bannerFile', file as any);
-                          if (file) updateForm('bannerUrl', URL.createObjectURL(file) as any);
-                        }}
-                      />
+                <div className="col-span-12">
+                  <div className="flex flex-col md:flex-row md:items-center gap-4">
+                    <Button asChild variant="outline" className="gap-2 cursor-pointer">
+                      <label>
+                        <ImageIcon className="h-4 w-4" />
+                        เปลี่ยนรูปส่วนหัว
+                        <input
+                          hidden
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            updateForm('bannerFile', file as any);
+                            if (file) updateForm('bannerUrl', URL.createObjectURL(file) as any);
+                          }}
+                        />
+                      </label>
                     </Button>
 
                     <Button
-                      variant="outlined"
-                      color="secondary"
-                      startIcon={<SparklesIcon />}
+                      variant="outline"
+                      className="gap-2"
                       onClick={() => {
                         if (form.activityName.trim()) {
                           setMagnificPrompt(`A beautiful premium promotional banner for university activity: ${form.activityName.trim()}`);
@@ -3350,129 +3289,123 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                         setMagnificOpen(true);
                       }}
                     >
+                      <SparklesIcon className="h-4 w-4" />
                       สร้างรูปด้วย Magnific AI
                     </Button>
 
 
                     {form.bannerUrl ? (
-                      <Stack direction="row" spacing={1} alignItems="center">
+                      <div className="flex flex-row items-center gap-2">
                         <img src={form.bannerUrl} alt="banner-preview" style={{ height: 60, borderRadius: 8 }} />
                         <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={upscaling ? <CircularProgress size={14} color="inherit" /> : <SparklesIcon sx={{ fontSize: 16 }} />}
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
                           disabled={upscaling}
                           onClick={handleUpscaleBanner}
                         >
+                          {upscaling ? <Spinner size="sm" /> : <SparklesIcon className="h-4 w-4" />}
                           {upscaling ? 'กำลังปรับความคมชัด...' : 'เพิ่มความคมชัด (AI Upscale)'}
                         </Button>
                         <Button
-                          color="error"
-                          startIcon={<ClearIcon />}
+                          variant="ghost"
+                          className="gap-2 text-destructive"
                           onClick={async () => {
                             await deleteBannerIfOwned(form.bannerUrl);
                             updateForm('bannerUrl', undefined as any);
                             updateForm('bannerFile', null as any);
                           }}
                         >
+                          <ClearIcon className="h-4 w-4" />
                           ลบรูป
                         </Button>
-                      </Stack>
+                      </div>
                     ) : (
-                      <Typography variant="body2" color="text.secondary">
+                      <span className="text-sm text-muted-foreground">
                         ไม่มีรูปส่วนหัว
-                      </Typography>
+                      </span>
                     )}
-                  </Stack>
+                  </div>
                   {upscaleError && (
-                    <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                    <span className="block mt-1 text-xs text-destructive">
                       {upscaleError}
-                    </Typography>
+                    </span>
                   )}
-                </Grid>
+                </div>
               )}
 
               {form.bannerMode === 'color' && (
-                <Grid size={{ xs: 12 }}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <TextField
-                      label="สี/Gradient (CSS)"
-                      fullWidth
-                      value={form.bannerColor}
-                      onChange={(e) => updateForm('bannerColor', e.target.value as any)}
-                      placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <ColorIcon />
-                          </InputAdornment>
-                        ),
-                      }}
+                <div className="col-span-12">
+                  <div className="flex flex-row items-center gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                        <ColorIcon className="h-4 w-4" />
+                      </span>
+                      <Input
+                        className="pl-9"
+                        value={form.bannerColor}
+                        onChange={(e) => updateForm('bannerColor', e.target.value as any)}
+                        placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
+                      />
+                    </div>
+                    <div
+                      className="w-12 h-12 rounded border border-black/10 shrink-0"
+                      style={{ background: form.bannerColor }}
                     />
-                    <Box
-                      sx={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 1,
-                        border: '1px solid rgba(0,0,0,.12)',
-                        background: form.bannerColor,
-                      }}
-                    />
-                  </Stack>
-                </Grid>
+                  </div>
+                </div>
               )}
 
               {/* สีทับ + ความทึบ */}
-              <Grid size={{ xs: 12, md: 7 }}>
-                <TextField
-                  label="สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก"
-                  fullWidth
-                  value={form.bannerTintColor}
-                  onChange={(e) => updateForm('bannerTintColor', e.target.value as any)}
-                  placeholder="#0ea5e9 หรือ rgba(14,165,233,1)"
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <ColorIcon />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Grid>
+              <div className="col-span-12 md:col-span-7 flex flex-col gap-1.5">
+                <Label>สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                    <ColorIcon className="h-4 w-4" />
+                  </span>
+                  <Input
+                    className="pl-9"
+                    value={form.bannerTintColor}
+                    onChange={(e) => updateForm('bannerTintColor', e.target.value as any)}
+                    placeholder="#0ea5e9 หรือ rgba(14,165,233,1)"
+                  />
+                </div>
+              </div>
 
-              <Grid size={{ xs: 12, md: 5 }}>
-                <Stack spacing={0.5}>
-                  <Typography variant="body2" fontWeight={600}>
+              <div className="col-span-12 md:col-span-5">
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-semibold">
                     ความทึบของสีทับ: {(form.bannerTintOpacity * 100).toFixed(0)}%
-                  </Typography>
-                  <Slider
+                  </p>
+                  <input
+                    type="range"
+                    className="w-full accent-primary"
                     value={Math.round(form.bannerTintOpacity * 100)}
-                    onChange={(_, v) => {
-                      const pct = Array.isArray(v) ? v[0] : v;
-                      updateForm('bannerTintOpacity', (Math.max(0, Math.min(100, Number(pct))) / 100) as any);
+                    onChange={(e) => {
+                      const pct = Number(e.target.value);
+                      updateForm('bannerTintOpacity', (Math.max(0, Math.min(100, pct)) / 100) as any);
                     }}
                     step={1}
                     min={0}
                     max={100}
-                    valueLabelDisplay="auto"
                   />
-                </Stack>
-              </Grid>
+                </div>
+              </div>
 
               {/* คำอธิบาย/สถานที่ */}
-              <Grid size={{ xs: 12 }}>
-                <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary', fontWeight: 500 }}>
+              <div className="col-span-12">
+                <p className="mb-2 text-sm text-muted-foreground font-medium">
                   รายละเอียดกิจกรรม (คำอธิบาย)
-                </Typography>
+                </p>
                 <QuillEditor
                   value={form.description}
                   onChange={(val) => updateForm('description', val as any)}
                   placeholder="เขียนรายละเอียดกิจกรรม และจัดรูปแบบได้ที่นี่..."
                   onUploadImage={uploadDescriptionImage}
                 />
-              </Grid>
+              </div>
 
-              <Grid size={{ xs: 12 }}>
+              <div className="col-span-12">
                 <GooglePlaceAutocomplete
                   value={form.location || ''}
                   isLoaded={isGoogleMapsLoaded}
@@ -3484,10 +3417,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     }
                   }}
                 />
-              </Grid>
+              </div>
 
               {/* แผนที่ */}
-              <Grid size={{ xs: 12 }}>
+              <div className="col-span-12">
                 <GeofenceMap
                   center={{
                     lat: typeof form.latitude === 'number' ? form.latitude : 13.7563,
@@ -3502,25 +3435,26 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                   }}
                   onUseCurrentLocation={useCurrentLocation}
                 />
-              </Grid>
+              </div>
 
               {/* เลือกระยะ */}
-              <Grid size={{ xs: 12 }}>
-                <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>
+              <div className="col-span-12">
+                <p className="mb-1 text-sm font-bold">
                   รัศมีเช็คอิน (เมตร): {form.checkInRadius}
-                </Typography>
-                <Slider
+                </p>
+                <input
+                  type="range"
+                  className="w-full accent-primary"
                   value={form.checkInRadius}
-                  onChange={(_, v) => updateForm('checkInRadius', (Array.isArray(v) ? v[0] : Number(v)) as any)}
-                  valueLabelDisplay="auto"
+                  onChange={(e) => updateForm('checkInRadius', Number(e.target.value) as any)}
                   step={10}
                   min={10}
                   max={2000}
                 />
-              </Grid>
+              </div>
 
               {/* เวลา */}
-              <Grid size={{ xs: 12, md: 6 }}>
+              <div className="col-span-12 md:col-span-6">
                 <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
                   <DatePicker
                     showTime
@@ -3532,9 +3466,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                   />
                 </ConfigProvider>
-              </Grid>
+              </div>
 
-              <Grid size={{ xs: 12, md: 6 }}>
+              <div className="col-span-12 md:col-span-6">
                 <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
                   <DatePicker
                     showTime
@@ -3546,192 +3480,179 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                   />
                 </ConfigProvider>
-              </Grid>
+              </div>
 
               {/* options */}
-              <Grid size={{ xs: 12, md: 6 }}>
-                <TextField
-                  label="จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)"
-                  fullWidth
+              <div className="col-span-12 md:col-span-6 flex flex-col gap-1.5">
+                <Label>จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)</Label>
+                <Input
                   value={form.maxParticipants ?? ''}
                   onChange={(e) => updateForm('maxParticipants', (e.target.value === '' ? undefined : Math.max(0, Number(e.target.value))) as any)}
                 />
-              </Grid>
+              </div>
 
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
+                <div className="col-span-12 flex flex-wrap gap-2 mt-2">
                   <Button
-                    variant={form.isActive ? 'contained' : 'outlined'}
-                    color={form.isActive ? 'success' : 'inherit'}
+                    variant={form.isActive ? 'default' : 'outline'}
+                    className={form.isActive ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
                     onClick={() => updateForm('isActive', !form.isActive as any)}
-                    size="small"
+                    size="sm"
                   >
                     เปิดใช้งาน
                   </Button>
                   <Button
-                    variant={form.scanEnabled ? 'contained' : 'outlined'}
-                    color={form.scanEnabled ? 'primary' : 'inherit'}
+                    variant={form.scanEnabled ? 'default' : 'outline'}
                     onClick={() => updateForm('scanEnabled', !form.scanEnabled as any)}
-                    size="small"
+                    size="sm"
                   >
                     เปิดให้สแกน QR
                   </Button>
                   <Button
-                    variant={form.requiresUniversityLogin ? 'contained' : 'outlined'}
-                    color={form.requiresUniversityLogin ? 'secondary' : 'inherit'}
+                    variant={form.requiresUniversityLogin ? 'secondary' : 'outline'}
                     onClick={() => updateForm('requiresUniversityLogin', !form.requiresUniversityLogin as any)}
-                    size="small"
+                    size="sm"
                   >
                     บังคับ Login มหาลัย
                   </Button>
                   <Button
-                    variant={form.singleUserMode ? 'contained' : 'outlined'}
-                    color={form.singleUserMode ? 'info' : 'inherit'}
+                    variant={form.singleUserMode ? 'default' : 'outline'}
+                    className={form.singleUserMode ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
                     onClick={() => updateForm('singleUserMode', !form.singleUserMode as any)}
-                    size="small"
+                    size="sm"
                   >
                     Single-user mode
                   </Button>
                   <Button
-                    variant={form.dynamicQREnabled ? 'contained' : 'outlined'}
-                    color={form.dynamicQREnabled ? 'warning' : 'inherit'}
+                    variant={form.dynamicQREnabled ? 'default' : 'outline'}
+                    className={form.dynamicQREnabled ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}
                     onClick={() => updateForm('dynamicQREnabled', !form.dynamicQREnabled as any)}
-                    size="small"
+                    size="sm"
                   >
                     Dynamic QR
                   </Button>
-                </Box>
+                </div>
+
+                {form.dynamicQREnabled && (
+                  <div className="col-span-12 space-y-1.5">
+                    <Label htmlFor="onsite-reg-point-edit">จุดลงทะเบียนหน้างาน (แสดงตอน QR หมดอายุ)</Label>
+                    <Input
+                      id="onsite-reg-point-edit"
+                      value={form.onsiteRegistrationPoint}
+                      onChange={(e) => updateForm('onsiteRegistrationPoint', e.target.value as any)}
+                      placeholder="เช่น โต๊ะลงทะเบียน หน้าหอประชุม / จุดเช็กอิน ลานกิจกรรม"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      ผู้เข้าร่วมที่สแกน QR เก่าจะเห็นข้อความให้ไปสแกนใหม่ที่จุดนี้ — ถ้าเว้นว่างจะใช้ชื่อสถานที่กิจกรรมแทน
+                    </p>
+                  </div>
+                )}
 
               {/* ✅ Registration code series */}
               {RegistrationSeriesSection()}
               {SessionsSection()}
               {SurveyConfigSection()}
               {MainActivityFilesSection()}
-            </Grid>
+            </div>
           </>
-            </Paper>
-          </Container>
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
       {/* ===================== Magnific AI Generation Dialog ===================== */}
       <Dialog
         open={magnificOpen}
-        onClose={() => !magnificLoading && setMagnificOpen(false)}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: '24px',
-            boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
-            overflow: 'hidden',
-          }
-        }}
+        onOpenChange={(o) => { if (!o && !magnificLoading) setMagnificOpen(false); }}
       >
-        <DialogTitle sx={{ 
-          fontWeight: 700, 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between',
-          borderBottom: '1px solid rgba(0,0,0,0.08)',
-          py: 2,
-          px: 3,
-        }}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <SparklesIcon sx={{ color: '#0071e3' }} />
-            <Typography variant="h6" fontWeight={700}>สร้างรูปภาพส่วนหัวด้วย Magnific AI</Typography>
-          </Stack>
-          {!magnificLoading && (
-            <IconButton onClick={() => setMagnificOpen(false)} size="small">
-              <CloseIcon />
-            </IconButton>
-          )}
-        </DialogTitle>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl [&>button]:hidden">
+          <DialogHeader className="flex-row items-center justify-between border-b border-border pb-3 space-y-0 text-left">
+            <DialogTitle className="flex flex-row items-center gap-2 font-bold">
+              <SparklesIcon className="h-5 w-5 text-[#0071e3]" />
+              สร้างรูปภาพส่วนหัวด้วย Magnific AI
+            </DialogTitle>
+            {!magnificLoading && (
+              <Button size="icon" variant="ghost" onClick={() => setMagnificOpen(false)}>
+                <CloseIcon className="h-4 w-4" />
+              </Button>
+            )}
+          </DialogHeader>
 
-        <DialogContent sx={{ px: 3, py: 3, bgcolor: '#f5f5f7' }}>
-          <Grid container spacing={3}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Left side: Inputs */}
-            <Grid size={{ xs: 12, md: 6 }}>
-              <Stack spacing={2.5}>
-                <TextField
-                  label="คำอธิบายรูปภาพ (Prompt) *เป็นภาษาอังกฤษจะดีที่สุด*"
-                  multiline
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-1.5">
+                <Label>คำอธิบายรูปภาพ (Prompt) *เป็นภาษาอังกฤษจะดีที่สุด*</Label>
+                <Textarea
                   rows={4}
-                  fullWidth
                   required
                   value={magnificPrompt}
                   onChange={(e) => setMagnificPrompt(e.target.value)}
                   placeholder="เช่น A futuristic science lab with glowing holographic UI, widescreen, hyperrealistic..."
                   disabled={magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}
                 />
+              </div>
 
-                <FormControl fullWidth disabled={magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}>
-                  <InputLabel>สัดส่วนภาพ (Aspect Ratio)</InputLabel>
-                  <Select
-                    value={magnificRatio}
-                    label="สัดส่วนภาพ (Aspect Ratio)"
-                    onChange={(e) => setMagnificRatio(e.target.value)}
-                  >
-                    <MenuItem value="widescreen_16_9">16:9 (แนะนำสำหรับแบนเนอร์)</MenuItem>
-                    <MenuItem value="square_1_1">1:1 (จัตุรัส)</MenuItem>
-                    <MenuItem value="classic_4_3">4:3 (คลาสสิก)</MenuItem>
-                    <MenuItem value="social_post_4_5">4:5 (โซเชียลแนวตั้ง)</MenuItem>
-                    <MenuItem value="social_story_9_16">9:16 (สตอรี่)</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <FormControl fullWidth disabled={magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}>
-                  <InputLabel>โมเดล AI (Model)</InputLabel>
-                  <Select
-                    value={magnificModel}
-                    label="โมเดล AI (Model)"
-                    onChange={(e) => setMagnificModel(e.target.value)}
-                  >
-                    <MenuItem value="realism">Realism (ภาพถ่ายสมจริง)</MenuItem>
-                    <MenuItem value="fluid">Fluid (จินตนาการ/อิง Prompt ดีที่สุด)</MenuItem>
-                    <MenuItem value="zen">Zen (เรียบง่าย/สะอาดตา)</MenuItem>
-                    <MenuItem value="flexible">Flexible (สีสันสดใส/อาร์ต)</MenuItem>
-                    <MenuItem value="super_real">Super Real (เน้นความคมชัดสูงสุด)</MenuItem>
-                  </Select>
-                </FormControl>
-
-                {magnificError && (
-                  <Alert severity="error" sx={{ borderRadius: '12px' }}>
-                    {magnificError}
-                  </Alert>
-                )}
-
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="large"
-                  disabled={!magnificPrompt.trim() || magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}
-                  onClick={handleGenerateImage}
-                  startIcon={magnificLoading ? <CircularProgress size={20} color="inherit" /> : <SparklesIcon />}
-                  sx={{ py: 1.5, borderRadius: '12px', fontWeight: 600 }}
+              <div className="flex flex-col gap-1.5">
+                <Label>สัดส่วนภาพ (Aspect Ratio)</Label>
+                <Select
+                  value={magnificRatio}
+                  onValueChange={(v) => setMagnificRatio(v)}
+                  disabled={magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}
                 >
-                  {magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS' ? 'กำลังส่งข้อมูล...' : 'เริ่มสร้างรูปภาพ'}
-                </Button>
-              </Stack>
-            </Grid>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="widescreen_16_9">16:9 (แนะนำสำหรับแบนเนอร์)</SelectItem>
+                    <SelectItem value="square_1_1">1:1 (จัตุรัส)</SelectItem>
+                    <SelectItem value="classic_4_3">4:3 (คลาสสิก)</SelectItem>
+                    <SelectItem value="social_post_4_5">4:5 (โซเชียลแนวตั้ง)</SelectItem>
+                    <SelectItem value="social_story_9_16">9:16 (สตอรี่)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label>โมเดล AI (Model)</Label>
+                <Select
+                  value={magnificModel}
+                  onValueChange={(v) => setMagnificModel(v)}
+                  disabled={magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="realism">Realism (ภาพถ่ายสมจริง)</SelectItem>
+                    <SelectItem value="fluid">Fluid (จินตนาการ/อิง Prompt ดีที่สุด)</SelectItem>
+                    <SelectItem value="zen">Zen (เรียบง่าย/สะอาดตา)</SelectItem>
+                    <SelectItem value="flexible">Flexible (สีสันสดใส/อาร์ต)</SelectItem>
+                    <SelectItem value="super_real">Super Real (เน้นความคมชัดสูงสุด)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {magnificError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{magnificError}</AlertDescription>
+                </Alert>
+              )}
+
+              <Button
+                size="lg"
+                className="gap-2 font-semibold"
+                disabled={!magnificPrompt.trim() || magnificLoading || magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS'}
+                onClick={handleGenerateImage}
+              >
+                {magnificLoading ? <Spinner size="sm" /> : <SparklesIcon className="h-4 w-4" />}
+                {magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS' ? 'กำลังส่งข้อมูล...' : 'เริ่มสร้างรูปภาพ'}
+              </Button>
+            </div>
 
             {/* Right side: Preview and status */}
-            <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <Paper
-                variant="outlined"
-                sx={{
-                  width: '100%',
-                  height: 320,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  bgcolor: '#000000',
-                  borderRadius: '16px',
-                  overflow: 'hidden',
-                  position: 'relative',
-                  border: '1px solid rgba(0,0,0,0.08)',
-                }}
-              >
+            <div className="flex flex-col justify-center items-center">
+              <div className="w-full h-80 flex flex-col justify-center items-center bg-black rounded-2xl overflow-hidden relative border border-border">
                 {magnificResultUrl ? (
                   <img
                     src={magnificResultUrl}
@@ -3739,56 +3660,55 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   />
                 ) : (
-                  <Stack spacing={2} alignItems="center" sx={{ color: '#a1a1a6', px: 4, textAlign: 'center' }}>
+                  <div className="flex flex-col items-center gap-4 text-[#a1a1a6] px-8 text-center">
                     {magnificStatus === 'CREATED' || magnificStatus === 'IN_PROGRESS' ? (
                       <>
-                        <CircularProgress size={48} sx={{ color: '#0071e3' }} />
-                        <Typography variant="body1" fontWeight={600} color="#ffffff">
+                        <Spinner size="lg" className="text-[#0071e3]" />
+                        <p className="text-white font-semibold">
                           กำลังประมวลผลโดย Magnific AI...
-                        </Typography>
-                        <Typography variant="caption" color="grey.400">
+                        </p>
+                        <span className="text-xs text-gray-400">
                           (อาจใช้เวลาประมาณ 10-30 วินาที ระบบกำลังอัปเดตสถานะอัตโนมัติ)
-                        </Typography>
+                        </span>
                       </>
                     ) : (
                       <>
-                        <ImageIcon sx={{ fontSize: 64, color: 'rgba(255,255,255,0.2)' }} />
-                        <Typography variant="body2">
+                        <ImageIcon className="h-16 w-16 text-white/20" />
+                        <p className="text-sm">
                           ยังไม่มีรูปภาพที่สร้างขึ้น กรุณากรอก Prompt และกดปุ่มเริ่มสร้างรูปภาพ
-                        </Typography>
+                        </p>
                       </>
                     )}
-                  </Stack>
+                  </div>
                 )}
-              </Paper>
-            </Grid>
-          </Grid>
-        </DialogContent>
+              </div>
+            </div>
+          </div>
 
-        <DialogActions sx={{ px: 3, py: 2.5, borderTop: '1px solid rgba(0,0,0,0.08)' }}>
-          <Button 
-            onClick={() => {
-              setMagnificOpen(false);
-              setMagnificResultUrl(null);
-              setMagnificTaskId(null);
-              setMagnificStatus('IDLE');
-              setMagnificError('');
-            }}
-            disabled={magnificLoading}
-          >
-            ยกเลิก
-          </Button>
-          <Button
-            variant="contained"
-            color="success"
-            disabled={!magnificResultUrl || magnificLoading}
-            onClick={handleUseGeneratedImage}
-            startIcon={magnificLoading ? <CircularProgress size={18} color="inherit" /> : null}
-            sx={{ fontWeight: 600, borderRadius: '8px' }}
-          >
-            ใช้รูปภาพนี้เป็นแบนเนอร์
-          </Button>
-        </DialogActions>
+          <DialogFooter className="border-t border-border pt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMagnificOpen(false);
+                setMagnificResultUrl(null);
+                setMagnificTaskId(null);
+                setMagnificStatus('IDLE');
+                setMagnificError('');
+              }}
+              disabled={magnificLoading}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              className="gap-2 font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={!magnificResultUrl || magnificLoading}
+              onClick={handleUseGeneratedImage}
+            >
+              {magnificLoading && <Spinner size="sm" />}
+              ใช้รูปภาพนี้เป็นแบนเนอร์
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );

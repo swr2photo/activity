@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Box, Button, CircularProgress } from '@mui/material';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils';
 import {
   signInWithGoogle,
   mapAuthError,
@@ -11,10 +13,12 @@ import {
 import { SessionManager } from '../../lib/sessionManager';
 
 const GoogleLogo: React.FC<{ size?: number }> = ({ size = 20 }) => (
-  <Box
-    component="svg"
+  <svg
     viewBox="0 0 48 48"
-    sx={{ width: size, height: size, flexShrink: 0 }}
+    width={size}
+    height={size}
+    className="shrink-0"
+    aria-hidden
   >
     <path
       fill="#FFC107"
@@ -32,7 +36,7 @@ const GoogleLogo: React.FC<{ size?: number }> = ({ size = 20 }) => (
       fill="#1976D2"
       d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.3 4.1-4.2 5.5l.1.1 6.3 5.2C39.5 36.8 44 31.5 44 24c0-1.2-.1-2.3-.4-3.5z"
     />
-  </Box>
+  </svg>
 );
 
 const getClientIP = async (): Promise<string> => {
@@ -81,7 +85,6 @@ const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({
       onLoginSuccess?.(userData);
     } catch (err: any) {
       if (err instanceof AuthRedirectPendingError || err?.code === 'auth/redirect-pending') {
-        // กำลังพาไปหน้า Google — ไม่ต้องโชว์ error
         return;
       }
       const msg = mapAuthError(err) || err?.message || 'เข้าสู่ระบบด้วย Google ไม่สำเร็จ';
@@ -93,22 +96,15 @@ const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({
 
   return (
     <Button
-      variant="outlined"
-      fullWidth={fullWidth}
+      variant="outline"
+      className={cn(
+        'h-auto rounded-xl py-3.5 font-bold',
+        fullWidth && 'w-full'
+      )}
       disabled={disabled || loading}
       onClick={handleClick}
-      startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <GoogleLogo />}
-      sx={{
-        py: 1.35,
-        borderRadius: 3,
-        fontWeight: 700,
-        textTransform: 'none',
-        borderColor: 'divider',
-        color: 'text.primary',
-        bgcolor: 'background.paper',
-        '&:hover': { bgcolor: 'action.hover', borderColor: 'text.secondary' },
-      }}
     >
+      {loading ? <Spinner size="sm" className="text-current" /> : <GoogleLogo />}
       {loading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Google'}
     </Button>
   );

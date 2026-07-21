@@ -1,50 +1,19 @@
 'use client';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Box,
-  Card,
-  CardContent,
-  TextField,
-  Button,
-  Typography,
-  Grid,
-  Alert,
-  CircularProgress,
-  Stepper,
-  Step,
-  StepLabel,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  SelectChangeEvent,
-  Paper,
-  Fade,
-  Grow,
-  Divider,
-  Chip,
-  Stack,
-  LinearProgress,
-  Autocomplete,
-} from '@mui/material';
-
-import {
-  Block as BlockIcon,
+  Ban as BlockIcon,
   CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Refresh as RefreshIcon,
-  Person as PersonIcon,
-  LocationOn as LocationIcon,
-  AccessTime as AccessTimeIcon,
-  School as SchoolIcon,
-  Badge as BadgeIcon,
-  Security as SecurityIcon,
-  Warning as WarningIcon,
+  CircleAlert as ErrorIcon,
+  RefreshCw as RefreshIcon,
+  User as PersonIcon,
+  MapPin as LocationIcon,
+  Clock as AccessTimeIcon,
+  IdCard as BadgeIcon,
+  TriangleAlert as WarningIcon,
   Lock as LockIcon,
-  ExitToApp as LogoutIcon,
-  Verified as VerifiedIcon,
-  ContentCopy as ContentCopyIcon,
-} from '@mui/icons-material';
+  LogOut as LogoutIcon,
+  BadgeCheck as VerifiedIcon,
+} from 'lucide-react';
 import {
   collection,
   serverTimestamp,
@@ -62,8 +31,25 @@ import { EDUCATION_LEVEL_OPTIONS } from '../lib/firebaseAuth';
 import LocationChecker from './LocationChecker';
 import { AdminSettings } from '../types';
 import SurveyForm from './activity/SurveyForm';
-import { validateStudentId, validateThaiName, validateNameTitle, filterThaiNameInput, NAME_TITLE_OPTIONS } from '../utils/validation';
-import { accentCardSx, glassCardSx, pageColors } from '../lib/uiTheme';
+import { validateThaiName, validateNameTitle, filterThaiNameInput, NAME_TITLE_OPTIONS } from '../utils/validation';
+import { accentCardClass, glassCardClass, pageColors } from '../lib/uiTheme';
+import { cn } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Progress } from '@/components/ui/progress';
+import { Spinner } from '@/components/ui/spinner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 /** =========================
  * Types & Interfaces
@@ -72,6 +58,7 @@ interface ActivityStatus {
   exists: boolean;
   isActive: boolean;
   activityCode: string;
+  activityName?: string;
   description?: string;
   userCode?: string;
   requiresUniversityLogin?: boolean;
@@ -320,32 +307,19 @@ const NextSessionCountdown: React.FC<{ nextSession: any }> = ({ nextSession }) =
 
   if (!timeLeft) {
     return (
-      <Chip 
-        label="กำลังจะเริ่มเร็วๆ นี้" 
-        color="info" 
-        variant="outlined" 
-        sx={{ fontWeight: 600, mt: 1.5 }} 
-      />
+      <Badge variant="info" className="mt-3 font-semibold">
+        กำลังจะเริ่มเร็วๆ นี้
+      </Badge>
     );
   }
 
   return (
-    <Chip 
-      label={`เปิดให้เช็กอินในอีก ${timeLeft.d > 0 ? `${timeLeft.d} วัน ` : ''}${timeLeft.h > 0 ? `${timeLeft.h} ชม. ` : ''}${timeLeft.m} นาที ${timeLeft.s} วินาที`}
-      color="info"
-      variant="filled"
-      sx={{ 
-        fontWeight: 600, 
-        mt: 1.5,
-        px: 2,
-        py: 2.2,
-        borderRadius: '12px',
-        background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
-        boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)',
-        color: '#fff',
-        fontSize: '0.9rem'
-      }}
-    />
+    <Badge
+      className="mt-3 rounded-xl px-4 py-2.5 text-[0.9rem] font-semibold text-white shadow-[0_4px_12px_rgba(2,132,199,0.3)]"
+      style={{ background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)' }}
+    >
+      {`เปิดให้เช็กอินในอีก ${timeLeft.d > 0 ? `${timeLeft.d} วัน ` : ''}${timeLeft.h > 0 ? `${timeLeft.h} ชม. ` : ''}${timeLeft.m} นาที ${timeLeft.s} วินาที`}
+    </Badge>
   );
 };
 
@@ -490,8 +464,6 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
   }, [activeStep]);
 
-  const steps = ['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'];
-
   /** =========================
    * Utilities
    * =======================*/
@@ -581,6 +553,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           exists: true,
           isActive: data.isActive !== undefined ? data.isActive : true,
           activityCode: data.activityCode,
+          activityName: data.activityName || '',
           description: data.description || '',
           userCode: data.userCode || '',
           requiresUniversityLogin: data.requiresUniversityLogin || false,
@@ -606,6 +579,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
             setActivityStatus((prev) => ({
               ...prev,
               isActive: updated.isActive !== undefined ? updated.isActive : true,
+              activityName: updated.activityName || prev.activityName || '',
               description: updated.description || '',
               userCode: updated.userCode || '',
               requiresUniversityLogin: updated.requiresUniversityLogin || false,
@@ -752,9 +726,8 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     setFieldErrors((prev) => ({ ...prev, [field]: '' }));
   };
 
-  const handleSelectChange = (field: string) => (event: SelectChangeEvent<string>) => {
+  const handleSelectChange = (field: string) => (val: string) => {
     if (forceRefreshEnabled) return;
-    const val = event.target.value;
     setFormData({ ...formData, [field]: val });
     if (field === 'faculty') updateFilteredDepartments(val);
     setError('');
@@ -992,6 +965,7 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
           userType: existingUserProfile?.userType || profileData.userType || 'university',
           institutionName: existingUserProfile?.institutionName || profileData.institutionName || '',
           activityCode,
+          activityName: activityStatus.activityName || '',
           activityDocId,
           location,
           ipAddress: clientIp,
@@ -1081,181 +1055,135 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     radius: activityStatus.checkInRadius || 100,
   });
 
-  /** =========================
+    /** =========================
    * Rendering states
    * =======================*/
   if (isRefreshing) {
     return (
-      <Fade in>
-        <Card elevation={0} sx={glassCardSx}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <RefreshIcon
-              sx={{
-                fontSize: 48,
-                mb: 2,
-                color: 'primary.main',
-                animation: 'spin 1s linear infinite',
-                '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } },
-              }}
-            />
-            <Typography variant="h5" sx={{ fontWeight: 800, color: pageColors.textPrimary }}>
-              กำลังโหลดหน้าใหม่...
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 1, color: pageColors.textSecondary }}>
-              กรุณารอสักครู่
-            </Typography>
-          </CardContent>
-        </Card>
-      </Fade>
+      <Card className={cn(glassCardClass, 'animate-in fade-in')}>
+        <CardContent className="py-12 text-center">
+          <RefreshIcon className="mb-4 h-12 w-12 animate-spin text-primary" />
+          <h2 className="text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>
+            กำลังโหลดหน้าใหม่...
+          </h2>
+          <p className="mt-1 text-sm" style={{ color: pageColors.textSecondary }}>
+            กรุณารอสักครู่
+          </p>
+        </CardContent>
+      </Card>
     );
   }
 
   if (activityStatusLoading) {
     return (
-      <Fade in>
-        <Card elevation={0} sx={glassCardSx}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <CircularProgress size={48} thickness={4} sx={{ mb: 2, color: 'primary.main' }} />
-            <Typography variant="h5" sx={{ fontWeight: 800, color: pageColors.textPrimary }}>
-              กำลังตรวจสอบสถานะกิจกรรม...
-            </Typography>
-          </CardContent>
-        </Card>
-      </Fade>
+      <Card className={cn(glassCardClass, 'animate-in fade-in')}>
+        <CardContent className="py-12 text-center">
+          <Spinner size="lg" className="mb-4 text-primary" />
+          <h2 className="text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>
+            กำลังตรวจสอบสถานะกิจกรรม...
+          </h2>
+        </CardContent>
+      </Card>
     );
   }
 
   if (!activityStatus.exists) {
     return (
-      <Grow in>
-        <Card elevation={0} sx={accentCardSx(pageColors.accentError)}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <ErrorIcon sx={{ fontSize: 64, mb: 2, color: 'error.main' }} />
-            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
-              ไม่พบกิจกรรมนี้
-            </Typography>
-            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
-              ไม่พบกิจกรรมที่คุณกำลังค้นหา
-            </Typography>
-          </CardContent>
-        </Card>
-      </Grow>
+      <Card className={cn(accentCardClass, 'animate-in fade-in')} style={{ borderLeftColor: pageColors.accentError }}>
+        <CardContent className="py-12 text-center">
+          <ErrorIcon className="mb-4 h-16 w-16 text-destructive" />
+          <h2 className="mb-2 text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>ไม่พบกิจกรรมนี้</h2>
+          <p style={{ color: pageColors.textSecondary }}>ไม่พบกิจกรรมที่คุณกำลังค้นหา</p>
+        </CardContent>
+      </Card>
     );
   }
 
   if (!activityStatus.isActive) {
     return (
-      <Grow in>
-        <Card elevation={0} sx={accentCardSx(pageColors.accentWarning)}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <BlockIcon sx={{ fontSize: 64, mb: 2, color: 'warning.main' }} />
-            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
-              กิจกรรมปิดการลงทะเบียนแล้ว
-            </Typography>
-            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
-              {activityStatus.closeReason || 'กิจกรรมได้ปิดการลงทะเบียนแล้ว'}
-            </Typography>
-            <Chip
-              label={activityStatus.activityCode}
-              sx={{ fontFamily: 'monospace', fontWeight: 600, borderRadius: '10px' }}
-            />
-          </CardContent>
-        </Card>
-      </Grow>
+      <Card className={cn(accentCardClass, 'animate-in fade-in')} style={{ borderLeftColor: pageColors.accentWarning }}>
+        <CardContent className="py-12 text-center">
+          <BlockIcon className="mb-4 h-16 w-16 text-amber-500" />
+          <h2 className="mb-2 text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>กิจกรรมปิดการลงทะเบียนแล้ว</h2>
+          <p className="mb-3" style={{ color: pageColors.textSecondary }}>
+            {activityStatus.closeReason || 'กิจกรรมได้ปิดการลงทะเบียนแล้ว'}
+          </p>
+          <Badge className="rounded-[10px] font-mono font-semibold">{activityStatus.activityCode}</Badge>
+        </CardContent>
+      </Card>
     );
   }
 
   if (!activityStatus.userCode) {
     return (
-      <Grow in>
-        <Card elevation={0} sx={accentCardSx(pageColors.accentInfo)}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <PersonIcon sx={{ fontSize: 64, mb: 2, color: 'info.main' }} />
-            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
-              ไม่มีรหัสผู้ใช้
-            </Typography>
-            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
-              กิจกรรมยังไม่ได้ตั้งค่ารหัสผู้ใช้
-            </Typography>
-            <Chip
-              label={activityStatus.activityCode}
-              sx={{ fontFamily: 'monospace', fontWeight: 600, borderRadius: '10px' }}
-            />
-          </CardContent>
-        </Card>
-      </Grow>
+      <Card className={cn(accentCardClass, 'animate-in fade-in')} style={{ borderLeftColor: pageColors.accentInfo }}>
+        <CardContent className="py-12 text-center">
+          <PersonIcon className="mb-4 h-16 w-16 text-blue-500" />
+          <h2 className="mb-2 text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>ไม่มีรหัสผู้ใช้</h2>
+          <p className="mb-3" style={{ color: pageColors.textSecondary }}>กิจกรรมยังไม่ได้ตั้งค่ารหัสผู้ใช้</p>
+          <Badge className="rounded-[10px] font-mono font-semibold">{activityStatus.activityCode}</Badge>
+        </CardContent>
+      </Card>
     );
   }
 
   if (singleUserViolation) {
     return (
-      <Grow in>
-        <Card elevation={0} sx={accentCardSx(pageColors.accentError)}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <LockIcon sx={{ fontSize: 64, mb: 2, color: 'error.main' }} />
-            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
-              ไม่สามารถลงทะเบียนได้
-            </Typography>
-            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
-              กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียวเท่านั้น
-            </Typography>
-            <Chip label={currentRegisteredUser} sx={{ mb: 3, fontWeight: 600, borderRadius: '10px' }} />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
-              <Button variant="contained" size="large" onClick={handleLogout} startIcon={<LogoutIcon />} sx={{ borderRadius: '12px', px: 4 }}>
-                ออกจากระบบ
-              </Button>
-              <Button variant="outlined" size="large" onClick={() => window.close()} sx={{ borderRadius: '12px', px: 4 }}>
-                ปิดหน้าต่าง
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grow>
+      <Card className={cn(accentCardClass, 'animate-in fade-in')} style={{ borderLeftColor: pageColors.accentError }}>
+        <CardContent className="py-12 text-center">
+          <LockIcon className="mb-4 h-16 w-16 text-destructive" />
+          <h2 className="mb-2 text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>ไม่สามารถลงทะเบียนได้</h2>
+          <p className="mb-3" style={{ color: pageColors.textSecondary }}>
+            กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงผู้ใช้เดียวเท่านั้น
+          </p>
+          <Badge className="mb-6 rounded-[10px] font-semibold">{currentRegisteredUser}</Badge>
+          <div className="flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+            <Button size="lg" onClick={handleLogout} className="rounded-xl px-8">
+              <LogoutIcon className="h-4 w-4" /> ออกจากระบบ
+            </Button>
+            <Button size="lg" variant="outline" onClick={() => window.close()} className="rounded-xl px-8">
+              ปิดหน้าต่าง
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   if (activityStatus.requiresUniversityLogin && !existingUserProfile && !existingAuthStatus) {
     return (
-      <Grow in>
-        <Card elevation={0} sx={accentCardSx(pageColors.accentWarning)}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <WarningIcon sx={{ fontSize: 64, mb: 2, color: 'warning.main' }} />
-            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
-              จำเป็นต้องเข้าสู่ระบบ
-            </Typography>
-            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
-              กิจกรรมนี้ต้องการให้เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยก่อน
-            </Typography>
-            <Button variant="contained" size="large" onClick={() => window.history.back()} sx={{ borderRadius: '12px', px: 4 }}>
-              กลับไปเข้าสู่ระบบ
-            </Button>
-          </CardContent>
-        </Card>
-      </Grow>
+      <Card className={cn(accentCardClass, 'animate-in fade-in')} style={{ borderLeftColor: pageColors.accentWarning }}>
+        <CardContent className="py-12 text-center">
+          <WarningIcon className="mb-4 h-16 w-16 text-amber-500" />
+          <h2 className="mb-2 text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>จำเป็นต้องเข้าสู่ระบบ</h2>
+          <p className="mb-4" style={{ color: pageColors.textSecondary }}>
+            กิจกรรมนี้ต้องการให้เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยก่อน
+          </p>
+          <Button size="lg" onClick={() => window.history.back()} className="rounded-xl px-8">
+            กลับไปเข้าสู่ระบบ
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
   if (success) {
     return (
-      <Fade in>
-        <Card elevation={0} sx={accentCardSx(pageColors.accentSuccess)}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <CheckCircleIcon sx={{ fontSize: 72, mb: 2, color: 'success.main' }} />
-            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
-              บันทึกสำเร็จ!
-            </Typography>
-            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary }}>
-              ข้อมูลการเข้าร่วมกิจกรรมของคุณได้รับการบันทึกเรียบร้อยแล้ว
-            </Typography>
-            <Alert severity="success" sx={{ mb: 3, borderRadius: '12px', textAlign: 'left' }}>
-              บันทึก Transcript เรียบร้อยแล้ว
-            </Alert>
-            <Button variant="contained" size="large" onClick={() => window.close()} sx={{ borderRadius: '12px', px: 4 }}>
-              ปิดหน้าต่าง
-            </Button>
-          </CardContent>
-        </Card>
-      </Fade>
+      <Card className={cn(accentCardClass, 'animate-in fade-in')} style={{ borderLeftColor: pageColors.accentSuccess }}>
+        <CardContent className="py-12 text-center">
+          <CheckCircleIcon className="mb-4 h-[72px] w-[72px] text-emerald-500" />
+          <h2 className="mb-2 text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>บันทึกสำเร็จ!</h2>
+          <p className="mb-4" style={{ color: pageColors.textSecondary }}>
+            ข้อมูลการเข้าร่วมกิจกรรมของคุณได้รับการบันทึกเรียบร้อยแล้ว
+          </p>
+          <Alert variant="success" className="mb-6 rounded-xl text-left">
+            <AlertDescription>บันทึก Transcript เรียบร้อยแล้ว</AlertDescription>
+          </Alert>
+          <Button size="lg" onClick={() => window.close()} className="rounded-xl px-8">
+            ปิดหน้าต่าง
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -1274,535 +1202,414 @@ const ActivityRegistrationForm: React.FC<ActivityRegistrationFormProps> = ({
     }
   }
 
-
-
   const isCurrentSessionAlreadyCheckedIn = currentActiveSessionId && checkedInSessions.includes(currentActiveSessionId);
 
   if (isCurrentSessionAlreadyCheckedIn) {
     return (
-      <Fade in>
-        <Card elevation={0} sx={accentCardSx(pageColors.accentSuccess)}>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <CheckCircleIcon sx={{ fontSize: 72, mb: 2, color: 'success.main' }} />
-            <Typography variant="h5" gutterBottom fontWeight={800} sx={{ color: pageColors.textPrimary }}>
-              เช็คอินเรียบร้อย
-            </Typography>
-            <Typography variant="body1" paragraph sx={{ color: pageColors.textSecondary, mb: 3 }}>
-              คุณได้เช็คอินรอบ <b>{currentActiveSessionName}</b> เรียบร้อยแล้ว
-            </Typography>
-
-            {nextSession && (
-              <Box sx={{ 
-                mt: 3, 
-                p: 3, 
-                bgcolor: 'rgba(2, 132, 199, 0.05)', 
-                border: '1px solid rgba(2, 132, 199, 0.15)', 
-                borderRadius: '16px',
-                textAlign: 'center',
-                maxWidth: '450px',
-                mx: 'auto',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
-              }}>
-                <Stack spacing={1.5} alignItems="center">
-                  <AccessTimeIcon sx={{ color: 'info.main', fontSize: 32 }} />
-                  <Typography variant="subtitle1" fontWeight="bold" color="info.main">
-                    รอบถัดไป: {nextSession.name}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    เปิดให้เช็คอินวันที่: {nextSessionStart?.toLocaleString('th-TH', { 
-                      day: 'numeric', 
-                      month: 'long', 
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })} น.
-                  </Typography>
-                  <NextSessionCountdown nextSession={nextSession} />
-                </Stack>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      </Fade>
+      <Card className={cn(accentCardClass, 'animate-in fade-in')} style={{ borderLeftColor: pageColors.accentSuccess }}>
+        <CardContent className="py-12 text-center">
+          <CheckCircleIcon className="mb-4 h-[72px] w-[72px] text-emerald-500" />
+          <h2 className="mb-2 text-xl font-extrabold" style={{ color: pageColors.textPrimary }}>เช็คอินเรียบร้อย</h2>
+          <p className="mb-6" style={{ color: pageColors.textSecondary }}>
+            คุณได้เช็คอินรอบ <b>{currentActiveSessionName}</b> เรียบร้อยแล้ว
+          </p>
+          {nextSession && (
+            <div className="mx-auto mt-6 max-w-[450px] rounded-2xl border border-sky-500/20 bg-sky-500/5 p-6 text-center shadow-sm">
+              <div className="flex flex-col items-center gap-3">
+                <AccessTimeIcon className="h-8 w-8 text-sky-600" />
+                <p className="font-bold text-sky-700 dark:text-sky-400">รอบถัดไป: {nextSession.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  เปิดให้เช็คอินวันที่:{' '}
+                  {nextSessionStart?.toLocaleString('th-TH', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}{' '}
+                  น.
+                </p>
+                <NextSessionCountdown nextSession={nextSession} />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     );
   }
+
+  const fieldClass = (ro?: boolean, err?: boolean) =>
+    cn('w-full', ro && 'bg-muted/50', err && 'border-destructive');
 
   /** =========================
    * Main form
    * =======================*/
   return (
-    <Fade in>
-      <Card elevation={0} sx={glassCardSx}>
-        <CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
-          <Box sx={{ textAlign: 'center', mb: 3 }}>
-            <Typography
-              variant="h5"
-              gutterBottom
-              fontWeight={800}
-              sx={{
-                fontSize: { xs: '1.5rem', sm: '1.75rem' },
-                color: pageColors.textPrimary,
-                letterSpacing: '-0.02em',
-              }}
-            >
-              ลงทะเบียนกิจกรรม
-            </Typography>
-
-            {activityStatus.singleUserMode && (
-              <Alert severity="warning" sx={{ mt: 1, mb: 2, borderRadius: 3 }}>
-                🔒 <strong>โหมดผู้ใช้เดียว</strong> — กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงบัญชีเดียวเท่านั้น
-              </Alert>
-            )}
-          </Box>
-
-          {/* Desktop Stepper */}
-          <Stepper
-            activeStep={activeStep}
-            sx={{
-              display: { xs: 'none', sm: 'flex' },
-              mb: 4,
-              '& .MuiStepLabel-root .Mui-completed': { color: 'success.main' },
-              '& .MuiStepLabel-root .Mui-active': { color: 'primary.main' },
-            }}
+    <Card className={cn(glassCardClass, 'animate-in fade-in')}>
+      <CardContent className="p-6 sm:p-8">
+        <div className="mb-6 text-center">
+          <h2
+            className="mb-2 text-2xl font-extrabold tracking-tight sm:text-[1.75rem]"
+            style={{ color: pageColors.textPrimary }}
           >
-            {['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'].map((label, index) => (
-              <Step key={label}>
-                <StepLabel
-                  sx={{
-                    '& .MuiStepLabel-label': {
-                      fontWeight: activeStep === index ? 'bold' : 'normal',
-                      color: activeStep === index ? 'primary.main' : 'text.secondary',
-                    },
-                  }}
-                >
-                  {label}
-                </StepLabel>
-              </Step>
-            ))}
-          </Stepper>
-
-          {/* Mobile Stepper / Progress Bar */}
-          <Box sx={{ display: { xs: 'block', sm: 'none' }, mb: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-              <Typography variant="body2" fontWeight="bold" color="primary.main">
-                {activeStep === 0 && 'ขั้นตอนที่ 1: กรอกข้อมูล'}
-                {activeStep === 1 && 'ขั้นตอนที่ 2: ตรวจสอบตำแหน่ง'}
-                {activeStep === 2 && 'ขั้นตอนที่ 3: ลงทะเบียนสำเร็จ'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {activeStep + 1} / 3
-              </Typography>
-            </Box>
-            <LinearProgress
-              variant="determinate"
-              value={((activeStep + 1) / 3) * 100}
-              sx={(theme) => ({
-                height: 6,
-                borderRadius: 3,
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-              })}
-            />
-          </Box>
-
-          {error && (
-            <Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>
-              {error}
+            ลงทะเบียนกิจกรรม
+          </h2>
+          {activityStatus.singleUserMode && (
+            <Alert variant="warning" className="mt-2 mb-4 rounded-xl text-left">
+              <AlertDescription>
+                🔒 <strong>โหมดผู้ใช้เดียว</strong> — กิจกรรมนี้อนุญาตให้ลงทะเบียนได้เพียงบัญชีเดียวเท่านั้น
+              </AlertDescription>
             </Alert>
           )}
+        </div>
 
-          {/* Step 1: Form */}
-          {activeStep === 0 && (
-            <Fade in>
-              <Box>
-                {(autoFilledData as any).isAutoFilled && (
-                  <Alert 
-                    icon={<VerifiedIcon />} 
-                    severity="info" 
-                    sx={{ mb: 3, borderRadius: 3, bgcolor: 'primary.50', color: 'primary.900', border: '1px solid', borderColor: 'primary.100' }}
-                  >
+        <div className="mb-8 hidden items-center gap-2 sm:flex">
+          {['กรอกข้อมูล', 'ตรวจสอบตำแหน่ง', 'บันทึกสำเร็จ'].map((label, index) => (
+            <React.Fragment key={label}>
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold',
+                    index < activeStep
+                      ? 'bg-emerald-500 text-white'
+                      : index === activeStep
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {index < activeStep ? '✓' : index + 1}
+                </span>
+                <span
+                  className={cn(
+                    'text-sm',
+                    activeStep === index ? 'font-bold text-primary' : 'text-muted-foreground'
+                  )}
+                >
+                  {label}
+                </span>
+              </div>
+              {index < 2 && <div className="mx-2 h-px flex-1 bg-border" />}
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div className="mb-6 block sm:hidden">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-bold text-primary">
+              {activeStep === 0 && 'ขั้นตอนที่ 1: กรอกข้อมูล'}
+              {activeStep === 1 && 'ขั้นตอนที่ 2: ตรวจสอบตำแหน่ง'}
+              {activeStep === 2 && 'ขั้นตอนที่ 3: ลงทะเบียนสำเร็จ'}
+            </p>
+            <span className="text-xs text-muted-foreground">{activeStep + 1} / 3</span>
+          </div>
+          <Progress value={((activeStep + 1) / 3) * 100} className="h-1.5" />
+        </div>
+
+        {error && (
+          <Alert variant="destructive" className="mb-6 rounded-xl">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {activeStep === 0 && (
+          <div className="animate-in fade-in">
+            {(autoFilledData as any).isAutoFilled && (
+              <Alert variant="info" className="mb-6 rounded-xl">
+                <AlertDescription className="flex items-start gap-2">
+                  <VerifiedIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
                     {affiliationKind === 'university'
                       ? 'ข้อมูลส่วนใหญ่ถูกดึงมาจากระบบของมหาวิทยาลัยและได้รับการยืนยันแล้ว'
                       : affiliationKind === 'school'
                         ? 'ลงทะเบียนในฐานะนักเรียนโรงเรียน — แสดงสถานศึกษาและระดับการศึกษาจากโปรไฟล์ของคุณ'
                         : 'ลงทะเบียนในฐานะบุคคลภายนอก — แสดงสถานศึกษาและระดับการศึกษาจากโปรไฟล์ของคุณ'}
-                  </Alert>
-                )}
-                <Grid container spacing={2.5}>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField
-                      label={isExternal ? 'รหัสอ้างอิง' : 'รหัสนักศึกษา'}
-                      value={(formData as any).studentId}
-                      onChange={handleInputChange('studentId')}
-                      fullWidth
-                      required
-                      disabled={isFieldReadOnly('studentId') || loading || forceRefreshEnabled}
-                      InputProps={{
-                        startAdornment: (
-                          <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
-                            <BadgeIcon sx={{ color: 'text.secondary' }} />
-                          </Box>
-                        ),
-                        endAdornment: isFieldReadOnly('studentId') && (
-                          <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
-                        )
-                      }}
-                      error={!!fieldErrors.studentId}
-                      helperText={
-                        fieldErrors.studentId ||
-                        (!isFieldReadOnly('studentId') && !isExternal && 'เช่น 6421021234 (10 หลัก)') ||
-                        (isExternal && 'รหัสอ้างอิงจากระบบสำหรับบุคคลภายนอก')
-                      }
-                      sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' }, ...(isFieldReadOnly('studentId') && { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } }) }}
-                    />
-                  </Grid>
+                  </span>
+                </AlertDescription>
+              </Alert>
+            )}
 
-                  <Grid size={{ xs: 12, sm: 4 }}>
-                    <FormControl
-                      fullWidth
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
+              <div className="space-y-1.5 sm:col-span-6">
+                <Label>{isExternal ? 'รหัสอ้างอิง' : 'รหัสนักศึกษา'} *</Label>
+                <div className="relative">
+                  <BadgeIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={(formData as any).studentId}
+                    onChange={handleInputChange('studentId')}
+                    disabled={isFieldReadOnly('studentId') || loading || forceRefreshEnabled}
+                    className={cn('pl-10 font-mono', fieldClass(isFieldReadOnly('studentId'), !!fieldErrors.studentId))}
+                    required
+                  />
+                  {isFieldReadOnly('studentId') && (
+                    <Badge variant="outline" className="absolute right-2 top-1/2 -translate-y-1/2 gap-1 border-0">
+                      <VerifiedIcon className="h-3 w-3" /> ยืนยันแล้ว
+                    </Badge>
+                  )}
+                </div>
+                <p className={cn('text-xs', fieldErrors.studentId ? 'text-destructive' : 'text-muted-foreground')}>
+                  {fieldErrors.studentId ||
+                    (!isFieldReadOnly('studentId') && !isExternal && 'เช่น 6421021234 (10 หลัก)') ||
+                    (isExternal && 'รหัสอ้างอิงจากระบบสำหรับบุคคลภายนอก')}
+                </p>
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-4">
+                <Label>คำนำหน้าชื่อ *</Label>
+                <Select
+                  value={(formData as any).nameTitle || undefined}
+                  onValueChange={handleSelectChange('nameTitle')}
+                  disabled={loading || forceRefreshEnabled}
+                >
+                  <SelectTrigger className={cn(!!fieldErrors.nameTitle && 'border-destructive')}>
+                    <SelectValue placeholder="เลือก" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {NAME_TITLE_OPTIONS.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {fieldErrors.nameTitle && <p className="text-xs text-destructive">{fieldErrors.nameTitle}</p>}
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-4">
+                <Label>ชื่อ *</Label>
+                <div className="relative">
+                  <PersonIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    lang="th"
+                    value={(formData as any).firstName}
+                    onChange={handleInputChange('firstName')}
+                    disabled={isFieldReadOnly('firstName') || loading || forceRefreshEnabled}
+                    className={cn('pl-10', fieldClass(isFieldReadOnly('firstName'), !!fieldErrors.firstName))}
+                    required
+                  />
+                  {isFieldReadOnly('firstName') && (
+                    <Badge variant="outline" className="absolute right-2 top-1/2 -translate-y-1/2 gap-1 border-0">
+                      <VerifiedIcon className="h-3 w-3" /> ยืนยันแล้ว
+                    </Badge>
+                  )}
+                </div>
+                <p className={cn('text-xs', fieldErrors.firstName ? 'text-destructive' : 'text-muted-foreground')}>
+                  {fieldErrors.firstName || (!isFieldReadOnly('firstName') && 'ชื่อจริงภาษาไทยเท่านั้น')}
+                </p>
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-4">
+                <Label>นามสกุล *</Label>
+                <div className="relative">
+                  <PersonIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    lang="th"
+                    value={(formData as any).lastName}
+                    onChange={handleInputChange('lastName')}
+                    disabled={isFieldReadOnly('lastName') || loading || forceRefreshEnabled}
+                    className={cn('pl-10', fieldClass(isFieldReadOnly('lastName'), !!fieldErrors.lastName))}
+                    required
+                  />
+                  {isFieldReadOnly('lastName') && (
+                    <Badge variant="outline" className="absolute right-2 top-1/2 -translate-y-1/2 gap-1 border-0">
+                      <VerifiedIcon className="h-3 w-3" /> ยืนยันแล้ว
+                    </Badge>
+                  )}
+                </div>
+                <p className={cn('text-xs', fieldErrors.lastName ? 'text-destructive' : 'text-muted-foreground')}>
+                  {fieldErrors.lastName || (!isFieldReadOnly('lastName') && 'นามสกุลภาษาไทยเท่านั้น')}
+                </p>
+              </div>
+
+              {isExternal ? (
+                <>
+                  <div className="space-y-1.5 sm:col-span-6">
+                    <Label>{affiliationKind === 'school' ? 'โรงเรียน / สถานศึกษา' : 'สถานศึกษา / หน่วยงาน'} *</Label>
+                    <div className="relative">
+                      <Input
+                        value={(formData as any).department || existingUserProfile?.institutionName || ''}
+                        disabled
+                        className={cn('bg-muted/50 pr-24', !!fieldErrors.department && 'border-destructive')}
+                        required
+                      />
+                      <Badge variant="outline" className="absolute right-2 top-1/2 -translate-y-1/2 gap-1 border-0">
+                        <VerifiedIcon className="h-3 w-3" />
+                        {affiliationKind === 'school' ? 'นักเรียน' : 'บุคคลภายนอก'}
+                      </Badge>
+                    </div>
+                    <p className={cn('text-xs', fieldErrors.department ? 'text-destructive' : 'text-muted-foreground')}>
+                      {fieldErrors.department || 'ดึงจากโปรไฟล์ — แก้ไขได้ที่เมนูโปรไฟล์'}
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-6">
+                    <Label>ระดับการศึกษา *</Label>
+                    <Input
+                      value={(formData as any).degree || existingUserProfile?.educationLevel || ''}
+                      disabled
+                      className={cn('bg-muted/50', !!fieldErrors.degree && 'border-destructive')}
                       required
-                      error={!!fieldErrors.nameTitle}
-                      disabled={loading || forceRefreshEnabled}
+                    />
+                    <p className={cn('text-xs', fieldErrors.degree ? 'text-destructive' : 'text-muted-foreground')}>
+                      {fieldErrors.degree ||
+                        (EDUCATION_LEVEL_OPTIONS.includes(
+                          ((formData as any).degree || existingUserProfile?.educationLevel || '') as any
+                        )
+                          ? 'ดึงจากโปรไฟล์'
+                          : 'กรุณาระบุในโปรไฟล์ก่อนลงทะเบียน')}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1.5 sm:col-span-6">
+                    <Label>คณะ *</Label>
+                    <Select
+                      value={(formData as any).faculty || undefined}
+                      onValueChange={handleSelectChange('faculty')}
+                      disabled={isFieldReadOnly('faculty') || loading || forceRefreshEnabled}
                     >
-                      <InputLabel>คำนำหน้าชื่อ</InputLabel>
-                      <Select
-                        value={(formData as any).nameTitle || ''}
-                        onChange={handleSelectChange('nameTitle')}
-                        label="คำนำหน้าชื่อ"
-                      >
-                        {NAME_TITLE_OPTIONS.map((t) => (
-                          <MenuItem key={t} value={t}>
-                            {t}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                      {fieldErrors.nameTitle ? (
-                        <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>
-                          {fieldErrors.nameTitle}
-                        </Typography>
-                      ) : null}
-                    </FormControl>
-                  </Grid>
-
-                  <Grid size={{ xs: 12, sm: 4 }}>
-                    <TextField
-                      label="ชื่อ"
-                      value={(formData as any).firstName}
-                      onChange={handleInputChange('firstName')}
-                      fullWidth
-                      required
-                      disabled={isFieldReadOnly('firstName') || loading || forceRefreshEnabled}
-                      inputProps={{ lang: 'th' }}
-                      InputProps={{
-                        startAdornment: (
-                          <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
-                            <PersonIcon sx={{ color: 'text.secondary' }} />
-                          </Box>
-                        ),
-                        endAdornment: isFieldReadOnly('firstName') && (
-                          <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
-                        )
-                      }}
-                      error={!!fieldErrors.firstName}
-                      helperText={fieldErrors.firstName || (!isFieldReadOnly('firstName') && 'ชื่อจริงภาษาไทยเท่านั้น')}
-                      sx={isFieldReadOnly('firstName') ? { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } } : {}}
-                    />
-                  </Grid>
-
-                  <Grid size={{ xs: 12, sm: 4 }}>
-                    <TextField
-                      label="นามสกุล"
-                      value={(formData as any).lastName}
-                      onChange={handleInputChange('lastName')}
-                      fullWidth
-                      required
-                      disabled={isFieldReadOnly('lastName') || loading || forceRefreshEnabled}
-                      inputProps={{ lang: 'th' }}
-                      InputProps={{
-                        startAdornment: (
-                          <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
-                            <PersonIcon sx={{ color: 'text.secondary' }} />
-                          </Box>
-                        ),
-                        endAdornment: isFieldReadOnly('lastName') && (
-                          <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
-                        )
-                      }}
-                      error={!!fieldErrors.lastName}
-                      helperText={fieldErrors.lastName || (!isFieldReadOnly('lastName') && 'นามสกุลภาษาไทยเท่านั้น')}
-                      sx={isFieldReadOnly('lastName') ? { '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } } : {}}
-                    />
-                  </Grid>
-
-                  {isExternal ? (
-                    <>
-                      <Grid size={{ xs: 12, sm: 6 }}>
-                        <TextField
-                          label={affiliationKind === 'school' ? 'โรงเรียน / สถานศึกษา' : 'สถานศึกษา / หน่วยงาน'}
-                          value={
-                            (formData as any).department ||
-                            existingUserProfile?.institutionName ||
-                            ''
-                          }
-                          fullWidth
-                          required
-                          disabled
-                          error={!!fieldErrors.department}
-                          helperText={
-                            fieldErrors.department ||
-                            'ดึงจากโปรไฟล์ — แก้ไขได้ที่เมนูโปรไฟล์'
-                          }
-                          sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } }}
-                          InputProps={{
-                            endAdornment: (
-                              <Chip
-                                size="small"
-                                icon={<VerifiedIcon />}
-                                label={affiliationKind === 'school' ? 'นักเรียน' : 'บุคคลภายนอก'}
-                                color="primary"
-                                variant="outlined"
-                                sx={{ border: 'none' }}
-                              />
-                            ),
-                          }}
-                        />
-                      </Grid>
-                      <Grid size={{ xs: 12, sm: 6 }}>
-                        <TextField
-                          label="ระดับการศึกษา"
-                          value={
-                            (formData as any).degree ||
-                            existingUserProfile?.educationLevel ||
-                            ''
-                          }
-                          fullWidth
-                          required
-                          disabled
-                          error={!!fieldErrors.degree}
-                          helperText={
-                            fieldErrors.degree ||
-                            (EDUCATION_LEVEL_OPTIONS.includes(
-                              ((formData as any).degree ||
-                                existingUserProfile?.educationLevel ||
-                                '') as any
-                            )
-                              ? 'ดึงจากโปรไฟล์'
-                              : 'กรุณาระบุในโปรไฟล์ก่อนลงทะเบียน')
-                          }
-                          sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'grey.50' } }}
-                        />
-                      </Grid>
-                    </>
-                  ) : (
-                    <>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl fullWidth required error={!!fieldErrors.faculty} disabled={isFieldReadOnly('faculty') || loading || forceRefreshEnabled}>
-                      <InputLabel>คณะ</InputLabel>
-                      <Select 
-                        value={(formData as any).faculty} 
-                        onChange={handleSelectChange('faculty')} 
-                        label="คณะ"
-                        sx={isFieldReadOnly('faculty') ? { bgcolor: 'grey.50' } : {}}
-                        endAdornment={isFieldReadOnly('faculty') ? (
-                          <Box sx={{ display: 'flex', mr: 3 }}>
-                            <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
-                          </Box>
-                        ) : null}
-                      >
+                      <SelectTrigger className={cn(isFieldReadOnly('faculty') && 'bg-muted/50', !!fieldErrors.faculty && 'border-destructive')}>
+                        <SelectValue placeholder="เลือกคณะ" />
+                      </SelectTrigger>
+                      <SelectContent>
                         {PSU_FACULTIES.map((f) => (
-                          <MenuItem key={f.code} value={f.name}>
-                            {f.name}
-                          </MenuItem>
+                          <SelectItem key={f.code} value={f.name}>{f.name}</SelectItem>
                         ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
+                      </SelectContent>
+                    </Select>
+                    {isFieldReadOnly('faculty') && (
+                      <Badge variant="outline" className="mt-1 gap-1 border-0">
+                        <VerifiedIcon className="h-3 w-3" /> ยืนยันแล้ว
+                      </Badge>
+                    )}
+                  </div>
 
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <Autocomplete
-                      freeSolo
-                      options={filteredDepartments.map((d) => d.name)}
-                      value={(formData as any).department || null}
-                      onChange={(event, newValue) => {
+                  <div className="space-y-1.5 sm:col-span-6">
+                    <Label>สาขาวิชา *</Label>
+                    <Input
+                      list="dept-options"
+                      value={(formData as any).department || ''}
+                      onChange={(e) => {
                         if (forceRefreshEnabled) return;
-                        setFormData({ ...formData, department: newValue || '' });
+                        setFormData({ ...formData, department: e.target.value });
                         setError('');
                         setFieldErrors((prev) => ({ ...prev, department: '' }));
                       }}
-                      onInputChange={(event, newInputValue) => {
-                        if (forceRefreshEnabled) return;
-                        setFormData({ ...formData, department: newInputValue });
-                      }}
                       disabled={departmentsLoading || loading || forceRefreshEnabled || !(formData as any).faculty}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          label="สาขาวิชา"
-                          required
-                          error={!!fieldErrors.department}
-                          helperText={
-                            fieldErrors.department || (
-                            departmentsLoading
-                              ? 'กำลังโหลดข้อมูลสาขา...'
-                              : !(formData as any).faculty
-                              ? 'เลือกคณะก่อน'
-                              : filteredDepartments.length === 0
-                              ? 'ไม่พบสาขาสำหรับคณะนี้'
-                              : `พบ ${filteredDepartments.length} สาขา`
-                            )
-                          }
-                        />
-                      )}
-                      noOptionsText="ไม่พบสาขาวิชา"
+                      className={cn(!!fieldErrors.department && 'border-destructive')}
+                      required
                     />
-                  </Grid>
+                    <datalist id="dept-options">
+                      {filteredDepartments.map((d) => (
+                        <option key={d.id} value={d.name} />
+                      ))}
+                    </datalist>
+                    <p className={cn('text-xs', fieldErrors.department ? 'text-destructive' : 'text-muted-foreground')}>
+                      {fieldErrors.department ||
+                        (departmentsLoading
+                          ? 'กำลังโหลดข้อมูลสาขา...'
+                          : !(formData as any).faculty
+                            ? 'เลือกคณะก่อน'
+                            : filteredDepartments.length === 0
+                              ? 'ไม่พบสาขาสำหรับคณะนี้'
+                              : `พบ ${filteredDepartments.length} สาขา`)}
+                    </p>
+                  </div>
 
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl fullWidth required disabled={isFieldReadOnly('degree') || loading || forceRefreshEnabled}>
-                      <InputLabel>ระดับการศึกษา</InputLabel>
-                      <Select 
-                        value={(formData as any).degree} 
-                        onChange={handleSelectChange('degree')} 
-                        label="ระดับการศึกษา"
-                        sx={isFieldReadOnly('degree') ? { bgcolor: 'grey.50' } : {}}
-                        endAdornment={isFieldReadOnly('degree') ? (
-                          <Box sx={{ display: 'flex', mr: 3 }}>
-                            <Chip size="small" icon={<VerifiedIcon />} label="ยืนยันแล้ว" color="primary" variant="outlined" sx={{ border: 'none' }} />
-                          </Box>
-                        ) : null}
-                      >
+                  <div className="space-y-1.5 sm:col-span-6">
+                    <Label>ระดับการศึกษา *</Label>
+                    <Select
+                      value={(formData as any).degree || undefined}
+                      onValueChange={handleSelectChange('degree')}
+                      disabled={isFieldReadOnly('degree') || loading || forceRefreshEnabled}
+                    >
+                      <SelectTrigger className={cn(isFieldReadOnly('degree') && 'bg-muted/50')}>
+                        <SelectValue placeholder="เลือกระดับ" />
+                      </SelectTrigger>
+                      <SelectContent>
                         {DEGREE_LEVELS.map((d) => (
-                          <MenuItem key={d.code} value={d.name}>
-                            {d.name}
-                          </MenuItem>
+                          <SelectItem key={d.code} value={d.name}>{d.name}</SelectItem>
                         ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                    </>
-                  )}
-
-                  {/* userCode field removed */}
-                </Grid>
-
-                <Divider sx={{ my: { xs: 3, sm: 4 } }} />
-
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: { xs: 'column', sm: 'row' },
-                    gap: 2,
-                    alignItems: { xs: 'stretch', sm: 'center' },
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <Box sx={{ flex: 1 }} />
-                  <Button
-                    variant="contained"
-                    size="large"
-                    onClick={handleSubmit}
-                    disabled={
-                      loading ||
-                      forceRefreshEnabled ||
-                      !validateNameTitle((formData as any).nameTitle || '') ||
-                      !validateThaiName((formData as any).firstName || '') ||
-                      !validateThaiName((formData as any).lastName || '') ||
-                      (isExternal
-                        ? !(
-                            (formData as any).department ||
-                            existingUserProfile?.institutionName
-                          )?.trim()
-                        : departmentsLoading ||
-                          !(formData as any).faculty ||
-                          filteredDepartments.length === 0)
-                    }
-                    sx={{
-                      px: 4,
-                      py: 1.5,
-                      borderRadius: 3,
-                      bgcolor: '#007aff',
-                      boxShadow: '0 4px 14px 0 rgba(0,122,255,0.39)',
-                      transition: 'all 0.2s ease-in-out',
-                      '&:hover': {
-                        bgcolor: '#005bb5',
-                        boxShadow: '0 6px 20px rgba(0,122,255,0.23)',
-                        transform: 'translateY(-2px)'
-                      }
-                    }}
-                  >
-                    {loading ? (
-                      <>
-                        <CircularProgress size={20} sx={{ mr: 1, color: 'white' }} />
-                        กำลังเตรียมตรวจสอบ...
-                      </>
-                    ) : (
-                      'ตรวจสอบตำแหน่ง'
+                      </SelectContent>
+                    </Select>
+                    {isFieldReadOnly('degree') && (
+                      <Badge variant="outline" className="mt-1 gap-1 border-0">
+                        <VerifiedIcon className="h-3 w-3" /> ยืนยันแล้ว
+                      </Badge>
                     )}
-                  </Button>
-                </Box>
-              </Box>
-            </Fade>
-          )}
+                  </div>
+                </>
+              )}
+            </div>
 
-          {/* Step 2: Location */}
-          {activeStep === 1 && (
-            <Fade in>
-              <Box sx={{ textAlign: 'center' }}>
-                <LocationIcon
-                  sx={{
-                    fontSize: 80,
-                    mb: 2.5,
-                    color: 'primary.main',
-                    filter: 'drop-shadow(0 4px 8px rgba(102, 126, 234, .3))',
-                  }}
-                />
-                {locStage === 'pre' ? (
+            <Separator className="my-6 sm:my-8" />
+
+            <div className="flex flex-col items-stretch justify-end gap-3 sm:flex-row sm:items-center">
+              <Button
+                size="lg"
+                onClick={handleSubmit}
+                disabled={
+                  loading ||
+                  forceRefreshEnabled ||
+                  !validateNameTitle((formData as any).nameTitle || '') ||
+                  !validateThaiName((formData as any).firstName || '') ||
+                  !validateThaiName((formData as any).lastName || '') ||
+                  (isExternal
+                    ? !((formData as any).department || existingUserProfile?.institutionName)?.trim()
+                    : departmentsLoading || !(formData as any).faculty || filteredDepartments.length === 0)
+                }
+                className="rounded-xl bg-[#007aff] px-8 py-3 shadow-[0_4px_14px_rgba(0,122,255,0.39)] hover:bg-[#005bb5]"
+              >
+                {loading ? (
                   <>
-                    <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">
-                      กำลังเตรียมตรวจสอบตำแหน่ง
-                    </Typography>
-                    <Typography variant="body1" color="text.secondary" paragraph>
-                      กรุณารอสักครู่...
-                    </Typography>
-                    <CircularProgress />
+                    <Spinner size="sm" className="text-white" />
+                    กำลังเตรียมตรวจสอบ...
                   </>
                 ) : (
-                  <>
-                    <Typography variant="h5" gutterBottom fontWeight="bold" color="primary.main">
-                      กำลังตรวจสอบตำแหน่ง
-                    </Typography>
-                    <Typography variant="body1" color="text.secondary" paragraph>
-                      กรุณาอนุญาตการเข้าถึงตำแหน่งของคุณเพื่อยืนยันการเข้าร่วมกิจกรรม
-                    </Typography>
-                    <LocationChecker
-                      allowedLocation={getActivityAllowedLocation()}
-                      onLocationVerified={handleLocationVerified}
-                      onLocationError={handleLocationError}
-                    />
-                  </>
+                  'ตรวจสอบตำแหน่ง'
                 )}
-              </Box>
-            </Fade>
-          )}
+              </Button>
+            </div>
+          </div>
+        )}
 
-          {/* Step 3: Survey */}
-          {activeStep === 2 && surveyConfig && (
-            <Fade in>
-              <Box>
-                <SurveyForm
-                  activityCode={activityCode}
-                  activityDocId={activityDocId}
-                  surveyConfig={surveyConfig}
-                  userId={existingUserProfile?.id || (formData as any).userId || ''}
-                  onCompleted={() => {
-                    setSuccess(true);
-                  }}
+        {activeStep === 1 && (
+          <div className="animate-in fade-in text-center">
+            <LocationIcon className="mb-4 h-20 w-20 text-primary drop-shadow-md" />
+            {locStage === 'pre' ? (
+              <>
+                <h3 className="mb-2 text-xl font-bold text-primary">กำลังเตรียมตรวจสอบตำแหน่ง</h3>
+                <p className="mb-4 text-muted-foreground">กรุณารอสักครู่...</p>
+                <Spinner size="lg" />
+              </>
+            ) : (
+              <>
+                <h3 className="mb-2 text-xl font-bold text-primary">กำลังตรวจสอบตำแหน่ง</h3>
+                <p className="mb-4 text-muted-foreground">
+                  กรุณาอนุญาตการเข้าถึงตำแหน่งของคุณเพื่อยืนยันการเข้าร่วมกิจกรรม
+                </p>
+                <LocationChecker
+                  allowedLocation={getActivityAllowedLocation()}
+                  onLocationVerified={handleLocationVerified}
+                  onLocationError={handleLocationError}
                 />
-              </Box>
-            </Fade>
-          )}
-        </CardContent>
-      </Card>
-    </Fade>
+              </>
+            )}
+          </div>
+        )}
+
+        {activeStep === 2 && surveyConfig && (
+          <div className="animate-in fade-in">
+            <SurveyForm
+              activityCode={activityCode}
+              activityDocId={activityDocId}
+              surveyConfig={surveyConfig}
+              userId={existingUserProfile?.id || (formData as any).userId || ''}
+              onCompleted={() => {
+                setSuccess(true);
+              }}
+            />
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 

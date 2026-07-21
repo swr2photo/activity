@@ -6,7 +6,7 @@ import {
   Activity, Bell, FileText, ChevronDown, CheckSquare, Settings2, Trash,
   AlertTriangle, MapPin, Globe, Mail
 } from 'lucide-react';
-import { useSnackbar } from 'notistack';
+import { useSnackbar } from '@/lib/toast';
 import { DatePicker, ConfigProvider } from 'antd';
 import thTH from 'antd/locale/th_TH';
 import type { AdminProfile, AdminPermission } from '../../types/admin';

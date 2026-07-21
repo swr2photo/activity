@@ -2,33 +2,28 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Typography,
-  Alert,
-  CircularProgress,
-  Avatar,
-  Divider,
-  Stack,
-  Chip,
-  LinearProgress,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  useMediaQuery,
-} from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
-import { glassCardSx } from '../lib/uiTheme';
+  User as PersonIcon,
+  LogOut as LogoutIcon,
+  BadgeCheck as VerifiedIcon,
+  Ban as BlockIcon,
+  Clock as TimeIcon,
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
+import { Progress } from '@/components/ui/progress';
+import { Spinner } from '@/components/ui/spinner';
 import {
-  Person as PersonIcon,
-  Logout as LogoutIcon,
-  Verified as VerifiedIcon,
-  Block as BlockIcon,
-  AccessTime as TimeIcon,
-  ExpandMore as ExpandMoreIcon,
-} from '@mui/icons-material';
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { glassCardClass } from '../lib/uiTheme';
+import { cn } from '@/lib/utils';
 
 import {
   signInWithPopup,
@@ -80,26 +75,26 @@ interface MicrosoftLoginProps {
    Small inline Microsoft Logo
 ========================= */
 const MicrosoftLogo: React.FC<{ size?: number }> = ({ size = 22 }) => (
-  <Box component="svg" viewBox="0 0 23 23" sx={{ width: size, height: size, borderRadius: 0.5, overflow: 'visible' }}>
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 23 23"
+    className="overflow-visible rounded-sm"
+    aria-hidden
+  >
     <rect x="0" y="0" width="10.5" height="10.5" fill="#F25022" rx="1" />
     <rect x="12.5" y="0" width="10.5" height="10.5" fill="#7FBA00" rx="1" />
     <rect x="0" y="12.5" width="10.5" height="10.5" fill="#00A4EF" rx="1" />
     <rect x="12.5" y="12.5" width="10.5" height="10.5" fill="#FFB900" rx="1" />
-  </Box>
+  </svg>
 );
 
-/* =========================
-   Helpers: detect in-app browser (LINE/FB/IG/etc.)
-========================= */
 const isInAppBrowser = () => {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
   return /Line|FBAN|FBAV|Instagram|Twitter|TikTok|WebView|wv/i.test(ua);
 };
 
-/* =========================
-   Component
-========================= */
 const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   onLoginSuccess,
   onLoginError,
@@ -108,32 +103,33 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
   onSessionExpired,
   disabled = false,
 }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   const [user, setUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<UniversityUserData | null>(null);
 
-  // loading & errors
   const [loading, setLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // session state
   const [sessionValid, setSessionValid] = useState(true);
   const [sessionRemainingTime, setSessionRemainingTime] = useState(0);
   const [sessionInitialized, setSessionInitialized] = useState(false);
 
-  // refs
   const loginInProgressRef = useRef(false);
   const sessionCheckIntervalRef = useRef<number | null>(null);
   const hasCheckedExistingSessionRef = useRef(false);
   const activityThrottleRef = useRef<number>(0);
   const currentIpRef = useRef<string>('');
 
-  /* =========================
-     Utils
-  ========================= */
   const getUserIP = async (): Promise<string> => {
     try {
       const response = await fetch('https://api.ipify.org?format=json');
@@ -153,9 +149,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
   const getTimeProgressValue = (): number => (sessionRemainingTime / 30) * 100;
 
-  /* =========================
-     Firestore helpers
-  ========================= */
   const loadUserData = async (uid: string) => {
     try {
       const userDocRef = doc(db, 'universityUsers', uid);
@@ -214,9 +207,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     return { studentId, degreeLevel, department, faculty };
   };
 
-  /* =========================
-     Session helpers
-  ========================= */
   const resetSessionState = () => {
     setSessionInitialized(false);
     setSessionValid(true);
@@ -342,9 +332,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     }
   };
 
-  /* =========================
-     Auth success handler
-  ========================= */
   const handleSuccessfulLogin = async (firebaseUser: User) => {
     const { studentId, degreeLevel, department, faculty } = extractStudentInfoFromEmail(firebaseUser.email!);
     const nameParts = (firebaseUser.displayName || '').split(' ');
@@ -359,7 +346,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     if (existingUser.exists()) {
       const existing = existingUser.data() as UniversityUserData;
 
-      // ✅ บัญชีที่ถูกระงับโดยแอดมิน ห้ามเข้าสู่ระบบ (และห้ามเขียนทับ isActive)
       if (existing.isActive === false) {
         await signOut(auth);
         const msg = 'บัญชีของคุณถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ';
@@ -407,9 +393,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     onLoginSuccess?.(finalUserData);
   };
 
-  /* =========================
-     Effects - auth state
-  ========================= */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
@@ -441,11 +424,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * Redirect result ถูกจัดการที่ firebaseAuth.consumeAuthRedirectResult
-   * (MicrosoftAuthSection / useAuth) — ไม่เรียก getRedirectResult ที่นี่
-   * เพื่อไม่ให้แย่งผลกับ Google และไม่ reject อีเมลนอก @psu.ac.th โดยผิดพลาด
-   */
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -461,16 +439,12 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     };
   }, []);
 
-  /* =========================
-     Auth flows
-  ========================= */
   const handleMicrosoftLogin = async () => {
     try {
       setLoginLoading(true);
       setError('');
       loginInProgressRef.current = true;
 
-      // กันเคสพังหนักสุด: in-app browser
       if (isInAppBrowser()) {
         const msg =
           'เบราว์เซอร์ในแอป (LINE/FB/IG) อาจทำให้เข้าสู่ระบบล้มเหลว กรุณาเปิดลิงก์นี้ใน Chrome/Safari แล้วลองใหม่';
@@ -487,7 +461,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       provider.addScope('profile');
       provider.setCustomParameters({ prompt: 'select_account' });
 
-      // 1) popup ก่อน
       let firebaseUser: User | null = null;
 
       try {
@@ -496,7 +469,6 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
       } catch (err: any) {
         const code = err?.code as string | undefined;
 
-        // 2) ถ้า popup ใช้ไม่ได้ → fallback redirect
         const shouldFallbackToRedirect =
           code === 'auth/popup-blocked' ||
           code === 'auth/popup-closed-by-user' ||
@@ -507,7 +479,7 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
         if (!shouldFallbackToRedirect) throw err;
 
         await signInWithRedirect(auth, provider);
-        return; // redirect จะพาออกจากหน้า
+        return;
       }
 
       if (!firebaseUser) return;
@@ -558,166 +530,103 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
 
   const getStatusInfo = () => {
     if (!userData)
-      return { text: 'ไม่มีข้อมูล', color: 'default' as const, icon: <PersonIcon fontSize="small" /> };
+      return { text: 'ไม่มีข้อมูล', variant: 'secondary' as const, icon: <PersonIcon className="h-3.5 w-3.5" /> };
     if (!userData.isActive)
-      return { text: 'บัญชีถูกระงับ', color: 'error' as const, icon: <BlockIcon fontSize="small" /> };
-    return { text: 'บัญชีใช้งานได้', color: 'success' as const, icon: <VerifiedIcon fontSize="small" /> };
+      return { text: 'บัญชีถูกระงับ', variant: 'destructive' as const, icon: <BlockIcon className="h-3.5 w-3.5" /> };
+    return { text: 'บัญชีใช้งานได้', variant: 'success' as const, icon: <VerifiedIcon className="h-3.5 w-3.5" /> };
   };
 
-  /* =========================
-     Renders
-  ========================= */
   if (loading) {
     return (
-      <Card sx={{ mb: 3 }}>
-        <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 3 }}>
-          <CircularProgress size={22} />
-          <Typography>กำลังตรวจสอบสถานะการเข้าสู่ระบบ...</Typography>
+      <Card className="mb-6">
+        <CardContent className="flex items-center gap-3 py-6">
+          <Spinner />
+          <p>กำลังตรวจสอบสถานะการเข้าสู่ระบบ...</p>
         </CardContent>
       </Card>
     );
   }
 
-  // Logged-in + valid session
   if (user && userData && sessionValid) {
     const statusInfo = getStatusInfo();
 
     return (
-      <Card
-        elevation={0}
-        sx={{
-          ...glassCardSx,
-          mb: 3,
-          overflow: 'hidden',
-        }}
-      >
-        {/* Header */}
-        <Box
-          sx={{
-            px: 2.5,
-            py: 2,
-            bgcolor: alpha(theme.palette.primary.main, 0.06),
-            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.08)}`,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-          }}
-        >
-          <Avatar src={userData.photoURL} sx={{ width: 56, height: 56 }}>
-            {userData.firstName?.charAt(0)}
+      <Card className={cn(glassCardClass, 'mb-6 overflow-hidden border-0 shadow-none')}>
+        <div className="flex items-center gap-4 border-b border-border/50 bg-primary/5 px-5 py-4">
+          <Avatar className="h-14 w-14">
+            <AvatarImage src={userData.photoURL} alt="" />
+            <AvatarFallback>{userData.firstName?.charAt(0)}</AvatarFallback>
           </Avatar>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle1" fontWeight={700} noWrap>
-              {userData.displayName}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" noWrap>
-              {userData.email}
-            </Typography>
-          </Box>
-          <Chip
-            size="small"
-            color={statusInfo.color}
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {statusInfo.icon}
-                <span>{statusInfo.text}</span>
-              </Box>
-            }
-            sx={{ fontWeight: 600 }}
-          />
-        </Box>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-bold">{userData.displayName}</p>
+            <p className="truncate text-sm text-muted-foreground">{userData.email}</p>
+          </div>
+          <Badge variant={statusInfo.variant} className="gap-1 font-semibold shrink-0">
+            {statusInfo.icon}
+            {statusInfo.text}
+          </Badge>
+        </div>
 
-        <CardContent sx={{ pt: 2.5 }}>
-          {/* session progress */}
+        <CardContent className="pt-5">
           {sessionInitialized && (
-            <Box
-              sx={{
-                mb: 2.5,
-                p: 2,
-                borderRadius: 2,
-                bgcolor: alpha(theme.palette.primary.main, 0.04),
-                border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <TimeIcon fontSize="small" color="action" />
-                  <Typography variant="subtitle2">เวลาเซสชันที่เหลือ</Typography>
-                </Box>
-                <Typography variant="body2" fontWeight="medium">
-                  {formatTimeRemaining(sessionRemainingTime)}
-                </Typography>
-              </Box>
-              <LinearProgress variant="determinate" value={getTimeProgressValue()} sx={{ height: 6, borderRadius: 3 }} />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+            <div className="mb-5 rounded-xl border border-border/60 bg-primary/[0.04] p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <TimeIcon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">เวลาเซสชันที่เหลือ</span>
+                </div>
+                <span className="text-sm font-medium">{formatTimeRemaining(sessionRemainingTime)}</span>
+              </div>
+              <Progress value={getTimeProgressValue()} className="h-1.5" />
+              <p className="mt-2 text-xs text-muted-foreground">
                 จะออกจากระบบอัตโนมัติหากไม่มีการใช้งาน 30 นาที
-              </Typography>
-            </Box>
+              </p>
+            </div>
           )}
 
-          {/* user info */}
-          <Stack spacing={1.25} sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <PersonIcon color="action" fontSize="small" />
-              <Typography variant="body2">
+          <div className="mb-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <PersonIcon className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm">
                 ระดับ: <b>{userData.degreeLevel}</b>
-              </Typography>
-            </Box>
-            <Typography variant="body2" color="text.secondary">
-              คณะ: {userData.faculty}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              สาขา: {userData.department}
-            </Typography>
-          </Stack>
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground">คณะ: {userData.faculty}</p>
+            <p className="text-sm text-muted-foreground">สาขา: {userData.department}</p>
+          </div>
 
-          <Divider sx={{ my: 2 }} />
+          <Separator className="my-4" />
 
-          <Stack spacing={1}>
-            <Button
-              variant="outlined"
-              color="error"
-              startIcon={<LogoutIcon />}
-              onClick={handleLogout}
-              fullWidth
-              disabled={disabled}
-            >
-              ออกจากระบบ
-            </Button>
-          </Stack>
+          <Button
+            variant="outline"
+            className="w-full border-destructive/40 text-destructive hover:bg-destructive/10"
+            onClick={handleLogout}
+            disabled={disabled}
+          >
+            <LogoutIcon className="h-4 w-4" />
+            ออกจากระบบ
+          </Button>
         </CardContent>
       </Card>
     );
   }
 
-  // Logged-in but session invalid
   if (user && userData && !sessionValid) {
     return (
-      <Card sx={{ mb: 3, borderRadius: 3 }}>
-        <CardContent>
-          <Alert severity="error" sx={{ mb: 2 }}>
-            <Typography variant="body1" fontWeight="medium">
-              เซสชันหมดอายุแล้ว
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              กรุณาเข้าสู่ระบบใหม่เพื่อดำเนินการต่อ
-            </Typography>
+      <Card className="mb-6 rounded-xl">
+        <CardContent className="pt-6">
+          <Alert variant="destructive" className="mb-4">
+            <AlertTitle>เซสชันหมดอายุแล้ว</AlertTitle>
+            <AlertDescription>กรุณาเข้าสู่ระบบใหม่เพื่อดำเนินการต่อ</AlertDescription>
           </Alert>
 
           <Button
-            variant="contained"
-            size="large"
-            fullWidth
-            startIcon={<MicrosoftLogo />}
+            size="lg"
+            className="w-full rounded-xl bg-[#0078d4] py-3 hover:bg-[#106ebe]"
             onClick={handleMicrosoftLogin}
             disabled={disabled || loginLoading}
-            sx={{
-              bgcolor: '#0078d4',
-              '&:hover': { bgcolor: '#106ebe' },
-              py: 1.25,
-              borderRadius: 2,
-            }}
           >
+            <MicrosoftLogo />
             {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบใหม่ด้วย Microsoft'}
           </Button>
         </CardContent>
@@ -725,109 +634,75 @@ const MicrosoftLogin: React.FC<MicrosoftLoginProps> = ({
     );
   }
 
-  // Logged-out
   return (
-    <>
-      <Card
-        elevation={0}
-        sx={{
-          ...glassCardSx,
-          mb: 3,
-          overflow: 'hidden',
-        }}
+    <Card className={cn(glassCardClass, 'mb-6 overflow-hidden border-0 shadow-none')}>
+      <div
+        className={cn(
+          'border-b border-border/50 bg-primary/[0.04] px-6 text-center',
+          isMobile ? 'py-6' : 'py-8'
+        )}
       >
-        {/* Hero */}
-        <Box
-          sx={{
-            px: 3,
-            py: isMobile ? 3 : 4,
-            bgcolor: alpha(theme.palette.primary.main, 0.04),
-            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.08)}`,
-            textAlign: 'center',
-          }}
-        >
-          <Box
-            sx={{
-              mx: 'auto',
-              width: 64,
-              height: 64,
-              borderRadius: 2,
-              display: 'grid',
-              placeItems: 'center',
-              bgcolor: alpha('#fff', 0.9),
-              border: `1px solid ${alpha(theme.palette.divider, 0.2)}`,
-              boxShadow: `0 8px 24px ${alpha('#000', 0.08)}`,
-              mb: 1.5,
-            }}
-          >
-            <MicrosoftLogo size={28} />
-          </Box>
-          <Typography variant="h6" fontWeight={800}>
-            เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            ใช้บัญชี Microsoft ของมหาวิทยาลัย (@psu.ac.th)
-          </Typography>
-        </Box>
+        <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-xl border border-border/40 bg-white/90 shadow-md dark:bg-background">
+          <MicrosoftLogo size={28} />
+        </div>
+        <h3 className="text-lg font-extrabold">เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย</h3>
+        <p className="text-sm text-muted-foreground">
+          ใช้บัญชี Microsoft ของมหาวิทยาลัย (@psu.ac.th)
+        </p>
+      </div>
 
-        <CardContent>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+      <CardContent className="pt-6">
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>
               {error}
               {String(error).toLowerCase().includes('missing initial state') && (
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="caption" display="block">
-                    แนะนำ: อย่าเปิดผ่าน LINE/FB/IG ให้เปิดด้วย Chrome/Safari แล้วลองใหม่
-                  </Typography>
-                </Box>
+                <span className="mt-1 block text-xs">
+                  แนะนำ: อย่าเปิดผ่าน LINE/FB/IG ให้เปิดด้วย Chrome/Safari แล้วลองใหม่
+                </span>
               )}
-            </Alert>
-          )}
+            </AlertDescription>
+          </Alert>
+        )}
 
-          <Button
-            variant="contained"
-            size="large"
-            fullWidth
-            startIcon={loginLoading ? <CircularProgress size={20} color="inherit" /> : <MicrosoftLogo />}
-            onClick={handleMicrosoftLogin}
-            disabled={loginLoading || disabled}
-            sx={{
-              bgcolor: '#0078d4',
-              '&:hover': { bgcolor: '#106ebe' },
-              '&:disabled': { bgcolor: 'grey.400' },
-              py: 1.5,
-              borderRadius: 2,
-            }}
-          >
-            {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Microsoft'}
-          </Button>
+        <Button
+          size="lg"
+          className="w-full rounded-xl bg-[#0078d4] py-3.5 hover:bg-[#106ebe] disabled:bg-muted"
+          onClick={handleMicrosoftLogin}
+          disabled={loginLoading || disabled}
+        >
+          {loginLoading ? <Spinner size="sm" className="text-white" /> : <MicrosoftLogo />}
+          {loginLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Microsoft'}
+        </Button>
 
-          <Accordion
-            disableGutters
-            sx={{ mt: 2, borderRadius: 2, border: `1px solid ${alpha(theme.palette.divider, 0.12)}` }}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="subtitle2">คำแนะนำ & นโยบายเซสชัน</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Alert severity="info" sx={{ mb: 1.5 }}>
-                กรุณาใช้อีเมล @psu.ac.th เท่านั้น
+        <Accordion type="single" collapsible className="mt-4 rounded-xl border border-border/50 px-3">
+          <AccordionItem value="tips" className="border-0">
+            <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+              คำแนะนำ & นโยบายเซสชัน
+            </AccordionTrigger>
+            <AccordionContent className="space-y-3 pb-4">
+              <Alert variant="info">
+                <AlertDescription>กรุณาใช้อีเมล @psu.ac.th เท่านั้น</AlertDescription>
               </Alert>
-              <Alert severity="warning" icon={<TimeIcon />} sx={{ mb: 1.5 }}>
-                ระบบจะออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน 30 นาที (ไม่มีปุ่มขยายเวลา)
+              <Alert variant="warning">
+                <AlertDescription>
+                  ระบบจะออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน 30 นาที (ไม่มีปุ่มขยายเวลา)
+                </AlertDescription>
               </Alert>
-              <Alert severity="info">
-                ถ้าระบบแจ้งว่า “เปิด popup ไม่ได้” หรือเปิดผ่าน LINE/FB/IG ให้เปิดลิงก์นี้ใน Chrome/Safari แล้วลองใหม่
+              <Alert variant="info">
+                <AlertDescription>
+                  ถ้าระบบแจ้งว่า “เปิด popup ไม่ได้” หรือเปิดผ่าน LINE/FB/IG ให้เปิดลิงก์นี้ใน Chrome/Safari แล้วลองใหม่
+                </AlertDescription>
               </Alert>
-            </AccordionDetails>
-          </Accordion>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
 
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
-            ระบบจะบันทึกข้อมูลที่จำเป็นเพื่อใช้งานการลงทะเบียนกิจกรรม และล็อกการใช้งาน 1 บัญชีต่อ 1 IP ชั่วคราว 30 นาที
-          </Typography>
-        </CardContent>
-      </Card>
-    </>
+        <p className="mt-4 block text-center text-xs text-muted-foreground">
+          ระบบจะบันทึกข้อมูลที่จำเป็นเพื่อใช้งานการลงทะเบียนกิจกรรม และล็อกการใช้งาน 1 บัญชีต่อ 1 IP ชั่วคราว 30 นาที
+        </p>
+      </CardContent>
+    </Card>
   );
 };
 

@@ -1,21 +1,14 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  Alert,
-  CircularProgress,
-  Button,
-  Chip,
-  Fade,
-  Collapse,
-  Divider,
-  Stack,
-} from '@mui/material';
-import { Security as SecurityIcon } from '@mui/icons-material';
-import { glassCardLargeSx, pageColors } from '../../lib/uiTheme';
+import { Shield } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
+import { glassCardLargeClass, pageColors } from '../../lib/uiTheme';
+import { cn } from '@/lib/utils';
 import MicrosoftLogin from '../MicrosoftLogin';
 import GoogleLoginButton from './GoogleLoginButton';
 import {
@@ -71,7 +64,6 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
     }
   }, [authState.error]);
 
-  // รับผลหลัง redirect จาก Google / Microsoft (ครั้งเดียวต่อหน้า)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -164,105 +156,74 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
   const canRetry = authState.retryCount < maxRetries;
   const loginDisabled = disabled || checkingIP || authState.isLoading || !canRetry;
 
-  const getErrorSeverity = (error: string): 'error' | 'warning' | 'info' => {
+  const getErrorVariant = (error: string): 'destructive' | 'warning' | 'info' => {
     if (error.includes('domain') || error.includes('โดเมน') || error.includes('มหาวิทยาลัย'))
       return 'warning';
     if (error.includes('network') || error.includes('เครือข่าย')) return 'info';
-    return 'error';
+    return 'destructive';
   };
 
-  return (
-    <Card
-      elevation={0}
-      sx={{
-        ...glassCardLargeSx,
-        mb: 4,
-        position: 'relative',
-        overflow: 'visible',
-      }}
-    >
-      <Fade in={checkingIP || authState.isLoading}>
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            bgcolor: 'rgba(255,255,255,0.95)',
-            display: checkingIP || authState.isLoading ? 'flex' : 'none',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10,
-            borderRadius: 2,
-            backdropFilter: 'blur(4px)',
-          }}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress size={32} sx={{ mb: 2 }} />
-            <Typography variant="body1" fontWeight="medium">
-              {checkingIP ? 'กำลังตรวจสอบ...' : 'กำลังเข้าสู่ระบบ...'}
-            </Typography>
-          </Box>
-        </Box>
-      </Fade>
+  const showOverlay = checkingIP || authState.isLoading;
 
-      <CardContent sx={{ p: 4 }}>
-        <Box sx={{ textAlign: 'center', mb: 3 }}>
-          <SecurityIcon
-            sx={{
-              fontSize: 48,
-              color: 'primary.main',
-              mb: 2,
-              filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.1))',
-            }}
+  return (
+    <Card className={cn(glassCardLargeClass, 'relative mb-4 overflow-visible border-0 shadow-none')}>
+      {showOverlay && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/95 backdrop-blur-sm dark:bg-background/95">
+          <div className="text-center">
+            <Spinner size="lg" className="mb-2 text-primary" />
+            <p className="font-medium">
+              {checkingIP ? 'กำลังตรวจสอบ...' : 'กำลังเข้าสู่ระบบ...'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <CardContent className="p-8">
+        <div className="mb-6 text-center">
+          <Shield
+            className="mx-auto mb-4 h-12 w-12 text-primary drop-shadow-sm"
+            strokeWidth={1.75}
           />
-          <Typography
-            variant="h5"
-            gutterBottom
-            sx={{ fontWeight: 800, color: pageColors.textPrimary, letterSpacing: '-0.02em' }}
+          <h2
+            className="text-xl font-extrabold tracking-tight sm:text-2xl"
+            style={{ color: pageColors.textPrimary }}
           >
             เข้าสู่ระบบ
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             เลือก Microsoft (บัญชี ม.อ.) หรือ Google
             {!activityData?.requiresUniversityLogin && ' — Google นอก @psu.ac.th = บุคคลภายนอก'}
-          </Typography>
+          </p>
 
           {authState.retryCount > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Chip
-                label={`ลองครั้งที่ ${authState.retryCount}/${maxRetries}`}
-                color={authState.retryCount >= maxRetries ? 'error' : 'warning'}
-                size="small"
-              />
-            </Box>
+            <div className="mt-3">
+              <Badge variant={authState.retryCount >= maxRetries ? 'destructive' : 'warning'}>
+                ลองครั้งที่ {authState.retryCount}/{maxRetries}
+              </Badge>
+            </div>
           )}
-        </Box>
+        </div>
 
-        <Collapse in={!!authState.error}>
-          <Alert
-            severity={getErrorSeverity(authState.error || '')}
-            sx={{ mb: 3 }}
-            action={
-              canRetry ? (
+        {authState.error && (
+          <Alert variant={getErrorVariant(authState.error)} className="mb-6">
+            <AlertTitle>เกิดข้อผิดพลาด</AlertTitle>
+            <AlertDescription className="flex items-start justify-between gap-2">
+              <span>{authState.error}</span>
+              {canRetry && (
                 <Button
-                  color="inherit"
-                  size="small"
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 h-7 px-2"
                   onClick={() => setAuthState((prev) => ({ ...prev, error: null }))}
                 >
                   ปิด
                 </Button>
-              ) : undefined
-            }
-          >
-            <Typography variant="body2">
-              <strong>เกิดข้อผิดพลาด:</strong> {authState.error}
-            </Typography>
+              )}
+            </AlertDescription>
           </Alert>
-        </Collapse>
+        )}
 
-        <Stack spacing={2}>
+        <div className="flex flex-col gap-4">
           <MicrosoftLogin
             onLoginSuccess={handleLoginSuccess}
             onLoginError={handleLoginError}
@@ -271,11 +232,11 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
             disabled={loginDisabled}
           />
 
-          <Divider>
-            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              หรือ
-            </Typography>
-          </Divider>
+          <div className="relative flex items-center gap-3">
+            <Separator className="flex-1" />
+            <span className="text-xs font-semibold text-muted-foreground">หรือ</span>
+            <Separator className="flex-1" />
+          </div>
 
           <GoogleLoginButton
             onLoginSuccess={handleLoginSuccess}
@@ -283,7 +244,7 @@ const MicrosoftAuthSection: React.FC<MicrosoftAuthSectionProps> = ({
             onPreLoginCheck={onPreLoginCheck}
             disabled={loginDisabled}
           />
-        </Stack>
+        </div>
       </CardContent>
     </Card>
   );

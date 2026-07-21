@@ -31,6 +31,14 @@ import type { DocumentData } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { SessionManager } from './sessionManager';
 import { validateThaiName, validateNameTitle } from '../utils/validation';
+import {
+  clearRefreshCache,
+  isRefreshCacheFresh,
+  readRefreshCache,
+  RefreshCacheKey,
+  RefreshCacheTtl,
+  writeRefreshCache,
+} from './refreshCache';
 
 /** ถูกโยนเมื่อกำลังพาไป OAuth แบบ redirect (ไม่ใช่ error จริง) */
 export class AuthRedirectPendingError extends Error {
@@ -547,31 +555,97 @@ export const findUserByStudentId = async (
 };
 
 /** Hook จัดการ auth state */
-export const useAuth = () => {
-  const [authState, setAuthState] = React.useState<AuthState>({
-    user: null,
-    userData: null,
-    loading: true,
-    error: null,
+type AuthShellCache = {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  userData: UniversityUserProfile | null;
+};
+
+function readAuthShell(): AuthShellCache | null {
+  return readRefreshCache<AuthShellCache>(RefreshCacheKey.auth)?.data ?? null;
+}
+
+function writeAuthShell(user: User, userData: UniversityUserProfile | null) {
+  writeRefreshCache<AuthShellCache>(RefreshCacheKey.auth, {
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName,
+    photoURL: user.photoURL,
+    userData,
   });
+}
+
+/** เชลล์พอให้ Navbar/เมนูแสดงได้ทันทีตอนรีเฟรช — ยังไม่ใช่ Firebase User เต็ม */
+function shellAsUser(shell: AuthShellCache): User {
+  return {
+    uid: shell.uid,
+    email: shell.email,
+    displayName: shell.displayName,
+    photoURL: shell.photoURL,
+  } as User;
+}
+
+function initialAuthState(): AuthState {
+  // SSR / hydrate ต้องค่าคงที่ — อ่าน cache ใน useLayoutEffect แทน
+  return { user: null, userData: null, loading: true, error: null };
+}
+
+export const useAuth = () => {
+  const [authState, setAuthState] = React.useState<AuthState>(initialAuthState);
+
+  // ตอนรีเฟรช: คืนเชลล์จาก session ก่อน paint — ไม่ต้องรอ Firebase / ไม่แวบปุ่ม login
+  React.useLayoutEffect(() => {
+    const shell = readAuthShell();
+    if (!shell?.uid) return;
+    setAuthState((prev) => {
+      if (prev.user?.uid) return prev;
+      return {
+        user: shellAsUser(shell),
+        userData: shell.userData,
+        loading: false,
+        error: null,
+      };
+    });
+  }, []);
 
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setAuthState((prev) => ({ ...prev, loading: true, error: null }));
       try {
         if (firebaseUser) {
+          const cached = readAuthShell();
+          const cacheFresh =
+            cached?.uid === firebaseUser.uid &&
+            isRefreshCacheFresh(RefreshCacheKey.auth, RefreshCacheTtl.auth);
+
+          // รีเฟรชแล้ว cache ยังสด → ใช้โปรไฟล์เดิม ไม่ดึง Firestore ซ้ำ
+          if (cacheFresh && cached.userData) {
+            writeAuthShell(firebaseUser, cached.userData);
+            setAuthState({
+              user: firebaseUser,
+              userData: cached.userData,
+              loading: false,
+              error: null,
+            });
+            void SessionManager.ensureSession(firebaseUser.uid, firebaseUser.email || '');
+            return;
+          }
+
           let userData = await getUserProfile(firebaseUser.uid);
-          // race: Google/Microsoft กำลัง upsert โปรไฟล์ — รอสั้นๆ แล้วลองใหม่
           if (!userData) {
             await new Promise((r) => setTimeout(r, 500));
             userData = await getUserProfile(firebaseUser.uid);
           }
           await SessionManager.ensureSession(firebaseUser.uid, firebaseUser.email || '');
+          writeAuthShell(firebaseUser, userData);
           setAuthState({ user: firebaseUser, userData, loading: false, error: null });
         } else {
+          clearRefreshCache(RefreshCacheKey.auth);
           setAuthState({ user: null, userData: null, loading: false, error: null });
         }
       } catch (e: any) {
+        clearRefreshCache(RefreshCacheKey.auth);
         setAuthState({ user: null, userData: null, loading: false, error: e.message });
       }
     });
@@ -585,6 +659,7 @@ export const useAuth = () => {
       try {
         const result = await consumeAuthRedirectResult();
         if (cancelled || !result) return;
+        writeAuthShell(result.user, result.userData);
         setAuthState({
           user: result.user,
           userData: result.userData,
@@ -605,6 +680,7 @@ export const useAuth = () => {
   const login = async () => {
     try {
       const { user, userData } = await signInWithMicrosoft();
+      writeAuthShell(user, userData);
       setAuthState({ user, userData, loading: false, error: null });
       return { user, userData };
     } catch (e: any) {
@@ -618,6 +694,7 @@ export const useAuth = () => {
   const loginWithGoogle = async () => {
     try {
       const { user, userData } = await signInWithGoogle();
+      writeAuthShell(user, userData);
       setAuthState({ user, userData, loading: false, error: null });
       return { user, userData };
     } catch (e: any) {
@@ -632,6 +709,8 @@ export const useAuth = () => {
     const uid = auth.currentUser?.uid;
     if (uid) await SessionManager.destroySession(uid);
     await signOutUser();
+    clearRefreshCache(RefreshCacheKey.auth);
+    clearRefreshCache(RefreshCacheKey.homeActivities);
     setAuthState({ user: null, userData: null, loading: false, error: null });
   };
 
@@ -639,6 +718,7 @@ export const useAuth = () => {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) return null;
     const userData = await getUserProfile(firebaseUser.uid);
+    writeAuthShell(firebaseUser, userData);
     setAuthState((prev) => ({ ...prev, user: firebaseUser, userData }));
     return userData;
   };
