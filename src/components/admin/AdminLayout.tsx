@@ -337,8 +337,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
       <Separator className="bg-white/10 mx-3" />
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+      {/* Nav — เมนูยาวเลื่อนได้ภายใน sidebar ที่ตรึง */}
+      <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-4 px-3 space-y-1">
         <TooltipProvider>
           {menuItems.map((item) => (
             <NavItem key={item.id} item={item} />
@@ -430,11 +430,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
       {/* Main Content Area */}
       <div
-        className="flex-1 flex flex-col min-h-screen min-w-0 max-w-full overflow-x-hidden transition-all duration-300"
+        className="flex-1 flex flex-col min-h-screen min-w-0 max-w-full transition-all duration-300"
         style={{ marginLeft: isMobile ? 0 : sidebarWidth }}
       >
-        {/* Header */}
-        <header className="sticky top-0 z-30 h-14 sm:h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800 flex items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">
+        {/* Header — fixed ตรึงบนสุด ปรับความกว้างตาม sidebar */}
+        <header
+          className="fixed top-0 right-0 z-30 h-14 sm:h-16 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800 flex items-center px-3 sm:px-4 gap-2 sm:gap-3 transition-[left] duration-300 ease-in-out"
+          style={{ left: isMobile ? 0 : sidebarWidth }}
+        >
           {/* Mobile menu toggle */}
           {isMobile ? (
             <Button
@@ -512,7 +515,10 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           </DropdownMenu>
         </header>
 
-        {/* Page Content */}
+        {/* spacer ให้ความสูงเท่า header ที่ fixed */}
+        <div className="h-14 sm:h-16 shrink-0" aria-hidden />
+
+        {/* Page Content — เลื่อนได้ ส่วน header/sidebar ตรึง */}
         <main className="flex-1 min-w-0 max-w-full overflow-x-hidden">
           {children}
         </main>
