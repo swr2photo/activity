@@ -86,10 +86,12 @@ import {
   archiveActivityVersion,
   listActivityVersions,
   restoreActivityVersion,
+  compareActivityVersionWithCurrent,
   type Activity,
   type ActivityFile,
   type SurveyQuestion,
   type ActivityVersionMeta,
+  type ActivityVersionDiffRow,
 } from '../../lib/adminFirebase';
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 import { QuillEditor } from './QuillEditor';
@@ -1662,6 +1664,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   const [versions, setVersions] = useState<ActivityVersionMeta[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
+  const [comparingVersionId, setComparingVersionId] = useState<string | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareDiffs, setCompareDiffs] = useState<ActivityVersionDiffRow[]>([]);
+  const [compareMeta, setCompareMeta] = useState<ActivityVersionMeta | null>(null);
 
   // download menu
   const [dlMenu, setDlMenu] = useState<{ anchorEl: HTMLElement | null; activity: Activity | null }>({
@@ -2156,6 +2162,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   const handleCloseEdit = () => {
     if (!editing) {
       setOpenEdit(false);
+      closeCompareView();
       setOpenVersions(false);
     }
   };
@@ -2166,6 +2173,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       return;
     }
     setOpenVersions(true);
+    setComparingVersionId(null);
+    setCompareDiffs([]);
+    setCompareMeta(null);
     setVersionsLoading(true);
     try {
       const list = await listActivityVersions(qrDocId);
@@ -2176,6 +2186,31 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     } finally {
       setVersionsLoading(false);
     }
+  };
+
+  const handleCompareVersion = async (v: ActivityVersionMeta) => {
+    if (!qrDocId) return;
+    setComparingVersionId(v.id);
+    setCompareMeta(v);
+    setCompareLoading(true);
+    setCompareDiffs([]);
+    try {
+      const result = await compareActivityVersionWithCurrent(qrDocId, v.id);
+      setCompareDiffs(result.diffs);
+    } catch (e: any) {
+      enqueueSnackbar(e?.message || 'เปรียบเทียบเวอร์ชันไม่สำเร็จ', { variant: 'error' });
+      setComparingVersionId(null);
+      setCompareMeta(null);
+    } finally {
+      setCompareLoading(false);
+    }
+  };
+
+  const closeCompareView = () => {
+    setComparingVersionId(null);
+    setCompareDiffs([]);
+    setCompareMeta(null);
+    setCompareLoading(false);
   };
 
   const handleRestoreVersion = async (versionId: string) => {
@@ -2195,6 +2230,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         email: currentAdmin.email,
       });
       enqueueSnackbar('ย้อนเวอร์ชันสำเร็จ', { variant: 'success' });
+      closeCompareView();
       setOpenVersions(false);
       await openEditDialog({
         id: editActivityId || qrDocId,
@@ -4458,20 +4494,89 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       </Dialog>
 
       {/* ===================== Activity Versions Dialog ===================== */}
-      <Dialog open={openVersions} onOpenChange={(o) => { if (!o && !restoringVersionId) setOpenVersions(false); }}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col gap-0 p-0">
+      <Dialog
+        open={openVersions}
+        onOpenChange={(o) => {
+          if (!o && !restoringVersionId) {
+            closeCompareView();
+            setOpenVersions(false);
+          }
+        }}
+      >
+        <DialogContent
+          className={cn(
+            'max-h-[85vh] overflow-hidden flex flex-col gap-0 p-0',
+            comparingVersionId ? 'max-w-3xl' : 'max-w-lg'
+          )}
+        >
           <DialogHeader className="border-b border-border px-4 py-3 space-y-1 text-left">
             <DialogTitle className="flex items-center gap-2">
               <HistoryIcon className="h-5 w-5" />
-              ประวัติเวอร์ชัน
+              {comparingVersionId ? 'เปรียบเทียบกับปัจจุบัน' : 'ประวัติเวอร์ชัน'}
             </DialogTitle>
             <p className="text-xs text-muted-foreground">
-              เลือกเวอร์ชันเพื่อย้อนกลับ — เก็บไว้สูงสุด 20 รายการล่าสุด
+              {comparingVersionId
+                ? 'แสดงเฉพาะฟิลด์ที่ต่างจากสถานะที่บันทึกไว้ตอนนี้'
+                : 'เลือกเวอร์ชันเพื่อเปรียบเทียบหรือย้อนกลับ — เก็บไว้สูงสุด 20 รายการล่าสุด'}
             </p>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {versionsLoading ? (
+            {comparingVersionId ? (
+              <div className="space-y-3">
+                {compareMeta && (
+                  <div className="rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    เวอร์ชัน:{' '}
+                    <span className="font-medium text-foreground">
+                      {compareMeta.label || 'กิจกรรม'}
+                    </span>
+                    {compareMeta.savedAt && (
+                      <> · {dayjs(compareMeta.savedAt).format('DD/MM/YYYY HH:mm:ss')}</>
+                    )}
+                    {typeof compareMeta.stateVersion !== 'undefined' &&
+                      compareMeta.stateVersion !== null && (
+                        <> · v{String(compareMeta.stateVersion).slice(0, 12)}</>
+                      )}
+                  </div>
+                )}
+
+                {compareLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                    <Spinner size="sm" /> กำลังเปรียบเทียบ…
+                  </div>
+                ) : compareDiffs.length === 0 ? (
+                  <div className="py-10 text-center text-sm text-muted-foreground">
+                    ไม่มีความต่างจากปัจจุบัน
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border border-border">
+                    <div className="grid grid-cols-[7.5rem_1fr_1fr] gap-0 border-b border-border bg-muted/50 text-[11px] font-medium text-muted-foreground">
+                      <div className="px-3 py-2">ฟิลด์</div>
+                      <div className="border-l border-border px-3 py-2">เวอร์ชันนี้</div>
+                      <div className="border-l border-border px-3 py-2">ปัจจุบัน</div>
+                    </div>
+                    <ul className="divide-y divide-border">
+                      {compareDiffs.map((row) => (
+                        <li
+                          key={row.key}
+                          className="grid grid-cols-[7.5rem_1fr_1fr] gap-0 text-xs"
+                        >
+                          <div className="px-3 py-2.5 font-medium text-foreground/90">
+                            {row.label}
+                          </div>
+                          <div className="border-l border-border bg-amber-50/60 px-3 py-2.5 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100 break-words whitespace-pre-wrap">
+                            {row.versionValue}
+                          </div>
+                          <div className="border-l border-border bg-emerald-50/60 px-3 py-2.5 text-emerald-950 dark:bg-emerald-950/20 dark:text-emerald-100 break-words whitespace-pre-wrap">
+                            {row.currentValue}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : versionsLoading ? (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
                 <Spinner size="sm" /> กำลังโหลดประวัติ…
               </div>
@@ -4510,16 +4615,27 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                           )}
                         </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0 gap-2"
-                        disabled={Boolean(restoringVersionId)}
-                        onClick={() => handleRestoreVersion(v.id)}
-                      >
-                        {restoringVersionId === v.id ? <Spinner size="sm" /> : <HistoryIcon className="h-4 w-4" />}
-                        ย้อนกลับ
-                      </Button>
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="gap-1.5"
+                          disabled={Boolean(restoringVersionId)}
+                          onClick={() => handleCompareVersion(v)}
+                        >
+                          เปรียบเทียบ
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-2"
+                          disabled={Boolean(restoringVersionId)}
+                          onClick={() => handleRestoreVersion(v.id)}
+                        >
+                          {restoringVersionId === v.id ? <Spinner size="sm" /> : <HistoryIcon className="h-4 w-4" />}
+                          ย้อนกลับ
+                        </Button>
+                      </div>
                     </li>
                   );
                 })}
@@ -4527,10 +4643,43 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             )}
           </div>
 
-          <DialogFooter className="border-t border-border px-4 py-3">
-            <Button variant="outline" onClick={() => setOpenVersions(false)} disabled={Boolean(restoringVersionId)}>
-              ปิด
-            </Button>
+          <DialogFooter className="border-t border-border px-4 py-3 gap-2 sm:justify-between">
+            {comparingVersionId ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={closeCompareView}
+                  disabled={Boolean(restoringVersionId) || compareLoading}
+                >
+                  กลับรายการ
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      closeCompareView();
+                      setOpenVersions(false);
+                    }}
+                    disabled={Boolean(restoringVersionId)}
+                  >
+                    ปิด
+                  </Button>
+                  <Button
+                    disabled={Boolean(restoringVersionId) || compareLoading}
+                    onClick={() => comparingVersionId && handleRestoreVersion(comparingVersionId)}
+                  >
+                    {restoringVersionId === comparingVersionId ? (
+                      <Spinner size="sm" className="mr-2" />
+                    ) : null}
+                    ย้อนเวอร์ชันนี้
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <Button variant="outline" onClick={() => setOpenVersions(false)} disabled={Boolean(restoringVersionId)}>
+                ปิด
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

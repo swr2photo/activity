@@ -38,6 +38,7 @@ import type {
   AdminPermission,
 } from '@/types/admin';
 import { ROLE_PERMISSIONS, normalizeDepartment, deptEquals } from '@/types/admin';
+import dayjs from 'dayjs';
 
 /* =========================
  * Constants & Utils
@@ -866,6 +867,151 @@ export const getActivityVersion = async (
     label: data.label || '',
     stateVersion: data.stateVersion,
     snapshot: data.snapshot || {},
+  };
+};
+
+export type ActivityVersionDiffRow = {
+  key: string;
+  label: string;
+  versionValue: string;
+  currentValue: string;
+};
+
+const ACTIVITY_COMPARE_FIELDS: { key: string; label: string }[] = [
+  { key: 'activityName', label: 'ชื่อกิจกรรม' },
+  { key: 'headerTitle', label: 'หัวข้อส่วนหัว' },
+  { key: 'description', label: 'รายละเอียด' },
+  { key: 'location', label: 'สถานที่' },
+  { key: 'latitude', label: 'ละติจูด' },
+  { key: 'longitude', label: 'ลองจิจูด' },
+  { key: 'checkInRadius', label: 'รัศมีเช็คอิน (ม.)' },
+  { key: 'startDateTime', label: 'วันเริ่ม' },
+  { key: 'endDateTime', label: 'วันสิ้นสุด' },
+  { key: 'isActive', label: 'สถานะเผยแพร่' },
+  { key: 'scanEnabled', label: 'เปิดสแกน' },
+  { key: 'requiresUniversityLogin', label: 'ต้องล็อกอินมหาวิทยาลัย' },
+  { key: 'singleUserMode', label: 'โหมดผู้ใช้คนเดียว' },
+  { key: 'maxParticipants', label: 'จำนวนผู้เข้าร่วมสูงสุด' },
+  { key: 'bannerUrl', label: 'URL แบนเนอร์' },
+  { key: 'bannerColor', label: 'สีแบนเนอร์' },
+  { key: 'bannerTintColor', label: 'สีทับแบนเนอร์' },
+  { key: 'bannerTintOpacity', label: 'ความทึบสีทับ' },
+  { key: 'registrationCodeEnabled', label: 'ใช้รหัสลงทะเบียน' },
+  { key: 'registrationCodePrefix', label: 'คำนำหน้ารหัส' },
+  { key: 'registrationCodeDigits', label: 'จำนวนหลักรหัส' },
+  { key: 'registrationCodeStart', label: 'รหัสเริ่มต้น' },
+  { key: 'registrationCodeTotal', label: 'จำนวนรหัสทั้งหมด' },
+  { key: 'dynamicQREnabled', label: 'QR แบบหมุนเวียน' },
+  { key: 'onsiteRegistrationPoint', label: 'จุดลงทะเบียนหน้างาน' },
+  { key: 'sessions', label: 'รอบกิจกรรม' },
+  { key: 'surveyConfig', label: 'แบบประเมิน' },
+  { key: 'files', label: 'ไฟล์แนบ' },
+];
+
+function normalizeCompareValue(key: string, raw: any): string {
+  if (raw === undefined || raw === null || raw === '') return '—';
+
+  if (key === 'isActive') return raw ? 'เผยแพร่แล้ว' : 'ฉบับร่าง';
+  if (
+    key === 'scanEnabled' ||
+    key === 'requiresUniversityLogin' ||
+    key === 'singleUserMode' ||
+    key === 'registrationCodeEnabled' ||
+    key === 'dynamicQREnabled'
+  ) {
+    return raw ? 'เปิด' : 'ปิด';
+  }
+
+  if (key === 'startDateTime' || key === 'endDateTime') {
+    const d = toDateSafe(raw);
+    return d ? dayjs(d).format('DD/MM/YYYY HH:mm') : '—';
+  }
+
+  if (key === 'description') {
+    const text = String(raw)
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text) return '—';
+    return text.length > 160 ? `${text.slice(0, 160)}…` : text;
+  }
+
+  if (key === 'sessions') {
+    const list = Array.isArray(raw) ? raw : [];
+    if (!list.length) return 'ไม่มีรอบ';
+    return list
+      .map((s: any) => {
+        const start = toDateSafe(s?.startDateTime);
+        const end = toDateSafe(s?.endDateTime);
+        const range =
+          start || end
+            ? ` (${start ? dayjs(start).format('DD/MM HH:mm') : '?'} – ${end ? dayjs(end).format('DD/MM HH:mm') : '?'})`
+            : '';
+        return `${s?.name || 'รอบ'}${range}`;
+      })
+      .join(' · ');
+  }
+
+  if (key === 'surveyConfig') {
+    const cfg = raw && typeof raw === 'object' ? raw : {};
+    if (!cfg.enabled) return 'ปิด';
+    const qCount = Array.isArray(cfg.questions) ? cfg.questions.length : 0;
+    return `เปิด · ${qCount} คำถาม · เงื่อนไข: ${cfg.sessionEligibility || 'any'}`;
+  }
+
+  if (key === 'files') {
+    const list = Array.isArray(raw) ? raw : [];
+    if (!list.length) return 'ไม่มีไฟล์';
+    return list.map((f: any) => f?.name || f?.url || 'ไฟล์').join(', ');
+  }
+
+  if (typeof raw === 'boolean') return raw ? 'ใช่' : 'ไม่';
+  if (typeof raw === 'number') return String(raw);
+  if (typeof raw === 'object') {
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      return String(raw);
+    }
+  }
+  return String(raw);
+}
+
+/** เปรียบเทียบ snapshot เวอร์ชันกับเอกสารปัจจุบัน (แสดงเฉพาะฟิลด์ที่ต่าง) */
+export function diffActivityVersionAgainstCurrent(
+  versionSnapshot: Record<string, any>,
+  currentData: Record<string, any>
+): ActivityVersionDiffRow[] {
+  const rows: ActivityVersionDiffRow[] = [];
+  for (const { key, label } of ACTIVITY_COMPARE_FIELDS) {
+    const versionValue = normalizeCompareValue(key, versionSnapshot?.[key]);
+    const currentValue = normalizeCompareValue(key, currentData?.[key]);
+    if (versionValue === currentValue) continue;
+    rows.push({ key, label, versionValue, currentValue });
+  }
+  return rows;
+}
+
+/** โหลดเวอร์ชัน + เอกสารปัจจุบัน แล้วคืน diff */
+export const compareActivityVersionWithCurrent = async (
+  qrDocId: string,
+  versionId: string
+): Promise<{
+  version: ActivityVersionDoc;
+  current: Record<string, any>;
+  diffs: ActivityVersionDiffRow[];
+}> => {
+  const version = await getActivityVersion(qrDocId, versionId);
+  if (!version) throw new Error('VERSION_NOT_FOUND');
+
+  const curSnap = await getDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, qrDocId));
+  if (!curSnap.exists()) throw new Error('NOT_FOUND');
+  const current = curSnap.data() as Record<string, any>;
+
+  return {
+    version,
+    current,
+    diffs: diffActivityVersionAgainstCurrent(version.snapshot || {}, current),
   };
 };
 
