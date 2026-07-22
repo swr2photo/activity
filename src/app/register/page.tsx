@@ -269,38 +269,60 @@ const getActivityStatus = (activity: ActivityData): ActivityStatusInfo => {
 const SectionIcon: React.FC<{
   icon: React.ReactNode;
   color?: string;
-  bg?: string;
-}> = ({ icon, color = pageColors.accentInfo, bg }) => (
+}> = ({ icon, color = pageColors.accentInfo }) => (
   <div
-    className="grid h-10 w-10 shrink-0 place-items-center rounded-xl [&_svg]:h-[22px] [&_svg]:w-[22px]"
-    style={{ color, backgroundColor: bg || `${color}20` }}
+    className="grid h-7 w-7 shrink-0 place-items-center [&_svg]:h-[18px] [&_svg]:w-[18px]"
+    style={{ color }}
   >
     {icon}
   </div>
 );
 
+/** โซนเนื้อหาแยกชัด — หัวข้อโซน + เนื้อหา */
+const RegisterSection: React.FC<{
+  id?: string;
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+  className?: string;
+}> = ({ id, label, description, children, className }) => (
+  <section id={id} className={cn('mb-6', className)}>
+    <div className="mb-2.5 flex items-end justify-between gap-3 border-b border-[var(--page-border)] pb-1.5">
+      <div className="min-w-0">
+        <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </p>
+        {description && (
+          <p className="mt-0.5 text-sm font-medium text-[var(--page-text)]">{description}</p>
+        )}
+      </div>
+    </div>
+    <div className="flex flex-col gap-2.5">{children}</div>
+  </section>
+);
+
+/** แถวรายละเอียดแบบกระชับ — ไม่ใช้การ์ดซ้อน */
 const DetailSection: React.FC<{
   icon: React.ReactNode;
   title: string;
   hint?: string;
   color?: string;
-  children: React.ReactNode;
-}> = ({ icon, title, hint, color = pageColors.accentInfo, children }) => (
-  <div className="rounded-2xl border bg-accent/30 p-4" style={{ borderColor: pageColors.border }}>
-    <div className={cn('flex items-start gap-3', children ? 'mb-3' : '')}>
-      <SectionIcon icon={icon} color={color} />
-      <div className="min-w-0 pt-0.5">
-        <p className="text-sm font-extrabold leading-tight" style={{ color: pageColors.textPrimary }}>
-          {title}
+  children?: React.ReactNode;
+  className?: string;
+}> = ({ icon, title, hint, color = pageColors.accentInfo, children, className }) => (
+  <div className={cn('flex items-start gap-2.5', className)}>
+    <SectionIcon icon={icon} color={color} />
+    <div className="min-w-0 flex-1 pt-0.5">
+      <p className="text-[0.7rem] font-bold uppercase tracking-wide" style={{ color: pageColors.textSecondary }}>
+        {title}
+      </p>
+      {hint && (
+        <p className="mt-0.5 text-xs" style={{ color: pageColors.textSecondary }}>
+          {hint}
         </p>
-        {hint && (
-          <p className="mt-0.5 block text-xs" style={{ color: pageColors.textSecondary }}>
-            {hint}
-          </p>
-        )}
-      </div>
+      )}
+      {children != null && children !== false && <div className="mt-0.5">{children}</div>}
     </div>
-    {children}
   </div>
 );
 
@@ -310,7 +332,7 @@ const MetaRow: React.FC<{
   value: React.ReactNode;
   color?: string;
 }> = ({ icon, label, value, color = pageColors.accentInfo }) => (
-  <div className="flex items-start gap-3">
+  <div className="flex items-start gap-2.5">
     <SectionIcon icon={icon} color={color} />
     <div className="min-w-0">
       <p className="text-[0.7rem] font-bold uppercase tracking-wide" style={{ color: pageColors.textSecondary }}>
@@ -401,15 +423,15 @@ const ModernActivityBanner: React.FC<{
         </div>
       </div>
 
-      <CardContent className="p-6 md:p-6">
+      <CardContent className="p-5 md:p-5">
         <h2
-          className="mb-4 text-xl font-extrabold tracking-tight"
+          className="mb-3 text-xl font-extrabold tracking-tight"
           style={{ color: pageColors.textPrimary }}
         >
           {activity.activityName}
         </h2>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           {activity.location && (
             <MetaRow
               icon={<PlaceIcon />}
@@ -1464,39 +1486,143 @@ const RegisterPageContent: React.FC = () => {
 
           {successMessage && <SuccessAlert message={successMessage} onClose={() => setSuccessMessage('')} />}
 
+          {/* ========== โซนสถานะ ========== */}
+          {(
+            (isDuplicateRegistration && user && !sessionExpired && !singleUserBlocked && !needsSurvey) ||
+            (activityData &&
+              statusInfo &&
+              statusInfo.status !== 'active' &&
+              !ipBlocked &&
+              !singleUserBlocked &&
+              !needsSurvey &&
+              // ถ้าลงทะเบียนแล้ว ไม่ต้องซ้อนข้อความ "เต็มแล้ว"
+              !(isDuplicateRegistration && statusInfo.status === 'full')) ||
+            (activityData && !isDuplicateRegistration && hasRegisteredRecord && !singleUserBlocked && !sessionExpired) ||
+            singleUserBlocked
+          ) && (
+            <RegisterSection
+              id="status"
+              label="สถานะของคุณ"
+              description="ผลการลงทะเบียนและสถานะกิจกรรม"
+            >
+              {singleUserBlocked && user && !sessionExpired && (
+                <Alert variant="destructive">
+                  <AlertTitle>ไม่สามารถลงทะเบียนได้</AlertTitle>
+                  <AlertDescription>
+                    <p className="text-muted-foreground">{singleUserMessage}</p>
+                    <div className="mt-3 flex gap-2">
+                      <Button variant="outline" size="sm" onClick={handleLogout}>
+                        ออกจากระบบ
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => window.close()}>
+                        ปิดหน้าต่าง
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {isDuplicateRegistration &&
+                user &&
+                !sessionExpired &&
+                !singleUserBlocked &&
+                !needsSurvey && <DuplicateRegistrationAlert />}
+
+              {activityData &&
+                statusInfo &&
+                statusInfo.status !== 'active' &&
+                !ipBlocked &&
+                !singleUserBlocked &&
+                !needsSurvey &&
+                !(isDuplicateRegistration && statusInfo.status === 'full') && (
+                  <ActivityStatusAlert
+                    status={statusInfo.status}
+                    message={statusInfo.message}
+                    startTime={statusInfo.startTime}
+                    endTime={statusInfo.endTime}
+                  />
+                )}
+
+              {activityData && !isDuplicateRegistration && hasRegisteredRecord && !singleUserBlocked && !sessionExpired && (() => {
+                const now = new Date();
+                const activeSession = activityData.sessions?.find((s: any) => {
+                  const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+                  const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime);
+                  return now >= sStart && now <= sEnd;
+                });
+                const isActiveCheckedIn = activeSession && checkedInSessions.includes(activeSession.id);
+
+                if (isActiveCheckedIn) {
+                  const sorted = [...(activityData.sessions ?? [])].sort((a, b) => {
+                    const aTime = a.startDateTime?.toDate?.()?.getTime() || new Date(a.startDateTime).getTime();
+                    const bTime = b.startDateTime?.toDate?.()?.getTime() || new Date(b.startDateTime).getTime();
+                    return aTime - bTime;
+                  });
+                  const nextSession = sorted.find((s: any) => {
+                    const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
+                    return now < sStart;
+                  });
+
+                  if (nextSession) {
+                    const nStart = nextSession.startDateTime?.toDate?.() || new Date(nextSession.startDateTime);
+                    return (
+                      <Alert
+                        variant="info"
+                        className="rounded-xl border border-sky-600"
+                        style={{ background: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)' }}
+                      >
+                        <AlertTitle className="font-bold text-sky-900">เช็กอินรอบปัจจุบันเรียบร้อยแล้ว</AlertTitle>
+                        <AlertDescription className="text-foreground">
+                          รอบถัดไป: <b>{nextSession.name}</b> จะเปิดให้เช็กอินในวันที่{' '}
+                          {nStart.toLocaleString('th-TH', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}{' '}
+                          น.
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  }
+                }
+                return null;
+              })()}
+            </RegisterSection>
+          )}
+
           {needsSurvey && activityData && (
-            <div className="mb-6">
+            <RegisterSection id="survey" label="แบบประเมิน" description="ทำแบบประเมินหลังเข้าร่วมกิจกรรม">
               {!user && (
-                <Alert variant="info" className="mb-4 rounded-xl">
+                <Alert variant="info" className="rounded-xl">
                   <AlertDescription>
                     กรุณาเข้าสู่ระบบด้วยบัญชีมหาวิทยาลัยเพื่อทำแบบประเมินหลังกิจกรรม
                   </AlertDescription>
                 </Alert>
               )}
               {user && !hasRegisteredRecord && (
-                <Alert variant="warning" className="mb-4 rounded-xl">
+                <Alert variant="warning" className="rounded-xl">
                   <AlertDescription>
                     ไม่พบประวัติการลงทะเบียนกิจกรรมนี้ในบัญชีของคุณ จึงยังไม่สามารถทำแบบประเมินได้
                   </AlertDescription>
                 </Alert>
               )}
               {user && hasRegisteredRecord && !isEligibleForSurvey && (
-                <Alert variant="warning" className="mb-4 rounded-xl">
+                <Alert variant="warning" className="rounded-xl">
                   <AlertDescription>
                     คุณยังไม่ผ่านเงื่อนไขการทำแบบประเมิน (เช่น ต้องเช็กอินครบตามที่ผู้ดูแลกำหนด)
                   </AlertDescription>
                 </Alert>
               )}
               {(!user || sessionExpired) && !ipBlocked && (
-                <div className="mb-4">
-                  <MicrosoftAuthSection
-                    activityData={activityData}
-                    onLoginSuccess={handleLoginSuccess}
-                    onLoginError={handleLoginError}
-                    onPreLoginCheck={handlePreLoginCheck}
-                    checkingIP={checkingPreLogin}
-                  />
-                </div>
+                <MicrosoftAuthSection
+                  activityData={activityData}
+                  onLoginSuccess={handleLoginSuccess}
+                  onLoginError={handleLoginError}
+                  onPreLoginCheck={handlePreLoginCheck}
+                  checkingIP={checkingPreLogin}
+                />
               )}
               {user && isEligibleForSurvey && (
                 <SurveyForm
@@ -1511,7 +1637,7 @@ const RegisterPageContent: React.FC = () => {
                 />
               )}
               {(surveyWindow.openTime || surveyWindow.closeTime) && (
-                <p className="mt-2 block text-xs text-muted-foreground">
+                <p className="block text-xs text-muted-foreground">
                   {surveyWindow.openTime && surveyWindow.closeTime
                     ? `ช่วงทำแบบประเมิน: ${formatDateTime(surveyWindow.openTime)} – ${formatDateTime(surveyWindow.closeTime)} น.`
                     : surveyWindow.closeTime
@@ -1519,97 +1645,13 @@ const RegisterPageContent: React.FC = () => {
                       : `เปิดทำแบบประเมินตั้งแต่ ${formatDateTime(surveyWindow.openTime)} น.`}
                 </p>
               )}
-            </div>
+            </RegisterSection>
           )}
 
           {isSurveyPeriodOpen && surveyCompleted && (
-            <Alert variant="success" className="mb-4 rounded-xl">
+            <Alert variant="success" className="mb-6 rounded-xl">
               <AlertDescription>ขอบคุณที่ทำแบบประเมิน! ข้อมูลของคุณถูกบันทึกเรียบร้อยแล้ว</AlertDescription>
             </Alert>
-          )}
-
-          {singleUserBlocked && user && !sessionExpired && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertTitle>ไม่สามารถลงทะเบียนได้</AlertTitle>
-              <AlertDescription>
-                <p className="text-muted-foreground">{singleUserMessage}</p>
-                <div className="mt-3 flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleLogout}>
-                    ออกจากระบบ
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => window.close()}>
-                    ปิดหน้าต่าง
-                  </Button>
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {isDuplicateRegistration &&
-            user &&
-            !sessionExpired &&
-            !singleUserBlocked &&
-            !needsSurvey && <DuplicateRegistrationAlert />}
-
-          {activityData && !isDuplicateRegistration && hasRegisteredRecord && !singleUserBlocked && !sessionExpired && (() => {
-            const now = new Date();
-            const activeSession = activityData.sessions?.find((s: any) => {
-              const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
-              const sEnd = s.endDateTime?.toDate?.() || new Date(s.endDateTime);
-              return now >= sStart && now <= sEnd;
-            });
-            const isActiveCheckedIn = activeSession && checkedInSessions.includes(activeSession.id);
-
-            if (isActiveCheckedIn) {
-              const sorted = [...(activityData.sessions ?? [])].sort((a, b) => {
-                const aTime = a.startDateTime?.toDate?.()?.getTime() || new Date(a.startDateTime).getTime();
-                const bTime = b.startDateTime?.toDate?.()?.getTime() || new Date(b.startDateTime).getTime();
-                return aTime - bTime;
-              });
-              const nextSession = sorted.find((s: any) => {
-                const sStart = s.startDateTime?.toDate?.() || new Date(s.startDateTime);
-                return now < sStart;
-              });
-
-              if (nextSession) {
-                const nStart = nextSession.startDateTime?.toDate?.() || new Date(nextSession.startDateTime);
-                return (
-                  <Alert
-                    variant="info"
-                    className="mb-6 rounded-xl border border-sky-600"
-                    style={{ background: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)' }}
-                  >
-                    <AlertTitle className="font-bold text-sky-900">เช็กอินรอบปัจจุบันเรียบร้อยแล้ว</AlertTitle>
-                    <AlertDescription className="text-foreground">
-                      รอบถัดไป: <b>{nextSession.name}</b> จะเปิดให้เช็กอินในวันที่{' '}
-                      {nStart.toLocaleString('th-TH', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}{' '}
-                      น.
-                    </AlertDescription>
-                  </Alert>
-                );
-              }
-            }
-            return null;
-          })()}
-
-          {activityData &&
-            statusInfo &&
-            statusInfo.status !== 'active' &&
-            !ipBlocked &&
-            !singleUserBlocked &&
-            !needsSurvey && (
-            <ActivityStatusAlert
-              status={statusInfo.status}
-              message={statusInfo.message}
-              startTime={statusInfo.startTime}
-              endTime={statusInfo.endTime}
-            />
           )}
 
           {activityData &&
@@ -1619,19 +1661,17 @@ const RegisterPageContent: React.FC = () => {
             !ipBlocked &&
             !isDuplicateRegistration &&
             !singleUserBlocked && (
-              <>
-                <div className="mb-4">
-                  <GeofenceMap
-                    center={{ lat: activityData.latitude, lng: activityData.longitude }}
-                    radius={activityData.checkInRadius}
-                    userPos={userPos}
-                    inRadius={inRadius}
-                    onUseCurrentLocation={triggerGeoCheck}
-                    title={activityData.activityName}
-                  />
-                </div>
+              <RegisterSection id="checkin" label="เช็กอิน" description="ตำแหน่งและสถานะก่อนลงทะเบียน">
+                <GeofenceMap
+                  center={{ lat: activityData.latitude, lng: activityData.longitude }}
+                  radius={activityData.checkInRadius}
+                  userPos={userPos}
+                  inRadius={inRadius}
+                  onUseCurrentLocation={triggerGeoCheck}
+                  title={activityData.activityName}
+                />
 
-                <Card className={cn(glassCardClass, 'mb-4 border-0 shadow-none')}>
+                <Card className={cn(glassCardClass, 'border-0 shadow-none')}>
                   <CardContent className="p-4 sm:p-6">
                     <div className="mb-4 flex items-center gap-3">
                       <SectionIcon icon={<GpsFixedIcon />} color={pageColors.accentInfo} />
@@ -1711,114 +1751,120 @@ const RegisterPageContent: React.FC = () => {
                     </div>
                   </CardContent>
                 </Card>
-              </>
+              </RegisterSection>
             )}
 
+          {/* ========== โซนรายละเอียด ========== */}
           {activityData && !ipBlocked && !singleUserBlocked && !needsSurvey && (
-            <Card className={cn(glassCardClass, 'mb-4 border-0 shadow-none')}>
-              <CardContent className="p-4 sm:p-6">
-                <div className="mb-5 flex items-center gap-3">
-                  <SectionIcon icon={<ArticleIcon />} color={pageColors.accentInfo} />
-                  <div>
-                    <h3 className="text-lg font-extrabold leading-tight">รายละเอียดกิจกรรม</h3>
-                    <p className="text-xs text-muted-foreground">ข้อมูลสำคัญก่อนลงทะเบียน</p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <RegisterSection
+              id="details"
+              label="รายละเอียด"
+              description="ข้อมูลสำคัญของกิจกรรม"
+            >
+              <Card className={cn(glassCardClass, 'border-0 shadow-none')}>
+                <CardContent className="p-4 sm:p-5">
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
                     <DetailSection icon={<EventStartIcon />} title="วันเวลาเริ่ม" color={pageColors.appleGreen}>
                       <p className="text-sm font-semibold">{formatDateTime(activityData.startDateTime)}</p>
                     </DetailSection>
                     <DetailSection icon={<EventEndIcon />} title="วันเวลาสิ้นสุด" color={pageColors.accentError}>
                       <p className="text-sm font-semibold">{formatDateTime(activityData.endDateTime)}</p>
                     </DetailSection>
+
+                    {activityData.location && (
+                      <DetailSection icon={<PlaceIcon />} title="สถานที่" color={pageColors.accentWarning}>
+                        <p className="text-sm font-semibold">{activityData.location}</p>
+                        {typeof activityData.checkInRadius === 'number' && activityData.checkInRadius > 0 && (
+                          <Badge variant="outline" className="mt-1.5 gap-1 font-semibold">
+                            <RadarIcon className="h-3.5 w-3.5" />
+                            รัศมีเช็กอิน {activityData.checkInRadius} เมตร
+                          </Badge>
+                        )}
+                      </DetailSection>
+                    )}
+
+                    {activityData.maxParticipants > 0 && (
+                      <DetailSection icon={<GroupsIcon />} title="จำนวนผู้สมัคร" color={pageColors.accentInfo}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-bold">
+                            {activityData.currentParticipants}/{activityData.maxParticipants} คน
+                          </p>
+                          <Badge
+                            variant={
+                              activityData.currentParticipants >= activityData.maxParticipants
+                                ? 'warning'
+                                : 'success'
+                            }
+                            className="font-bold"
+                          >
+                            {activityData.currentParticipants >= activityData.maxParticipants
+                              ? 'เต็มแล้ว'
+                              : `เหลืออีก ${Math.max(0, activityData.maxParticipants - activityData.currentParticipants)} ที่นั่ง`}
+                          </Badge>
+                        </div>
+                      </DetailSection>
+                    )}
                   </div>
 
-                  {activityData.location && (
-                    <DetailSection icon={<PlaceIcon />} title="สถานที่" color={pageColors.accentWarning}>
-                      <p className="text-sm font-semibold">{activityData.location}</p>
-                      {typeof activityData.checkInRadius === 'number' && activityData.checkInRadius > 0 && (
-                        <Badge variant="outline" className="mt-2 gap-1 font-semibold">
-                          <RadarIcon className="h-3.5 w-3.5" />
-                          รัศมีเช็กอิน {activityData.checkInRadius} เมตร
-                        </Badge>
+                  <div className="mt-3 border-t border-[var(--page-border)] pt-3">
+                    <DetailSection icon={<ArticleIcon />} title="คำอธิบาย" color="#636366">
+                      {activityData.description ? (
+                        <div
+                          className="ql-editor min-h-0 p-0 text-sm text-muted-foreground [&_img]:max-w-full [&_img]:rounded-lg"
+                          dangerouslySetInnerHTML={{ __html: activityData.description }}
+                        />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">ไม่มีคำอธิบายเพิ่มเติม</p>
                       )}
                     </DetailSection>
-                  )}
-
-                  {activityData.maxParticipants > 0 && (
-                    <DetailSection icon={<GroupsIcon />} title="จำนวนผู้สมัคร" color={pageColors.accentInfo}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-bold">
-                          {activityData.currentParticipants}/{activityData.maxParticipants} คน
-                        </p>
-                        <Badge
-                          variant={
-                            activityData.currentParticipants >= activityData.maxParticipants
-                              ? 'warning'
-                              : 'success'
-                          }
-                          className="font-bold"
-                        >
-                          {activityData.currentParticipants >= activityData.maxParticipants
-                            ? 'เต็มแล้ว'
-                            : `เหลืออีก ${Math.max(0, activityData.maxParticipants - activityData.currentParticipants)} ที่นั่ง`}
-                        </Badge>
-                      </div>
-                    </DetailSection>
-                  )}
-
-                  <DetailSection icon={<ArticleIcon />} title="คำอธิบาย" color="#636366">
-                    {activityData.description ? (
-                      <div
-                        className="ql-editor min-h-0 p-0 text-sm text-muted-foreground [&_img]:max-w-full [&_img]:rounded-lg"
-                        dangerouslySetInnerHTML={{ __html: activityData.description }}
-                      />
-                    ) : (
-                      <p className="text-sm text-muted-foreground">ไม่มีคำอธิบายเพิ่มเติม</p>
-                    )}
-                  </DetailSection>
-
-                  {activityData.sessions && activityData.sessions.length > 0 && (
-                    <DetailSection
-                      icon={<SessionsIcon />}
-                      title={`รอบกิจกรรมย่อย (${activityData.sessions.length} รอบ)`}
-                      hint="กรุณาเช็กอินให้ครบตามรอบที่กำหนด"
-                      color={pageColors.accentWarning}
-                    >
-                      <Alert variant="info" className="mb-3 rounded-lg py-2">
-                        <AlertDescription>
-                          แต่ละรอบมีช่วงเวลาของตัวเอง — เปิดหน้านี้ใหม่เมื่อถึงเวลารอบถัดไป
-                        </AlertDescription>
-                      </Alert>
-                      <div className="flex flex-col gap-2">
-                        {activityData.sessions.map((session: any, index: number) => {
-                          const isCheckedIn = checkedInSessions.includes(session.id);
-                          return (
-                            <SessionCard
-                              key={session.id || index}
-                              session={session}
-                              isCheckedIn={isCheckedIn}
-                            />
-                          );
-                        })}
-                      </div>
-                    </DetailSection>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                  </div>
+                </CardContent>
+              </Card>
+            </RegisterSection>
           )}
 
+          {/* ========== โซนรอบย่อย ========== */}
+          {activityData &&
+            !ipBlocked &&
+            !singleUserBlocked &&
+            !needsSurvey &&
+            activityData.sessions &&
+            activityData.sessions.length > 0 && (
+              <RegisterSection
+                id="sessions"
+                label="รอบกิจกรรมย่อย"
+                description={`${activityData.sessions.length} รอบ — เช็กอินให้ครบตามที่กำหนด`}
+              >
+                <Alert variant="info" className="rounded-xl py-3">
+                  <AlertDescription>
+                    แต่ละรอบมีช่วงเวลาของตัวเอง — เปิดหน้านี้ใหม่เมื่อถึงเวลารอบถัดไป
+                  </AlertDescription>
+                </Alert>
+                <div className="flex flex-col gap-2">
+                  {activityData.sessions.map((session: any, index: number) => {
+                    const isCheckedIn = checkedInSessions.includes(session.id);
+                    return (
+                      <SessionCard
+                        key={session.id || index}
+                        session={session}
+                        isCheckedIn={isCheckedIn}
+                      />
+                    );
+                  })}
+                </div>
+              </RegisterSection>
+            )}
+
           {shouldShowMicrosoftLogin() && activityData && !needsSurvey && (
-            <MicrosoftAuthSection
-              activityData={activityData}
-              onLoginSuccess={handleLoginSuccess}
-              onLoginError={handleLoginError}
-              onPreLoginCheck={handlePreLoginCheck}
-              checkingIP={checkingPreLogin}
-            />
+            <RegisterSection id="login" label="เข้าสู่ระบบ" description="ยืนยันตัวตนก่อนลงทะเบียน">
+              <MicrosoftAuthSection
+                activityData={activityData}
+                onLoginSuccess={handleLoginSuccess}
+                onLoginError={handleLoginError}
+                onPreLoginCheck={handlePreLoginCheck}
+                checkingIP={checkingPreLogin}
+              />
+            </RegisterSection>
           )}
 
           {user &&
@@ -1827,38 +1873,44 @@ const RegisterPageContent: React.FC = () => {
             !isDuplicateRegistration &&
             !sessionExpired &&
             !sessionValidating &&
-            !singleUserBlocked && <ProfileSetupAlert onEditProfile={() => setShowProfileDialog(true)} />}
+            !singleUserBlocked && (
+              <RegisterSection id="profile" label="โปรไฟล์" description="กรอกข้อมูลส่วนตัวให้ครบก่อนลงทะเบียน">
+                <ProfileSetupAlert onEditProfile={() => setShowProfileDialog(true)} />
+              </RegisterSection>
+            )}
 
           {statusInfo?.status === 'active' && adminSettings && activityCode && canProceedToRegistration() && activityData && (
-            <ActivityRegistrationForm
-              activityCode={activityCode}
-              activityDocId={activityData.id}
-              adminSettings={adminSettings}
-              checkedInSessions={checkedInSessions}
-              existingAuthStatus={isAuthed}
-              existingUserProfile={
-                user
-                  ? ({
-                      id: user.uid,
-                      email: user.email || '',
-                      displayName: user.displayName || '',
-                      givenName: userData?.firstName || '',
-                      surname: userData?.lastName || '',
-                      nameTitle: userData?.nameTitle || '',
-                      department: userData?.department || '',
-                      faculty: userData?.faculty || '',
-                      studentId: userData?.studentId || '',
-                      userType: userData?.userType,
-                      institutionName: userData?.institutionName,
-                      educationLevel: userData?.educationLevel || userData?.degreeLevel,
-                    } satisfies ActivityUserProfile)
-                  : undefined
-              }
-              onSuccess={handleRegistrationSuccess}
-              onLogout={handleLogout}
-              surveyConfig={(activityData as any).surveyConfig}
-              sessions={activityData.sessions}
-            />
+            <RegisterSection id="register-form" label="ลงทะเบียน" description="ยืนยันการเข้าร่วมกิจกรรม">
+              <ActivityRegistrationForm
+                activityCode={activityCode}
+                activityDocId={activityData.id}
+                adminSettings={adminSettings}
+                checkedInSessions={checkedInSessions}
+                existingAuthStatus={isAuthed}
+                existingUserProfile={
+                  user
+                    ? ({
+                        id: user.uid,
+                        email: user.email || '',
+                        displayName: user.displayName || '',
+                        givenName: userData?.firstName || '',
+                        surname: userData?.lastName || '',
+                        nameTitle: userData?.nameTitle || '',
+                        department: userData?.department || '',
+                        faculty: userData?.faculty || '',
+                        studentId: userData?.studentId || '',
+                        userType: userData?.userType,
+                        institutionName: userData?.institutionName,
+                        educationLevel: userData?.educationLevel || userData?.degreeLevel,
+                      } satisfies ActivityUserProfile)
+                    : undefined
+                }
+                onSuccess={handleRegistrationSuccess}
+                onLogout={handleLogout}
+                surveyConfig={(activityData as any).surveyConfig}
+                sessions={activityData.sessions}
+              />
+            </RegisterSection>
           )}
 
           <ProfileEditDialog
@@ -1900,8 +1952,9 @@ const RegisterPageContent: React.FC = () => {
             </div>
           )}
         </div>
-        <Footer />
       </div>
+
+      <Footer />
     </>
   );
 };

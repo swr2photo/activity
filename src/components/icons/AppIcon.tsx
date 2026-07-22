@@ -19,20 +19,18 @@ export type AppIconProps = Omit<LucideProps, "ref"> & {
 };
 
 /**
- * ตัวห่อ Lucide ให้ขนาด/stroke เดียวกันทั้งโปรเจกต์
+ * ตัวห่อไอคอน (Element Plus ผ่าน bridge lucide-react)
  * ใช้ผ่าน semantic icons ในไฟล์ domain (เช่น history.tsx) จะสะดวกกว่า
  */
 export function AppIcon({
   icon: Icon,
   size = "md",
   className,
-  strokeWidth = 2,
   ...props
 }: AppIconProps) {
   return (
     <Icon
       aria-hidden
-      strokeWidth={strokeWidth}
       className={cn("shrink-0", ICON_SIZE[size], className)}
       {...props}
     />

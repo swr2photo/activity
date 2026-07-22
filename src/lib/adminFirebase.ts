@@ -251,6 +251,9 @@ export interface Activity {
   description?: string;
   bannerUrl?: string;
   bannerAspect?: 'cover' | 'contain';
+  bannerColor?: string;
+  bannerTintColor?: string;
+  bannerTintOpacity?: number;
   location?: string;
   startDateTime?: Date;
   endDateTime?: Date;
@@ -339,6 +342,9 @@ export const getAllActivities = async (): Promise<Activity[]> => {
       description: data.description,
       bannerUrl: data.bannerUrl,
       bannerAspect: data.bannerAspect || 'cover',
+      bannerColor: data.bannerColor,
+      bannerTintColor: data.bannerTintColor,
+      bannerTintOpacity: data.bannerTintOpacity,
       location: data.location,
       startDateTime: toDateSafe(data.startDateTime),
       endDateTime: toDateSafe(data.endDateTime),
@@ -396,6 +402,9 @@ export const getActivitiesByDepartment = async (
       description: data.description,
       bannerUrl: data.bannerUrl,
       bannerAspect: data.bannerAspect || 'cover',
+      bannerColor: data.bannerColor,
+      bannerTintColor: data.bannerTintColor,
+      bannerTintOpacity: data.bannerTintOpacity,
       location: data.location,
       startDateTime: toDateSafe(data.startDateTime),
       endDateTime: toDateSafe(data.endDateTime),
@@ -441,6 +450,9 @@ export const subscribeActivities = (
       description: data.description,
       bannerUrl: data.bannerUrl,
       bannerAspect: data.bannerAspect || 'cover',
+      bannerColor: data.bannerColor,
+      bannerTintColor: data.bannerTintColor,
+      bannerTintOpacity: data.bannerTintOpacity,
       location: data.location,
       startDateTime: toDateSafe(data.startDateTime),
       endDateTime: toDateSafe(data.endDateTime),

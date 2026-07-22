@@ -93,6 +93,11 @@ import {
   type ActivityVersionMeta,
   type ActivityVersionDiffRow,
 } from '../../lib/adminFirebase';
+import {
+  buildActivityPosterCanvas,
+  downloadCanvasPng,
+  type PosterVariant,
+} from '../../lib/activityPoster';
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 import { QuillEditor } from './QuillEditor';
 import { ActivityTable } from './qr/ActivityTable';
@@ -460,11 +465,6 @@ const downloadDataUrl = (dataUrl: string, filename: string) => {
   a.remove();
 };
 
-const downloadCanvas = (canvas: HTMLCanvasElement, filename: string) => {
-  const url = canvas.toDataURL('image/png');
-  downloadDataUrl(url, filename);
-};
-
 // ปลอดภัยเวลา index DEPARTMENT_LABELS
 const deptLabelOf = (dept: string | undefined | null) =>
   (DEPARTMENT_LABELS as Record<string, string>)[String(dept ?? '')] ?? String(dept ?? '');
@@ -502,68 +502,8 @@ const fmt = (v: any, f = 'DD MMM YYYY HH:mm') => {
   return d.isValid() ? d.format(f) : '-';
 };
 
-/* ===================== Image helpers (safe) ===================== */
-const loadImageSafe = async (src: string, timeoutMs = 12000): Promise<HTMLImageElement | null> => {
-  return new Promise((resolve) => {
-    try {
-      const img = new Image();
-      if (/^https?:/i.test(src)) img.crossOrigin = 'anonymous';
-
-      let done = false;
-      const finish = (ok: boolean) => {
-        if (done) return;
-        done = true;
-        resolve(ok && img.naturalWidth > 0 && img.naturalHeight > 0 ? img : null);
-      };
-
-      const t = setTimeout(() => finish(false), timeoutMs);
-      img.onload = () => {
-        clearTimeout(t);
-        finish(true);
-      };
-      img.onerror = () => {
-        clearTimeout(t);
-        finish(false);
-      };
-
-      img.src = src;
-    } catch {
-      resolve(null);
-    }
-  });
-};
-
-const drawCover = (
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  dx: number,
-  dy: number,
-  dWidth: number,
-  dHeight: number
-) => {
-  const iw = img.naturalWidth,
-    ih = img.naturalHeight;
-  const ir = iw / ih,
-    tr = dWidth / dHeight;
-  let sx = 0,
-    sy = 0,
-    sw = iw,
-    sh = ih;
-  if (ir > tr) {
-    const newW = ih * tr;
-    sx = Math.round((iw - newW) / 2);
-    sw = Math.round(newW);
-  } else {
-    const newH = iw / tr;
-    sy = Math.round((ih - newH) / 2);
-    sh = Math.round(newH);
-  }
-  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dWidth, dHeight);
-};
-
 /* ===================== Types for local use ===================== */
 type BannerMode = 'image' | 'color' | 'none';
-type PosterVariant = 'square' | 'a4';
 
 type CreateForm = {
   activityName: string;
@@ -693,146 +633,6 @@ const serializeSurveyConfig = (cfg: CreateForm['surveyConfig']) => {
 interface Props {
   currentAdmin: AdminProfile;
 }
-
-/* ===================== Poster (Canvas) ===================== */
-const wrapText = (
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight: number
-) => {
-  const words = text.split(/\s+/);
-  let line = '';
-  let yy = y;
-  for (let n = 0; n < words.length; n++) {
-    const testLine = line + (line ? ' ' : '') + words[n];
-    const metrics = ctx.measureText(testLine);
-    const testWidth = metrics.width;
-    if (testWidth > maxWidth && n > 0) {
-      ctx.fillText(line, x, yy);
-      line = words[n];
-      yy += lineHeight;
-    } else {
-      line = testLine;
-    }
-  }
-  ctx.fillText(line, x, yy);
-  return yy;
-};
-
-/**
- * สร้างโปสเตอร์ (Canvas) แบบสวยงาม
- * - ใช้ short URL ใน QR (ป้องกันข้อมูลเยอะเกิน)
- * - วางหัวเรื่อง / เวลา / สถานที่ / QR / โค้ด
- */
-const buildPosterCanvas = async (a: Activity, variant: PosterVariant = 'square') => {
-  const shortUrl = makeShortUrl(a.activityCode);
-  const qrData = await generateQrPng(shortUrl, 1024);
-
-  const size =
-    variant === 'a4'
-      ? { w: 1240, h: 1754 } // A4 ~150dpi
-      : { w: 1080, h: 1350 }; // สี่เหลี่ยมแนวตั้ง
-
-  const canvas = document.createElement('canvas');
-  canvas.width = size.w;
-  canvas.height = size.h;
-  const ctx = canvas.getContext('2d')!;
-
-  const grd = ctx.createLinearGradient(0, 0, 0, size.h);
-  grd.addColorStop(0, '#e6efff');
-  grd.addColorStop(1, '#dff4ff');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, size.w, size.h);
-
-  const bannerColor = (a as any).bannerColor as string | undefined;
-  const tintColor = (a as any).bannerTintColor as string | undefined;
-  const tintOpacity =
-    typeof (a as any).bannerTintOpacity === 'number' ? Number((a as any).bannerTintOpacity) : 0.42;
-
-  const headerH = Math.round(size.h * 0.2);
-  let drewImage = false;
-  const bannerUrl = (a as any).bannerUrl as string | undefined;
-  if (bannerUrl) {
-    const img = await loadImageSafe(bannerUrl);
-    if (img) {
-      drawCover(ctx, img, 0, 0, size.w, headerH);
-      drewImage = true;
-      if (tintColor && tintOpacity > 0) {
-        ctx.fillStyle = tintColor;
-        ctx.globalAlpha = clamp(tintOpacity, 0, 1);
-        ctx.fillRect(0, 0, size.w, headerH);
-        ctx.globalAlpha = 1;
-      }
-    }
-  }
-  if (!drewImage) {
-    const bg = (bannerColor || '').startsWith('linear-gradient') ? '#4f46e5' : bannerColor || '#c7d2fe';
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, size.w, headerH);
-  }
-
-  const pad = Math.round(size.w * 0.04);
-  ctx.fillStyle = '#0b1220';
-  ctx.font = `600 ${Math.round(size.w * 0.04)}px Inter, "Noto Sans Thai", system-ui`;
-  ctx.fillText(deptLabelOf((a as any).department), pad, pad + Math.round(size.w * 0.04));
-
-  ctx.fillStyle = '#111827';
-  ctx.font = `800 ${Math.round(size.w * 0.065)}px Inter, "Noto Sans Thai", system-ui`;
-  const titleY = pad + Math.round(size.w * 0.04) + Math.round(size.w * 0.065) + 8;
-  wrapText(ctx, a.activityName || '-', pad, titleY, size.w - pad * 2, Math.round(size.w * 0.075));
-
-  ctx.fillStyle = '#334155';
-  ctx.font = `500 ${Math.round(size.w * 0.038)}px Inter, "Noto Sans Thai", system-ui`;
-  ctx.fillText(`${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`, pad, Math.round(headerH - pad * 0.8));
-
-  const panelY = headerH + Math.round(size.h * 0.02);
-  const panelH = size.h - panelY - Math.round(size.h * 0.05);
-  const panelR = Math.round(size.w * 0.02);
-  ctx.fillStyle = '#ffffff';
-  const rr = new Path2D();
-  rr.moveTo(pad + panelR, panelY);
-  rr.arcTo(size.w - pad, panelY, size.w - pad, panelY + panelR, panelR);
-  rr.arcTo(size.w - pad, panelY + panelH, size.w - pad - panelR, panelY + panelH, panelR);
-  rr.arcTo(pad, panelY + panelH, pad, panelY + panelH - panelR, panelR);
-  rr.arcTo(pad, panelY, pad + panelR, panelY, panelR);
-  ctx.fill(rr);
-
-  const qrImg = await loadImageSafe(qrData);
-  const qrSize = Math.min(Math.round(panelH * 0.7), Math.round(size.w * 0.75));
-  const qrX = Math.round((size.w - qrSize) / 2);
-  const qrY = Math.round(panelY + panelH * 0.08);
-  if (qrImg) {
-    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-  } else {
-    ctx.fillStyle = '#f1f5f9';
-    ctx.fillRect(qrX, qrY, qrSize, qrSize);
-    ctx.fillStyle = '#64748b';
-    ctx.font = `600 ${Math.round(size.w * 0.035)}px Inter, system-ui`;
-    ctx.fillText('QR โหลดไม่สำเร็จ', qrX + 16, qrY + Math.round(qrSize / 2));
-  }
-
-  ctx.fillStyle = '#111827';
-  ctx.font = `800 ${Math.round(size.w * 0.045)}px Inter, "Noto Sans Thai", system-ui`;
-  const codeText = `รหัสกิจกรรม: ${a.activityCode}`;
-  const codeY = qrY + qrSize + Math.round(size.w * 0.08);
-  ctx.fillText(codeText, pad, codeY);
-
-  if ((a as any).location) {
-    ctx.fillStyle = '#334155';
-    ctx.font = `600 ${Math.round(size.w * 0.036)}px Inter, "Noto Sans Thai", system-ui`;
-    wrapText(ctx, (a as any).location, pad, codeY + Math.round(size.w * 0.06), size.w - pad * 2, Math.round(size.w * 0.05));
-  }
-
-  ctx.fillStyle = '#64748b';
-  ctx.font = `400 ${Math.round(size.w * 0.028)}px Inter, system-ui`;
-  const u = new URL(shortUrl);
-  ctx.fillText(`สร้างด้วย ระบบลงทะเบียนกิจกรรม • ${u.host}${u.pathname}`, pad, size.h - Math.round(size.w * 0.02));
-
-  return canvas;
-};
 
 const toDayjsSafe = (v: any): Dayjs | null => {
   if (!v) return null;
@@ -2572,9 +2372,22 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     try {
       if (!dlMenu.activity) return;
       const a = dlMenu.activity;
-      const canvas = await buildPosterCanvas(a, variant);
-      const filename = `POSTER_${a.activityCode}_${variant}.png`;
-      downloadCanvas(canvas, filename);
+      const canvas = await buildActivityPosterCanvas(
+        {
+          activityCode: a.activityCode,
+          activityName: a.activityName,
+          department: a.department,
+          startDateTime: a.startDateTime,
+          endDateTime: a.endDateTime,
+          location: a.location,
+          bannerUrl: a.bannerUrl,
+          bannerColor: a.bannerColor,
+          bannerTintColor: a.bannerTintColor,
+          bannerTintOpacity: a.bannerTintOpacity,
+        },
+        { shortUrl: makeShortUrl(a.activityCode), variant }
+      );
+      downloadCanvasPng(canvas, `POSTER_${a.activityCode}_${variant}.png`);
     } finally {
       closeDownloadMenu();
     }
@@ -3481,10 +3294,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => handleDownloadPoster('square')}>
-            <ImageIcon className="h-4 w-4" /> โปสเตอร์ (สี่เหลี่ยมแนวตั้ง)
+            <ImageIcon className="h-4 w-4" /> โปสเตอร์ใหม่ (แนวตั้ง)
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => handleDownloadPoster('a4')}>
-            <ImageIcon className="h-4 w-4" /> โปสเตอร์ (A4)
+            <ImageIcon className="h-4 w-4" /> โปสเตอร์ใหม่ (A4)
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

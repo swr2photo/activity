@@ -82,10 +82,18 @@ const GoogleLogo: React.FC<{ size?: number }> = ({ size = 22 }) => (
 const glassNavBarClass = cn(
   'fixed left-0 right-0 z-50',
   'backdrop-blur-[20px] backdrop-saturate-180',
-  'bg-[color-mix(in_srgb,var(--page-card-solid)_75%,transparent)]',
-  'dark:bg-[color-mix(in_srgb,var(--page-card-solid)_75%,transparent)]',
+  'bg-[color-mix(in_srgb,var(--page-card-solid)_88%,transparent)]',
+  'dark:bg-[color-mix(in_srgb,var(--page-card-solid)_88%,transparent)]',
   'border-[var(--page-border)]',
   'shadow-[var(--page-shadow)]'
+);
+
+/** เส้นแบ่งโซนเมนู */
+const NavZoneDivider = ({ className }: { className?: string }) => (
+  <span
+    aria-hidden
+    className={cn('mx-1 hidden h-8 w-px shrink-0 bg-[var(--page-border)] sm:block', className)}
+  />
 );
 
 const Navbar: React.FC = () => {
@@ -163,10 +171,37 @@ const Navbar: React.FC = () => {
   }, [user?.uid, refreshUserData]);
 
   const navLinks = [
-    { label: 'หน้าแรก', path: '/', icon: Home, activeIcon: Home },
-    { label: 'กิจกรรม', path: '/activities', icon: CalendarDays, activeIcon: CalendarDays },
-    ...(user ? [{ label: 'ประวัติ', path: '/my-history', icon: History, activeIcon: History }] : []),
-    ...(currentAdmin ? [{ label: 'Admin', path: '/admin', icon: Shield, activeIcon: Shield }] : []),
+    { label: 'หน้าแรก', path: '/', icon: Home, activeIcon: Home, match: (p: string) => p === '/' },
+    {
+      label: 'กิจกรรม',
+      path: '/activities',
+      icon: CalendarDays,
+      activeIcon: CalendarDays,
+      match: (p: string) =>
+        p === '/activities' || p.startsWith('/register') || p.startsWith('/r/'),
+    },
+    ...(user
+      ? [
+          {
+            label: 'ประวัติ',
+            path: '/my-history',
+            icon: History,
+            activeIcon: History,
+            match: (p: string) => p.startsWith('/my-history'),
+          },
+        ]
+      : []),
+    ...(currentAdmin
+      ? [
+          {
+            label: 'Admin',
+            path: '/admin',
+            icon: Shield,
+            activeIcon: Shield,
+            match: (p: string) => p.startsWith('/admin'),
+          },
+        ]
+      : []),
   ];
 
   const handleConfirmLogout = async () => {
@@ -317,130 +352,204 @@ const Navbar: React.FC = () => {
         className={cn(
           glassNavBarClass,
           isTabletOrMobile
-            ? 'bottom-0 top-auto rounded-t-3xl border-t pb-[env(safe-area-inset-bottom)]'
+            ? 'bottom-0 top-auto rounded-t-[1.35rem] border-t pb-[env(safe-area-inset-bottom)]'
             : 'top-0 border-b'
         )}
       >
-        <div className="mx-auto max-w-5xl px-4">
+        <div className="mx-auto max-w-5xl px-3 sm:px-4">
           <div
             className={cn(
-              'flex items-center justify-between',
-              isTabletOrMobile ? 'h-[70px]' : 'h-16'
+              'flex items-center',
+              isTabletOrMobile ? 'h-[74px] gap-2' : 'h-[4.25rem] gap-3'
             )}
           >
+            {/* ========== Desktop ========== */}
             {!isTabletOrMobile && (
-              <Link href="/" className="flex items-center gap-3 no-underline transition-opacity hover:opacity-80">
-                <div className="flex rounded bg-primary p-1 shadow-[0_4px_12px_rgba(var(--primary),0.3)]">
-                  <FlaskConical className="h-6 w-6 text-primary-foreground" />
+              <>
+                {/* Zone A — Brand */}
+                <Link
+                  href="/"
+                  className="group flex min-w-0 shrink-0 items-center gap-3 no-underline"
+                  aria-label="PSU REGISTER หน้าแรก"
+                >
+                  <div
+                    className="flex h-11 w-11 items-center justify-center rounded-xl text-primary-foreground shadow-sm transition-transform group-hover:scale-[1.03]"
+                    style={{
+                      background:
+                        'linear-gradient(145deg, #0a6bcf 0%, #0d4f8a 55%, #0b3d6b 100%)',
+                    }}
+                  >
+                    <FlaskConical className="h-5 w-5" />
+                  </div>
+                  <div className="flex min-w-0 flex-col leading-none">
+                    <span className="text-[1.05rem] font-black tracking-tight text-[var(--page-text)]">
+                      PSU REGISTER
+                    </span>
+                    <span className="mt-1 text-[0.68rem] font-semibold tracking-wide text-muted-foreground">
+                      Faculty of Science
+                    </span>
+                  </div>
+                </Link>
+
+                <NavZoneDivider className="mx-2" />
+
+                {/* Zone B — Primary navigation */}
+                <nav
+                  aria-label="เมนูหลัก"
+                  className="flex min-w-0 flex-1 items-center"
+                >
+                  <div
+                    className={cn(
+                      'inline-flex items-center gap-0.5 rounded-xl border p-1',
+                      'border-[var(--page-border)]',
+                      'bg-[color-mix(in_srgb,var(--page-bg)_70%,transparent)]'
+                    )}
+                  >
+                    {navLinks.map((link) => {
+                      const active = link.match(pathname || '');
+                      return (
+                        <Button
+                          key={link.label}
+                          asChild
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            'h-9 rounded-lg px-3.5 text-sm font-bold transition-colors',
+                            active
+                              ? 'bg-[var(--page-card-solid)] text-[var(--page-text)] shadow-sm'
+                              : 'text-muted-foreground hover:bg-transparent hover:text-[var(--page-text)]'
+                          )}
+                        >
+                          <Link href={link.path} aria-current={active ? 'page' : undefined}>
+                            {link.label}
+                          </Link>
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </nav>
+
+                <NavZoneDivider />
+
+                {/* Zone C — Utilities / account */}
+                <div className="flex shrink-0 items-center gap-2">
+                  <div
+                    className={cn(
+                      'flex items-center gap-1 rounded-xl border px-1.5 py-1',
+                      'border-[var(--page-border)]',
+                      'bg-[color-mix(in_srgb,var(--page-bg)_70%,transparent)]'
+                    )}
+                  >
+                    <ThemeToggle />
+                  </div>
+
+                  {authLoading ? (
+                    <div
+                      className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-muted"
+                      aria-hidden
+                      title="กำลังตรวจสอบสถานะเข้าสู่ระบบ"
+                    />
+                  ) : user ? (
+                    profileMenu
+                  ) : (
+                    <Button
+                      onClick={() => setLoginOpen(true)}
+                      disabled={loginBusy}
+                      className="h-10 rounded-xl px-5 font-bold"
+                    >
+                      <LogIn className="h-4 w-4" />
+                      เข้าสู่ระบบ
+                    </Button>
+                  )}
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-base font-black leading-tight tracking-tight">PSU REGISTER</span>
-                  <span className="text-xs font-semibold text-muted-foreground">Faculty of Science</span>
-                </div>
-              </Link>
+              </>
             )}
 
-            {!isTabletOrMobile && (
-              <div className="flex items-center gap-4">
-                <nav className="flex items-center gap-1">
+            {/* ========== Mobile bottom bar ========== */}
+            {isTabletOrMobile && (
+              <div className="flex w-full items-stretch gap-2">
+                {/* Zone B — Primary navigation */}
+                <nav
+                  aria-label="เมนูหลัก"
+                  className={cn(
+                    'flex min-w-0 flex-1 items-center justify-around rounded-2xl border px-1 py-1.5',
+                    'border-[var(--page-border)]',
+                    'bg-[color-mix(in_srgb,var(--page-bg)_65%,transparent)]'
+                  )}
+                >
                   {navLinks.map((link) => {
-                    const active = pathname === link.path;
+                    const isActive = link.match(pathname || '');
+                    const Icon = isActive ? link.activeIcon : link.icon;
                     return (
-                      <Button
+                      <Link
                         key={link.label}
-                        asChild
-                        variant="ghost"
+                        href={link.path}
+                        aria-current={isActive ? 'page' : undefined}
                         className={cn(
-                          'rounded-lg px-4 font-bold',
-                          active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-primary'
+                          'relative flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1 no-underline transition-colors',
+                          isActive ? 'text-primary' : 'text-muted-foreground'
                         )}
                       >
-                        <Link href={link.path}>{link.label}</Link>
-                      </Button>
+                        <span
+                          className={cn(
+                            'inline-flex rounded-lg p-1 transition-transform duration-200',
+                            isActive && 'bg-primary/10'
+                          )}
+                        >
+                          <Icon className={cn('h-5 w-5', isActive && 'text-primary')} />
+                        </span>
+                        <span
+                          className={cn(
+                            'max-w-full truncate text-[0.62rem] font-extrabold',
+                            isActive ? 'opacity-100' : 'opacity-70'
+                          )}
+                        >
+                          {link.label}
+                        </span>
+                      </Link>
                     );
                   })}
                 </nav>
 
-                <div className="h-6 w-px bg-border" />
-
-                <ThemeToggle />
-
-                {authLoading ? (
-                  <div
-                    className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-muted"
-                    aria-hidden
-                    title="กำลังตรวจสอบสถานะเข้าสู่ระบบ"
-                  />
-                ) : user ? (
-                  profileMenu
-                ) : (
-                  <Button
-                    onClick={() => setLoginOpen(true)}
-                    disabled={loginBusy}
-                    className="rounded-2xl px-6 font-bold"
-                  >
-                    <LogIn className="h-4 w-4" />
-                    เข้าสู่ระบบ
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {isTabletOrMobile && (
-              <div className="flex w-full items-center justify-around">
-                {navLinks.map((link) => {
-                  const isActive = pathname === link.path;
-                  const Icon = isActive ? link.activeIcon : link.icon;
-                  return (
-                    <Link
-                      key={link.label}
-                      href={link.path}
-                      className={cn(
-                        'relative flex flex-col items-center gap-1 no-underline',
-                        isActive ? 'text-primary' : 'text-muted-foreground'
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'inline-flex transition-transform duration-200',
-                          isActive && '-translate-y-1 scale-110'
-                        )}
-                      >
-                        <Icon className={cn('h-5 w-5', isActive && 'text-primary')} />
-                      </span>
-                      <span className={cn('text-[0.65rem] font-extrabold', isActive ? 'opacity-100' : 'opacity-70')}>
-                        {link.label}
-                      </span>
-                      {isActive && (
-                        <span className="absolute -bottom-1 h-1 w-1 rounded-full bg-primary" />
-                      )}
-                    </Link>
-                  );
-                })}
-
-                <div className="flex flex-col items-center gap-1">
-                  <ThemeToggle />
-                  <span className="text-[0.65rem] font-extrabold text-muted-foreground opacity-70">ธีม</span>
-                </div>
-
-                {authLoading ? (
-                  <div className="flex flex-col items-center gap-1" aria-hidden>
-                    <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
-                    <span className="text-[0.65rem] font-extrabold text-muted-foreground opacity-40">…</span>
+                {/* Zone C — Tools / account */}
+                <div
+                  className={cn(
+                    'flex shrink-0 items-center justify-around gap-1 rounded-2xl border px-2 py-1.5',
+                    'border-[var(--page-border)]',
+                    'bg-[color-mix(in_srgb,var(--page-bg)_65%,transparent)]'
+                  )}
+                  aria-label="เครื่องมือและบัญชี"
+                >
+                  <div className="flex flex-col items-center gap-0.5 px-1.5">
+                    <ThemeToggle />
+                    <span className="text-[0.62rem] font-extrabold text-muted-foreground opacity-70">
+                      ธีม
+                    </span>
                   </div>
-                ) : user ? (
-                  profileMenu
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setLoginOpen(true)}
-                    disabled={loginBusy}
-                    className="flex cursor-pointer flex-col items-center gap-1 text-muted-foreground disabled:opacity-50"
-                  >
-                    <LogIn className="h-5 w-5" />
-                    <span className="text-[0.65rem] font-extrabold opacity-70">เข้าสู่ระบบ</span>
-                  </button>
-                )}
+
+                  <span aria-hidden className="h-8 w-px bg-[var(--page-border)]" />
+
+                  {authLoading ? (
+                    <div className="flex flex-col items-center gap-0.5 px-1.5" aria-hidden>
+                      <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
+                      <span className="text-[0.62rem] font-extrabold text-muted-foreground opacity-40">
+                        …
+                      </span>
+                    </div>
+                  ) : user ? (
+                    profileMenu
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setLoginOpen(true)}
+                      disabled={loginBusy}
+                      className="flex cursor-pointer flex-col items-center gap-0.5 px-1.5 text-muted-foreground disabled:opacity-50"
+                    >
+                      <LogIn className="h-5 w-5" />
+                      <span className="text-[0.62rem] font-extrabold opacity-70">เข้าสู่ระบบ</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -584,7 +693,7 @@ const Navbar: React.FC = () => {
           onSave={handleSaveProfile}
         />
       </header>
-      {!isTabletOrMobile && <div aria-hidden className="h-16 shrink-0" />}
+      {!isTabletOrMobile && <div aria-hidden className="h-[4.25rem] shrink-0" />}
     </>
   );
 };

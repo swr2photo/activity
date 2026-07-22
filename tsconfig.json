@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "lucide-react": [
+        "./src/components/icons/lucide-ep-bridge"
       ]
     }
   },

@@ -75,17 +75,26 @@ function App() {
   });
 
   useEffect(() => {
+    let unsubLive: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (user: User | null) => {
+      unsubLive?.();
+      unsubLive = null;
+
       if (user) {
         await bootstrapAdminOnce(user);
-        startLiveAdminSubscribe(user.uid);
+        unsubLive = startLiveAdminSubscribe(user.uid);
       } else {
         setCurrentAdmin(null);
       }
       setAuthChecked(true);
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubLive?.();
+      unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -118,7 +127,7 @@ function App() {
       lastLoginAt: d.lastLogin instanceof Timestamp ? d.lastLogin.toDate() : (d.lastLogin as Date) ?? new Date(),
       createdAt: d.createdAt instanceof Timestamp ? d.createdAt.toDate() : (d.createdAt as Date) ?? new Date(),
       permissions: Array.isArray(d.permissions) ? d.permissions : (ROLE_PERMISSIONS[mappedRole] ?? []),
-      updatedAt: new Date(),
+      updatedAt: d.updatedAt instanceof Timestamp ? d.updatedAt.toDate() : new Date(),
       profileImage: d.profileImage,
       profileImagePosX: clamp(d.profileImagePosX) ?? 50,
       profileImagePosY: clamp(d.profileImagePosY) ?? 50,
@@ -137,21 +146,43 @@ function App() {
         if (!prev) return prev;
         const rawRole = d.role as string;
         const mappedRole = (rawRole === 'admin' ? 'department_admin' : rawRole) as AdminRole;
-        const merged: AdminProfile = normalizeAdmin({
+        const nextEmail = d.email ?? prev.email;
+        const nextDisplayName = d.displayName ?? prev.displayName;
+        const nextFirstName = d.firstName ?? prev.firstName;
+        const nextLastName = d.lastName ?? prev.lastName;
+        const nextDept = normalizeDepartment(d.department ?? prev.department);
+        const nextPerms = Array.isArray(d.permissions) ? d.permissions : prev.permissions;
+        const nextImage = d.profileImage ?? prev.profileImage;
+        const nextX = clamp(d.profileImagePosX) ?? prev.profileImagePosX;
+        const nextY = clamp(d.profileImagePosY) ?? prev.profileImagePosY;
+
+        // ข้าม setState ถ้าข้อมูลสำคัญไม่เปลี่ยน — ลดการกระพริบ
+        const same =
+          prev.email === nextEmail &&
+          prev.displayName === nextDisplayName &&
+          prev.firstName === nextFirstName &&
+          prev.lastName === nextLastName &&
+          prev.department === nextDept &&
+          prev.role === mappedRole &&
+          prev.profileImage === nextImage &&
+          prev.profileImagePosX === nextX &&
+          prev.profileImagePosY === nextY &&
+          JSON.stringify(prev.permissions) === JSON.stringify(nextPerms);
+        if (same) return prev;
+
+        return normalizeAdmin({
           ...prev,
-          email: d.email ?? prev.email,
-          displayName: d.displayName ?? prev.displayName,
-          firstName: d.firstName ?? prev.firstName,
-          lastName: d.lastName ?? prev.lastName,
-          department: normalizeDepartment(d.department ?? prev.department),
+          email: nextEmail,
+          displayName: nextDisplayName,
+          firstName: nextFirstName,
+          lastName: nextLastName,
+          department: nextDept,
           role: mappedRole,
-          permissions: Array.isArray(d.permissions) ? d.permissions : prev.permissions,
-          profileImage: d.profileImage ?? prev.profileImage,
-          profileImagePosX: clamp(d.profileImagePosX) ?? prev.profileImagePosX,
-          profileImagePosY: clamp(d.profileImagePosY) ?? prev.profileImagePosY,
-          updatedAt: new Date(),
+          permissions: nextPerms,
+          profileImage: nextImage,
+          profileImagePosX: nextX,
+          profileImagePosY: nextY,
         } as AdminProfile);
-        return merged;
       });
     });
   };

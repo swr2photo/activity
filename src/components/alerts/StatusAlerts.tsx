@@ -1,6 +1,7 @@
 // components/alerts/StatusAlerts.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { User, Pencil, X } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -76,15 +77,18 @@ export const DuplicateRegistrationAlert: React.FC = () => {
   return (
     <Alert
       variant="success"
-      className="mb-6 border-[#10b981] bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] dark:from-emerald-950/40 dark:to-emerald-900/30"
+      className="border-[#10b981] bg-gradient-to-br from-[#ecfdf5] to-[#d1fae5] dark:from-emerald-950/40 dark:to-emerald-900/30"
     >
       <AlertTitle className="font-bold">ลงทะเบียนเรียบร้อยแล้ว</AlertTitle>
       <AlertDescription>
         <p>บัญชีนี้บันทึกการเข้าร่วมกิจกรรมนี้ไว้แล้ว ไม่ต้องลงทะเบียนซ้ำ</p>
-        <div className="mt-4 rounded-md bg-emerald-500/10 p-4">
+        <div className="mt-4 flex flex-col gap-3 rounded-md bg-emerald-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">
-            ดูประวัติได้ที่เมนู «ประวัติ» — หากข้อมูลไม่ถูกต้อง กรุณาติดต่อผู้ดูแลกิจกรรม
+            หากข้อมูลไม่ถูกต้อง กรุณาติดต่อผู้ดูแลกิจกรรม
           </p>
+          <Button asChild size="sm" variant="outline" className="shrink-0 font-bold">
+            <Link href="/my-history">ดูประวัติ</Link>
+          </Button>
         </div>
       </AlertDescription>
     </Alert>
@@ -214,7 +218,7 @@ export const ActivityStatusAlert: React.FC<ActivityStatusAlertProps> = ({
         : 'border-[#3b82f6] bg-gradient-to-br from-[#dbeafe] to-[#bfdbfe] dark:from-blue-950/40 dark:to-blue-900/30';
 
   return (
-    <Alert variant={variant} className={cn('mb-6', bgClass)}>
+    <Alert variant={variant} className={cn(bgClass)}>
       <AlertTitle className="font-bold">
         {status === 'inactive' && 'กิจกรรมถูกปิดใช้งาน'}
         {status === 'upcoming' && 'กิจกรรมยังไม่เปิดให้ลงทะเบียน'}
