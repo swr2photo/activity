@@ -218,15 +218,21 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
 
   const circleOptions = useMemo<google.maps.CircleOptions>(
     () => ({
-      fillColor: inRadius ? '#16a34a' : '#0a6bcf',
-      fillOpacity: inRadius ? 0.22 : 0.14,
-      strokeColor: inRadius ? '#15803d' : '#0a6bcf',
+      fillColor: inRadius && !editable ? '#16a34a' : '#0a6bcf',
+      fillOpacity: inRadius && !editable ? 0.22 : 0.14,
+      strokeColor: inRadius && !editable ? '#15803d' : '#0a6bcf',
       strokeOpacity: 0.9,
       strokeWeight: 2,
       clickable: false,
     }),
-    [inRadius]
+    [inRadius, editable]
   );
+
+  // เมื่อพิกัดเปลี่ยนจากฟอร์ม/ค้นหา — เลื่อนแผนที่ตาม (โดยเฉพาะโหมดแก้ไข)
+  useEffect(() => {
+    if (!map) return;
+    map.panTo(center);
+  }, [map, center.lat, center.lng]);
 
   const handleDirections = useCallback(
     (res: google.maps.DirectionsResult | null, status: string) => {
@@ -243,7 +249,13 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
     []
   );
 
-  const statusTone = inRadius ? 'success' : showingRoute ? 'info' : 'warning';
+  const statusTone = editable
+    ? 'info'
+    : inRadius
+      ? 'success'
+      : showingRoute
+        ? 'info'
+        : 'warning';
   const statusBg =
     statusTone === 'success'
       ? 'bg-emerald-500/10'
@@ -252,10 +264,18 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
         : 'bg-amber-500/15';
   const statusFg =
     statusTone === 'success'
-      ? 'text-emerald-700'
+      ? 'text-emerald-700 dark:text-emerald-400'
       : statusTone === 'info'
         ? 'text-[#0a6bcf]'
-        : 'text-amber-700';
+        : 'text-amber-700 dark:text-amber-400';
+
+  const statusSubtitle = editable
+    ? `รัศมีเช็คอิน ${Math.round(radius || 0)} ม. — คลิกบนแผนที่เพื่อย้ายจุด`
+    : inRadius
+      ? 'อยู่ในพื้นที่แล้ว — พร้อมลงทะเบียน'
+      : showingRoute
+        ? `กำลังนำทาง (${travelMode === 'DRIVING' ? 'ขับรถ' : 'เดิน'})`
+        : 'อยู่นอกพื้นที่กิจกรรม';
 
   const shellClass = cn(
     'relative w-full max-w-full overflow-hidden rounded-2xl border border-border/50 bg-card shadow-[0_8px_28px_rgba(0,0,0,0.08)] sm:rounded-[20px]',
@@ -329,7 +349,9 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
             statusBg
           )}
         >
-          {inRadius ? (
+          {editable ? (
+            <MapPin className={cn('h-5 w-5 shrink-0', statusFg)} />
+          ) : inRadius ? (
             <CheckCircle2 className={cn('h-5 w-5 shrink-0', statusFg)} />
           ) : (
             <TriangleAlert className={cn('h-5 w-5 shrink-0', statusFg)} />
@@ -339,11 +361,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
               {title}
             </p>
             <p className={cn('truncate text-[0.72rem] font-semibold leading-tight', statusFg)}>
-              {inRadius
-                ? 'อยู่ในพื้นที่แล้ว — พร้อมลงทะเบียน'
-                : showingRoute
-                  ? `กำลังนำทาง (${travelMode === 'DRIVING' ? 'ขับรถ' : 'เดิน'})`
-                  : 'อยู่นอกพื้นที่กิจกรรม'}
+              {statusSubtitle}
             </p>
           </div>
           {showingRoute && (
@@ -373,7 +391,15 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
               onCenterChange?.({ lat: e.latLng.lat(), lng: e.latLng.lng() });
             }}
           >
-            <MarkerF position={center} icon={eventIcon} />
+            <MarkerF
+              position={center}
+              icon={eventIcon}
+              draggable={editable}
+              onDragEnd={(e) => {
+                if (!editable || !e.latLng) return;
+                onCenterChange?.({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+              }}
+            />
             <CircleF
               center={center}
               radius={Math.max(0, radius || 0)}
@@ -454,7 +480,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
           )}
         </div>
 
-        {!inRadius && userPos && (
+        {!editable && !inRadius && userPos && (
           <div className="border-t border-border/35 bg-muted/40 p-3">
             <p className="mb-2 block text-xs font-semibold text-muted-foreground">
               {showingRoute
@@ -498,11 +524,19 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
           </div>
         )}
 
-        {inRadius && (
+        {!editable && inRadius && (
           <div className="flex items-center gap-2 border-t border-emerald-500/25 bg-emerald-500/10 px-3 py-2">
             <CheckCircle2 className="h-[18px] w-[18px] text-emerald-700" />
             <p className="text-xs font-bold text-emerald-700">
               คุณอยู่ในรัศมีกิจกรรมแล้ว
+            </p>
+          </div>
+        )}
+
+        {editable && (
+          <div className="border-t border-border/35 bg-muted/30 px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">
+              คลิกบนแผนที่หรือลากหมุดเพื่อตั้งจุดกิจกรรม · ใช้ไอคอนหมุดด้านขวาเพื่อตั้งเป็นตำแหน่งปัจจุบัน
             </p>
           </div>
         )}

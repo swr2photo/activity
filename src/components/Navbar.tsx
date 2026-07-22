@@ -16,6 +16,7 @@ import {
   X,
   GraduationCap,
   UserRound,
+  CalendarDays,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -163,6 +164,7 @@ const Navbar: React.FC = () => {
 
   const navLinks = [
     { label: 'หน้าแรก', path: '/', icon: Home, activeIcon: Home },
+    { label: 'กิจกรรม', path: '/activities', icon: CalendarDays, activeIcon: CalendarDays },
     ...(user ? [{ label: 'ประวัติ', path: '/my-history', icon: History, activeIcon: History }] : []),
     ...(currentAdmin ? [{ label: 'Admin', path: '/admin', icon: Shield, activeIcon: Shield }] : []),
   ];

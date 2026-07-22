@@ -510,13 +510,76 @@ export const subscribeActivities = (
   };
 };
 
-/** ใหม่: Toggle แบบ Transaction + version bump + เหตุผลปิด + ผู้แก้ไข */
+/** เมื่อเปิดใหม่แต่เวลาสิ้นสุดอยู่ในอดีต — ขยายหน้าต่างลงทะเบียนให้ใช้งานได้ทันที */
+const REOPEN_EXTEND_MS = 24 * 60 * 60 * 1000;
+
+function buildReopenSchedulePatch(cur: any, now = new Date()): Record<string, any> {
+  const patch: Record<string, any> = {};
+  const newEnd = new Date(now.getTime() + REOPEN_EXTEND_MS);
+
+  const end = toDateSafe(cur.endDateTime);
+  const start = toDateSafe(cur.startDateTime);
+  const mainEnded = !end || end.getTime() < now.getTime();
+
+  if (mainEnded) {
+    patch.endDateTime = Timestamp.fromDate(newEnd);
+    if (!start || start.getTime() > newEnd.getTime()) {
+      patch.startDateTime = Timestamp.fromDate(now);
+    }
+  }
+
+  if (Array.isArray(cur.sessions) && cur.sessions.length > 0) {
+    const hasOpenOrUpcoming = cur.sessions.some((s: any) => {
+      const sEnd = toDateSafe(s.endDateTime);
+      return sEnd && sEnd.getTime() >= now.getTime();
+    });
+
+    if (!hasOpenOrUpcoming) {
+      let lastIdx = 0;
+      let lastEndMs = -Infinity;
+      cur.sessions.forEach((s: any, i: number) => {
+        const sEnd = toDateSafe(s.endDateTime)?.getTime() ?? -Infinity;
+        if (sEnd >= lastEndMs) {
+          lastEndMs = sEnd;
+          lastIdx = i;
+        }
+      });
+
+      patch.sessions = cur.sessions.map((s: any, i: number) => {
+        if (i !== lastIdx) return s;
+        const sStart = toDateSafe(s.startDateTime);
+        return {
+          ...s,
+          startDateTime: !sStart || sStart.getTime() > newEnd.getTime() ? Timestamp.fromDate(now) : s.startDateTime,
+          endDateTime: Timestamp.fromDate(newEnd),
+        };
+      });
+
+      if (!patch.endDateTime) {
+        patch.endDateTime = Timestamp.fromDate(newEnd);
+      }
+    }
+  }
+
+  return patch;
+}
+
+export type ToggleActivityLiveResult = {
+  extendedSchedule: boolean;
+};
+
+/** ใหม่: Toggle แบบ Transaction + version bump + เหตุผลปิด + ผู้แก้ไข
+ * เมื่อเปิดใช้งาน (nextIsActive=true) ถ้าวันสิ้นสุด/รอบอยู่ในอดีต จะขยายอัตโนมัติ 24 ชม.
+ */
 export const toggleActivityLive = async (
   activityId: string,
   nextIsActive: boolean,
-  admin: { uid?: string; email?: string } = {}
-) => {
+  admin: { uid?: string; email?: string } = {},
+  opts: { extendIfEnded?: boolean } = {}
+): Promise<ToggleActivityLiveResult> => {
   const ref = doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId);
+  const extendIfEnded = opts.extendIfEnded !== false;
+  let extendedSchedule = false;
 
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
@@ -525,14 +588,24 @@ export const toggleActivityLive = async (
     const cur = snap.data() as any;
     const activityCode = cur?.activityCode as string | undefined;
 
-    tx.update(ref, {
+    const update: Record<string, any> = {
       isActive: nextIsActive,
       closeReason: nextIsActive ? (cur.closeReason || '') : (cur.closeReason || 'ปิดรับลงทะเบียนแล้ว'),
       lastToggledAt: serverTimestamp(),
       lastToggledBy: admin?.uid || admin?.email || 'unknown_admin',
       stateVersion: Number(cur?.stateVersion || 0) + 1,
       updatedAt: serverTimestamp(),
-    });
+    };
+
+    if (nextIsActive && extendIfEnded) {
+      const schedulePatch = buildReopenSchedulePatch(cur);
+      if (Object.keys(schedulePatch).length > 0) {
+        Object.assign(update, schedulePatch);
+        extendedSchedule = true;
+      }
+    }
+
+    tx.update(ref, update);
 
     // mirror legacy (best-effort)
     if (activityCode) {
@@ -543,12 +616,29 @@ export const toggleActivityLive = async (
           lastToggledAt: serverTimestamp(),
           lastToggledBy: admin?.uid || admin?.email || 'unknown_admin',
           updatedAt: serverTimestamp(),
+          ...(extendedSchedule
+            ? {
+                startDateTime: update.startDateTime,
+                endDateTime: update.endDateTime,
+                sessions: update.sessions,
+              }
+            : {}),
         });
       } catch {
         /* ignore */
       }
     }
   });
+
+  return { extendedSchedule };
+};
+
+/** เปิดกิจกรรมที่สิ้นสุดแล้วอีกครั้ง (บังคับ isActive + ขยายเวลา 24 ชม.) */
+export const reopenEndedActivity = async (
+  activityId: string,
+  admin: { uid?: string; email?: string } = {}
+): Promise<ToggleActivityLiveResult> => {
+  return toggleActivityLive(activityId, true, admin, { extendIfEnded: true });
 };
 
 // Create/Update/Delete Activities
@@ -666,6 +756,185 @@ export const updateActivity = async (activityId: string, patch: UpdateActivityIn
   } catch {
     /* ignore */
   }
+};
+
+/* =========================
+ * Activity version history
+ * ========================= */
+const ACTIVITY_VERSION_LIMIT = 20;
+
+/** ฟิลด์ที่ไม่ควรย้อนกลับ (นับผู้สมัคร / รหัสที่แจกไปแล้ว / token) */
+const ACTIVITY_VERSION_PRESERVE_KEYS = new Set([
+  'activityCode',
+  'department',
+  'currentParticipants',
+  'registrationCodeAssigned',
+  'registrationCodeNext',
+  'dynamicToken',
+  'previousDynamicToken',
+  'clicksCount',
+  'createdAt',
+]);
+
+export type ActivityVersionMeta = {
+  id: string;
+  savedAt?: Date;
+  savedBy: string;
+  mode: string;
+  label?: string;
+  stateVersion?: number;
+};
+
+export type ActivityVersionDoc = ActivityVersionMeta & {
+  snapshot: Record<string, any>;
+};
+
+function cloneForVersionSnapshot(data: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(data || {})) {
+    if (v === undefined) continue;
+    // ไม่เก็บ FieldValue / serverTimestamp objects ที่ยังไม่ resolve
+    if (typeof v === 'function') continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+async function pruneActivityVersions(qrDocId: string) {
+  try {
+    const col = collection(db, PRIMARY_ACTIVITY_COLLECTION, qrDocId, 'versions');
+    const snap = await getDocs(query(col, orderBy('savedAt', 'desc')));
+    if (snap.size <= ACTIVITY_VERSION_LIMIT) return;
+    const extras = snap.docs.slice(ACTIVITY_VERSION_LIMIT);
+    await Promise.all(extras.map((d) => deleteDoc(d.ref)));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** เก็บ snapshot เอกสารปัจจุบันก่อนแก้ไข */
+export const archiveActivityVersion = async (
+  qrDocId: string,
+  currentData: Record<string, any>,
+  meta: { savedBy: string; mode?: string; label?: string }
+) => {
+  if (!qrDocId || !currentData) return null;
+  const snapshot = cloneForVersionSnapshot(currentData);
+  const ref = await addDoc(collection(db, PRIMARY_ACTIVITY_COLLECTION, qrDocId, 'versions'), {
+    snapshot,
+    savedAt: serverTimestamp(),
+    savedBy: meta.savedBy || 'unknown',
+    mode: meta.mode || 'edit',
+    label: meta.label || '',
+    stateVersion: currentData.stateVersion ?? null,
+    activityCode: currentData.activityCode || '',
+    activityName: currentData.activityName || '',
+  });
+  void pruneActivityVersions(qrDocId);
+  return ref.id;
+};
+
+/** รายการเวอร์ชันล่าสุด */
+export const listActivityVersions = async (qrDocId: string): Promise<ActivityVersionMeta[]> => {
+  const col = collection(db, PRIMARY_ACTIVITY_COLLECTION, qrDocId, 'versions');
+  const snap = await getDocs(query(col, orderBy('savedAt', 'desc'), qLimit(ACTIVITY_VERSION_LIMIT)));
+  return snap.docs.map((d) => {
+    const data = d.data() as any;
+    return {
+      id: d.id,
+      savedAt: toDateSafe(data.savedAt),
+      savedBy: data.savedBy || '',
+      mode: data.mode || 'edit',
+      label: data.label || data.activityName || '',
+      stateVersion: data.stateVersion,
+    };
+  });
+};
+
+export const getActivityVersion = async (
+  qrDocId: string,
+  versionId: string
+): Promise<ActivityVersionDoc | null> => {
+  const snap = await getDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, qrDocId, 'versions', versionId));
+  if (!snap.exists()) return null;
+  const data = snap.data() as any;
+  return {
+    id: snap.id,
+    savedAt: toDateSafe(data.savedAt),
+    savedBy: data.savedBy || '',
+    mode: data.mode || 'edit',
+    label: data.label || '',
+    stateVersion: data.stateVersion,
+    snapshot: data.snapshot || {},
+  };
+};
+
+/** ย้อนกลับไปเวอร์ชันที่เลือก (เก็บสถานะปัจจุบันเป็นเวอร์ชันใหม่ก่อน) */
+export const restoreActivityVersion = async (
+  qrDocId: string,
+  versionId: string,
+  admin: { uid?: string; email?: string } = {}
+) => {
+  const version = await getActivityVersion(qrDocId, versionId);
+  if (!version?.snapshot) throw new Error('VERSION_NOT_FOUND');
+
+  const curRef = doc(db, PRIMARY_ACTIVITY_COLLECTION, qrDocId);
+  const curSnap = await getDoc(curRef);
+  if (!curSnap.exists()) throw new Error('NOT_FOUND');
+  const cur = curSnap.data() as any;
+
+  const savedBy = admin.uid || admin.email || 'unknown_admin';
+  await archiveActivityVersion(qrDocId, cur, {
+    savedBy,
+    mode: 'before_restore',
+    label: `ก่อนย้อนกลับ → ${version.label || versionId.slice(0, 8)}`,
+  });
+
+  const next: Record<string, any> = { ...version.snapshot };
+  for (const key of ACTIVITY_VERSION_PRESERVE_KEYS) {
+    if (cur[key] !== undefined) next[key] = cur[key];
+  }
+  next.updatedAt = serverTimestamp();
+  next.stateVersion = Number(cur.stateVersion || 0) + 1;
+  next.lastRestoredAt = serverTimestamp();
+  next.lastRestoredBy = savedBy;
+  next.lastRestoredFrom = versionId;
+
+  // ลบ key ที่อยู่ในเอกสารปัจจุบันแต่ไม่มีใน snapshot (ยกเว้น preserve)
+  const deletes: Record<string, any> = {};
+  for (const key of Object.keys(cur)) {
+    if (ACTIVITY_VERSION_PRESERVE_KEYS.has(key)) continue;
+    if (['updatedAt', 'stateVersion', 'lastRestoredAt', 'lastRestoredBy', 'lastRestoredFrom'].includes(key))
+      continue;
+    if (!(key in next)) deletes[key] = deleteField();
+  }
+
+  await updateDoc(curRef, stripUndefined({ ...next, ...deletes }));
+
+  try {
+    const code = (next.activityCode || cur.activityCode) as string | undefined;
+    if (code) {
+      await mirrorLegacyActivityByCode(code, stripUndefined({
+        activityName: next.activityName,
+        description: next.description,
+        location: next.location,
+        startDateTime: next.startDateTime,
+        endDateTime: next.endDateTime,
+        checkInRadius: next.checkInRadius,
+        maxParticipants: next.maxParticipants,
+        isActive: next.isActive,
+        bannerUrl: next.bannerUrl,
+        bannerColor: next.bannerColor,
+        bannerTintColor: next.bannerTintColor,
+        bannerTintOpacity: next.bannerTintOpacity,
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return next;
 };
 
 export const deleteActivity = async (activityId: string) => {

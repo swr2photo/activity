@@ -62,6 +62,11 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentParticipants']) &&
         request.resource.data.currentParticipants == resource.data.get('currentParticipants', 0) + 1
       );
+
+      // ประวัติเวอร์ชันกิจกรรม (แอดมินเท่านั้น)
+      match /versions/{versionId} {
+        allow read, write: if isAdmin();
+      }
     }
 
     // 4. activityRecords (Registration records)

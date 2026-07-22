@@ -43,18 +43,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-
-const LOCATION_OPTIONS = [
-  'หอประชุมใหญ่',
-  'ลานกิจกรรม',
-  'อาคารเรียนรวม 1',
-  'อาคารเรียนรวม 2',
-  'ห้องสมุด',
-  'ห้องประชุม',
-  'สนามกีฬา',
-  'โรงอาหาร',
-  'ออนไลน์ (Online)',
-];
+import { cn } from '@/lib/utils';
 import {
   MonitorPlay,
   QrCode as QrCodeIcon,
@@ -64,7 +53,6 @@ import {
   Eye as ViewIcon,
   Image as ImageIcon,
   X as ClearIcon,
-  Palette as ColorIcon,
   Shuffle as ShuffleIcon,
   Copy as CopyIcon,
   Eye as PreviewIcon,
@@ -77,12 +65,15 @@ import {
   Tag as BadgeIcon,
   X as CloseIcon,
   Paperclip as AttachFileIcon,
+  History as HistoryIcon,
   Sparkles as SparklesIcon,
 } from 'lucide-react';
 
 
 import dayjs, { Dayjs } from 'dayjs';
-import { DatePicker, ConfigProvider } from 'antd';
+import { DatePicker, ConfigProvider, ColorPicker } from 'antd';
+import type { AggregationColor } from 'antd/es/color-picker/color';
+import type { ColorValueType } from 'antd/es/color-picker/interface';
 import thTH from 'antd/locale/th_TH';
 
 import {
@@ -90,10 +81,15 @@ import {
   getActivitiesByDepartment,
   subscribeActivities,
   toggleActivityLive,
+  reopenEndedActivity,
   createActivity,
+  archiveActivityVersion,
+  listActivityVersions,
+  restoreActivityVersion,
   type Activity,
   type ActivityFile,
   type SurveyQuestion,
+  type ActivityVersionMeta,
 } from '../../lib/adminFirebase';
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 import { QuillEditor } from './QuillEditor';
@@ -111,6 +107,7 @@ import {
   updateDoc,
   deleteDoc,
   deleteField,
+  getDoc,
 } from 'firebase/firestore';
 import { adminDb as db, adminStorage as storage, adminAuth as auth } from '../../lib/firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -120,6 +117,287 @@ import { useLoadScript } from '@react-google-maps/api';
 import { PageHeader } from './shared/PageHeader';
 import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
 import { useSnackbar } from '@/lib/toast';
+
+const LOCATION_OPTIONS = [
+  'หอประชุมใหญ่',
+  'ลานกิจกรรม',
+  'อาคารเรียนรวม 1',
+  'อาคารเรียนรวม 2',
+  'ห้องสมุด',
+  'ห้องประชุม',
+  'สนามกีฬา',
+  'โรงอาหาร',
+  'ออนไลน์ (Online)',
+];
+
+const BANNER_COLOR_PRESETS = [
+  '#0ea5e9',
+  '#0284c7',
+  '#4f46e5',
+  '#7c3aed',
+  '#06b6d4',
+  '#14b8a6',
+  '#10b981',
+  '#22c55e',
+  '#f59e0b',
+  '#f97316',
+  '#ef4444',
+  '#e11d48',
+  '#ec4899',
+  '#d946ef',
+  '#8b5cf6',
+  '#6366f1',
+  '#0f172a',
+  '#334155',
+  '#64748b',
+  '#ffffff',
+] as const;
+
+const COLOR_PRESET_GROUPS = [
+  {
+    label: 'แนะนำ',
+    colors: [...BANNER_COLOR_PRESETS],
+  },
+  {
+    label: 'Sky / Blue',
+    colors: ['#f0f9ff', '#bae6fd', '#38bdf8', '#0ea5e9', '#0284c7', '#075985'],
+  },
+  {
+    label: 'Indigo / Violet',
+    colors: ['#eef2ff', '#c7d2fe', '#818cf8', '#6366f1', '#4f46e5', '#7c3aed'],
+  },
+  {
+    label: 'Emerald / Teal',
+    colors: ['#ecfdf5', '#a7f3d0', '#34d399', '#10b981', '#059669', '#0f766e'],
+  },
+  {
+    label: 'Amber / Rose',
+    colors: ['#fffbeb', '#fde68a', '#f59e0b', '#ea580c', '#fb7185', '#e11d48'],
+  },
+  {
+    label: 'Neutral',
+    colors: ['#ffffff', '#f8fafc', '#cbd5e1', '#64748b', '#334155', '#0f172a'],
+  },
+];
+
+type EditSectionId =
+  | 'basics'
+  | 'banner'
+  | 'content'
+  | 'location'
+  | 'schedule'
+  | 'regcodes'
+  | 'sessions'
+  | 'survey'
+  | 'files';
+
+const EDIT_SECTIONS: { id: EditSectionId; label: string }[] = [
+  { id: 'basics', label: 'ข้อมูลพื้นฐาน' },
+  { id: 'banner', label: 'แบนเนอร์และสี' },
+  { id: 'content', label: 'รายละเอียด' },
+  { id: 'location', label: 'สถานที่' },
+  { id: 'schedule', label: 'เวลาและตัวเลือก' },
+  { id: 'regcodes', label: 'รหัสลงทะเบียน' },
+  { id: 'sessions', label: 'รอบกิจกรรม' },
+  { id: 'survey', label: 'แบบประเมิน' },
+  { id: 'files', label: 'ไฟล์แนบ' },
+];
+
+function toHexColor(value?: string, fallback = '#0ea5e9'): string {
+  if (!value) return fallback;
+  const v = value.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(v)) return v;
+  if (/^#[0-9A-Fa-f]{3}$/.test(v)) {
+    const r = v[1];
+    const g = v[2];
+    const b = v[3];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  if (/^#[0-9A-Fa-f]{8}$/.test(v)) return `#${v.slice(1, 7)}`;
+  return fallback;
+}
+
+const GRADIENT_PRESETS: { color: string; percent: number }[][] = [
+  [
+    { color: '#4f46e5', percent: 0 },
+    { color: '#06b6d4', percent: 100 },
+  ],
+  [
+    { color: '#0ea5e9', percent: 0 },
+    { color: '#8b5cf6', percent: 100 },
+  ],
+  [
+    { color: '#10b981', percent: 0 },
+    { color: '#06b6d4', percent: 100 },
+  ],
+  [
+    { color: '#f59e0b', percent: 0 },
+    { color: '#ef4444', percent: 100 },
+  ],
+  [
+    { color: '#ec4899', percent: 0 },
+    { color: '#8b5cf6', percent: 100 },
+  ],
+  [
+    { color: '#0f172a', percent: 0 },
+    { color: '#334155', percent: 50 },
+    { color: '#0ea5e9', percent: 100 },
+  ],
+];
+
+function parseColorPickerValue(value?: string): ColorValueType {
+  const raw = (value || '').trim();
+  if (!raw) return '#0ea5e9';
+
+  // Ant Design gradient CSS เช่น linear-gradient(90deg, rgb(a) 0%, ...)
+  if (/gradient\(/i.test(raw)) return raw;
+
+  if (/^#[0-9A-Fa-f]{3,8}$/.test(raw)) return toHexColor(raw);
+  if (/^rgba?\(/i.test(raw) || /^hsla?\(/i.test(raw)) return raw;
+
+  return toHexColor(raw);
+}
+
+function colorToCss(color: AggregationColor, cssFromEvent?: string): string {
+  if (cssFromEvent && cssFromEvent.trim()) return cssFromEvent.trim();
+  try {
+    return color.toCssString();
+  } catch {
+    return color.isGradient?.() ? color.toCssString() : color.toHexString().toLowerCase();
+  }
+}
+
+function ColorPickerField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  allowCssGradient,
+}: {
+  label: string;
+  value?: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  /** เปิดโหมดไล่สี (gradient) ของ Ant Design ColorPicker */
+  allowCssGradient?: boolean;
+}) {
+  const raw = (value || '').trim();
+  const pickerValue = parseColorPickerValue(raw);
+  const previewBg = raw || (typeof pickerValue === 'string' ? pickerValue : '#0ea5e9');
+
+  const presets = [
+    ...COLOR_PRESET_GROUPS,
+    ...(allowCssGradient
+      ? [
+          {
+            label: 'ไล่สีแนะนำ',
+            colors: GRADIENT_PRESETS,
+            defaultOpen: true,
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <ConfigProvider
+          theme={{
+            token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 8 },
+          }}
+        >
+          <ColorPicker
+            value={pickerValue}
+            mode={allowCssGradient ? ['single', 'gradient'] : 'single'}
+            defaultFormat="hex"
+            showText={(c) => (
+              <span className="font-mono text-xs max-w-[9rem] truncate">
+                {c.isGradient() ? 'ไล่สี' : c.toHexString().toUpperCase()}
+              </span>
+            )}
+            size="large"
+            disabledAlpha={!allowCssGradient}
+            presets={presets as any}
+            getPopupContainer={(trigger) =>
+              (trigger.closest('[role="dialog"]') as HTMLElement) ||
+              trigger.parentElement ||
+              document.body
+            }
+            styles={{
+              popup: {
+                root: { zIndex: 80 },
+              },
+            }}
+            onChange={(color, css) => {
+              onChange(colorToCss(color, css));
+            }}
+            onChangeComplete={(color) => {
+              onChange(colorToCss(color));
+            }}
+          />
+        </ConfigProvider>
+
+        <Input
+          className="min-w-[10rem] flex-1 font-mono text-sm"
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={
+            placeholder ||
+            (allowCssGradient ? '#0ea5e9 หรือเลือกโหมดไล่สี' : '#0ea5e9')
+          }
+        />
+
+        <div
+          className="h-10 w-10 shrink-0 rounded-lg border border-border shadow-inner"
+          style={{ background: previewBg }}
+          title="ตัวอย่างสี"
+        />
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {BANNER_COLOR_PRESETS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            title={c}
+            onClick={() => onChange(c.toLowerCase())}
+            className={cn(
+              'h-7 w-7 rounded-md border border-black/10 transition-transform hover:scale-110',
+              raw.toLowerCase() === c.toLowerCase() && 'ring-2 ring-primary ring-offset-2'
+            )}
+            style={{ background: c }}
+          />
+        ))}
+        {allowCssGradient &&
+          GRADIENT_PRESETS.slice(0, 4).map((g, i) => {
+            const css = `linear-gradient(90deg, ${g
+              .map((s) => `${s.color} ${s.percent}%`)
+              .join(', ')})`;
+            return (
+              <button
+                key={`g-${i}`}
+                type="button"
+                title="ไล่สี"
+                onClick={() => onChange(css)}
+                className={cn(
+                  'h-7 w-10 rounded-md border border-black/10 transition-transform hover:scale-105',
+                  raw === css && 'ring-2 ring-primary ring-offset-2'
+                )}
+                style={{ background: css }}
+              />
+            );
+          })}
+      </div>
+
+      {allowCssGradient && (
+        <p className="text-xs text-muted-foreground">
+          ในจานสีสลับแท็บ <span className="font-medium text-foreground">สีเดียว / ไล่สี</span> เพื่อตั้ง gradient ได้
+        </p>
+      )}
+    </div>
+  );
+}
 
 /* ===================== Small utils ===================== */
 const clean = <T extends Record<string, any>>(obj: T): T => {
@@ -355,7 +633,7 @@ const defaultForm: CreateForm = {
   checkInRadius: 100,
   startDateTime: dayjs().startOf('minute'),
   endDateTime: dayjs().add(2, 'hour').startOf('minute'),
-  isActive: true,
+  isActive: false,
   scanEnabled: true,
   requiresUniversityLogin: true,
   singleUserMode: false,
@@ -734,89 +1012,368 @@ interface QRCodeAdminPanelProps {
 
 const googleLibraries: ("places" | "geometry" | "drawing" | "visualization")[] = ['places', 'geometry'];
 
+/** รัศมี bias สำหรับจัดอันดับสถานที่ใกล้เคียงก่อน (เมตร) */
+const PLACE_SEARCH_BIAS_RADIUS_M = 50_000;
+
+type PlaceSuggestion = {
+  description: string;
+  mainText?: string;
+  secondaryText?: string;
+  placeId?: string;
+  distanceMeters?: number;
+};
+
+/** ตัด Plus Code นำหน้าออก เช่น "2F4X+HQ9 ตำบล..." */
+function stripPlusCodePrefix(text: string): string {
+  return text.replace(/^[A-Z0-9]{2,}\+[A-Z0-9]+\s*/i, '').trim() || text.trim();
+}
+
+function isPlusCodeLike(text?: string | null): boolean {
+  if (!text) return true;
+  const t = text.trim();
+  return /^[A-Z0-9]{2,}\+[A-Z0-9]+$/i.test(t) || /^[A-Z0-9]{2,}\+[A-Z0-9]+\s/i.test(t);
+}
+
+/** เลือกชื่อสถานที่จาก Google Place (ไม่ใช้ Plus Code เป็นชื่อหลัก) */
+function pickPlaceName(
+  place: {
+    name?: string | null;
+    formatted_address?: string | null;
+  },
+  suggestion?: PlaceSuggestion
+): string {
+  const name = place.name?.trim();
+  if (name && !isPlusCodeLike(name)) return name;
+
+  const main = suggestion?.mainText?.trim();
+  if (main && !isPlusCodeLike(main)) {
+    const secondary = suggestion.secondaryText?.trim();
+    return secondary && !isPlusCodeLike(secondary) ? `${main}, ${secondary}` : main;
+  }
+
+  const formatted = place.formatted_address ? stripPlusCodePrefix(place.formatted_address) : '';
+  if (formatted) return formatted;
+
+  if (suggestion?.description) return stripPlusCodePrefix(suggestion.description);
+  return name || '';
+}
+
+function pickNameFromGeocodeResult(result: google.maps.GeocoderResult): string {
+  // หา establishment / premise / point_of_interest ก่อน
+  const preferredTypes = [
+    'establishment',
+    'point_of_interest',
+    'premise',
+    'university',
+    'school',
+    'tourist_attraction',
+  ];
+  for (const type of preferredTypes) {
+    const comp = result.address_components?.find((c) => c.types.includes(type));
+    if (comp?.long_name && !isPlusCodeLike(comp.long_name)) return comp.long_name;
+  }
+
+  // ชื่อจาก formatted_address โดยตัด plus code
+  const cleaned = stripPlusCodePrefix(result.formatted_address || '');
+  if (cleaned) {
+    // เอาส่วนแรกก่อนเครื่องหมายจุลภาคถ้ามี
+    const first = cleaned.split(',')[0]?.trim();
+    if (first && !isPlusCodeLike(first)) return first;
+    return cleaned;
+  }
+
+  return result.formatted_address || '';
+}
+
 const GooglePlaceAutocomplete: React.FC<{
   value: string;
   onChange: (address: string, lat?: number, lng?: number) => void;
   isLoaded: boolean;
 }> = ({ value, onChange, isLoaded }) => {
-  const [options, setOptions] = useState<string[]>([]);
+  const [options, setOptions] = useState<PlaceSuggestion[]>([]);
   const [inputValue, setInputValue] = useState(value || '');
-  const datalistId = React.useId();
+  const [openList, setOpenList] = useState(false);
+  const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+  /** ISO 3166-1 Alpha-2 — ค่าเริ่มต้นไทย (แอปใช้งานหลักในประเทศ) */
+  const [country, setCountry] = useState('th');
+  const [locReady, setLocReady] = useState(false);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const listId = React.useId();
 
-  // Fetch suggestions from Google Places API
   useEffect(() => {
-    if (!isLoaded || !inputValue.trim()) {
-      setOptions(LOCATION_OPTIONS); // Fallback to static options when empty/not loaded
+    setInputValue(value || '');
+  }, [value]);
+
+  // ดึงตำแหน่งปัจจุบัน → จำกัดประเทศ + bias ใกล้เคียง
+  useEffect(() => {
+    if (!('geolocation' in navigator)) {
+      setLocReady(true);
       return;
     }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setUserLoc({ lat, lng });
+        setLocReady(true);
+      },
+      () => setLocReady(true),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 5 * 60 * 1000 }
+    );
+  }, []);
 
-    try {
-      const autocompleteService = new window.google.maps.places.AutocompleteService();
-      
-      const delayDebounce = setTimeout(() => {
-        autocompleteService.getPlacePredictions(
-          { input: inputValue },
-          (predictions, status) => {
-            if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
-              setOptions(predictions.map((p) => p.description));
-            } else {
-              setOptions(LOCATION_OPTIONS);
-            }
-          }
-        );
-      }, 300);
-
-      return () => clearTimeout(delayDebounce);
-    } catch (e) {
-      setOptions(LOCATION_OPTIONS);
-    }
-  }, [inputValue, isLoaded]);
-
-  const handleSelect = (newValue: string | null) => {
-    if (!newValue) {
-      onChange('');
-      return;
-    }
-
-    onChange(newValue);
-
-    if (!isLoaded) return;
+  // reverse geocode → รหัสประเทศจากตำแหน่งจริง
+  useEffect(() => {
+    if (!isLoaded || !userLoc || !(window as any).google?.maps?.Geocoder) return;
     try {
       const geocoder = new window.google.maps.Geocoder();
-      geocoder.geocode({ address: newValue }, (results, status) => {
-        if (status === window.google.maps.GeocoderStatus.OK && results && results[0]) {
-          const lat = results[0].geometry.location.lat();
-          const lng = results[0].geometry.location.lng();
-          onChange(newValue, lat, lng);
-        }
+      geocoder.geocode({ location: userLoc }, (results, status) => {
+        if (status !== window.google.maps.GeocoderStatus.OK || !results?.[0]) return;
+        const countryComp = results[0].address_components?.find((c) =>
+          c.types.includes('country')
+        );
+        const code = countryComp?.short_name?.toLowerCase();
+        if (code && /^[a-z]{2}$/.test(code)) setCountry(code);
       });
+    } catch {
+      /* keep default */
+    }
+  }, [isLoaded, userLoc]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpenList(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) {
+      setOptions(LOCATION_OPTIONS.map((description) => ({ description })));
+      return;
+    }
+
+    const q = inputValue.trim();
+    if (!q) {
+      setOptions(LOCATION_OPTIONS.map((description) => ({ description })));
+      return;
+    }
+
+    let cancelled = false;
+    const delayDebounce = setTimeout(() => {
+      try {
+        const autocompleteService = new window.google.maps.places.AutocompleteService();
+        const request: google.maps.places.AutocompletionRequest = {
+          input: q,
+          componentRestrictions: { country },
+          language: 'th',
+          region: country,
+        };
+
+        if (userLoc) {
+          const center = new window.google.maps.LatLng(userLoc.lat, userLoc.lng);
+          // จัดอันดับตามระยะจากตำแหน่งปัจจุบัน
+          request.origin = center;
+          // bias ผลลัพธ์รอบตัวผู้ใช้ (ใกล้ขึ้นก่อน)
+          request.location = center;
+          request.radius = PLACE_SEARCH_BIAS_RADIUS_M;
+          (request as any).locationBias = {
+            center: userLoc,
+            radius: PLACE_SEARCH_BIAS_RADIUS_M,
+          };
+        }
+
+        autocompleteService.getPlacePredictions(request, (predictions, status) => {
+          if (cancelled) return;
+          if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions?.length) {
+            // Google คืนผลเรียงตามความเกี่ยวข้อง + ระยะเมื่อมี origin แล้ว
+            setOptions(
+              predictions.map((p) => ({
+                description: p.description,
+                mainText: p.structured_formatting?.main_text,
+                secondaryText: p.structured_formatting?.secondary_text,
+                placeId: p.place_id,
+                distanceMeters: (p as any).distance_meters as number | undefined,
+              }))
+            );
+          } else {
+            const local = LOCATION_OPTIONS.filter((o) =>
+              o.toLowerCase().includes(q.toLowerCase())
+            );
+            setOptions(local.map((description) => ({ description })));
+          }
+        });
+      } catch {
+        if (!cancelled) {
+          setOptions(LOCATION_OPTIONS.map((description) => ({ description })));
+        }
+      }
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(delayDebounce);
+    };
+  }, [inputValue, isLoaded, country, userLoc, locReady]);
+
+  const resolvePlace = (suggestion: PlaceSuggestion) => {
+    const preview =
+      suggestion.mainText && !isPlusCodeLike(suggestion.mainText)
+        ? suggestion.secondaryText && !isPlusCodeLike(suggestion.secondaryText)
+          ? `${suggestion.mainText}, ${suggestion.secondaryText}`
+          : suggestion.mainText
+        : stripPlusCodePrefix(suggestion.description);
+
+    setInputValue(preview);
+    setOpenList(false);
+    onChange(preview);
+
+    if (!isLoaded || !(window as any).google) return;
+
+    try {
+      if (suggestion.placeId && window.google.maps.places?.PlacesService) {
+        const stub = document.createElement('div');
+        const svc = new window.google.maps.places.PlacesService(stub);
+        svc.getDetails(
+          {
+            placeId: suggestion.placeId,
+            fields: ['geometry', 'formatted_address', 'name', 'address_components'],
+            language: 'th',
+          },
+          (place, status) => {
+            if (
+              status === window.google.maps.places.PlacesServiceStatus.OK &&
+              place?.geometry?.location
+            ) {
+              const lat = place.geometry.location.lat();
+              const lng = place.geometry.location.lng();
+              const label = pickPlaceName(place, suggestion) || preview;
+              setInputValue(label);
+              onChange(label, lat, lng);
+              return;
+            }
+            geocodeAddress(suggestion.description, preview);
+          }
+        );
+        return;
+      }
+      geocodeAddress(suggestion.description, preview);
+    } catch (e) {
+      console.error('Place resolve error:', e);
+    }
+  };
+
+  const geocodeAddress = (address: string, displayFallback?: string) => {
+    try {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode(
+        {
+          address,
+          componentRestrictions: { country },
+          region: country,
+          language: 'th',
+        },
+        (results, status) => {
+          if (status === window.google.maps.GeocoderStatus.OK && results?.[0]) {
+            const lat = results[0].geometry.location.lat();
+            const lng = results[0].geometry.location.lng();
+            const label =
+              pickNameFromGeocodeResult(results[0]) ||
+              displayFallback ||
+              stripPlusCodePrefix(address);
+            setInputValue(label);
+            onChange(label, lat, lng);
+          }
+        }
+      );
     } catch (e) {
       console.error('Geocoding error:', e);
     }
   };
 
+  const formatDistance = (m?: number) => {
+    if (typeof m !== 'number' || !Number.isFinite(m)) return null;
+    if (m < 1000) return `${Math.round(m)} ม.`;
+    return `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} กม.`;
+  };
+
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5" ref={wrapRef}>
       <Label className="text-xs">สถานที่จัดกิจกรรม (ค้นหาจาก Google Maps)</Label>
-      <Input
-        list={datalistId}
-        value={inputValue}
-        placeholder="พิมพ์ชื่อสถานที่เพื่อค้นหา..."
-        onChange={(e) => {
-          const v = e.target.value;
-          setInputValue(v);
-          if (options.includes(v)) {
-            handleSelect(v);
-          } else {
-            onChange(v);
+      <div className="relative">
+        <Input
+          role="combobox"
+          aria-expanded={openList}
+          aria-controls={listId}
+          autoComplete="off"
+          value={inputValue}
+          placeholder={
+            userLoc
+              ? 'พิมพ์ชื่อสถานที่ใกล้คุณ...'
+              : 'พิมพ์ชื่อสถานที่เพื่อค้นหา...'
           }
-        }}
-      />
-      <datalist id={datalistId}>
-        {options.map((opt) => (
-          <option key={opt} value={opt} />
-        ))}
-      </datalist>
+          onFocus={() => setOpenList(true)}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            setOpenList(true);
+            onChange(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setOpenList(false);
+            if (e.key === 'Enter' && options[0]) {
+              e.preventDefault();
+              resolvePlace(options[0]);
+            }
+          }}
+        />
+        {openList && options.length > 0 && (
+          <ul
+            id={listId}
+            role="listbox"
+            className="absolute z-[60] mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-border bg-background py-1 shadow-lg"
+          >
+            {options.map((opt) => {
+              const dist = formatDistance(opt.distanceMeters);
+              const title =
+                opt.mainText && !isPlusCodeLike(opt.mainText)
+                  ? opt.mainText
+                  : stripPlusCodePrefix(opt.description);
+              const subtitle =
+                opt.mainText && !isPlusCodeLike(opt.mainText)
+                  ? opt.secondaryText
+                  : undefined;
+              return (
+                <li key={`${opt.placeId || ''}:${opt.description}`}>
+                  <button
+                    type="button"
+                    role="option"
+                    className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => resolvePlace(opt)}
+                  >
+                    <span className="min-w-0 flex-1 leading-snug">
+                      <span className="font-medium block">{title}</span>
+                      {subtitle && (
+                        <span className="text-xs text-muted-foreground block mt-0.5">{subtitle}</span>
+                      )}
+                    </span>
+                    {dist && (
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {dist}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        ค้นหาเฉพาะประเทศ{country === 'th' ? 'ไทย' : ` ${country.toUpperCase()}`}
+        {userLoc ? ' · แสดงสถานที่ใกล้ตำแหน่งคุณก่อน' : ' · อนุญาตตำแหน่งเพื่อจัดอันดับใกล้เคียง'}
+      </p>
     </div>
   );
 };
@@ -839,6 +1396,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   const [openCreate, setOpenCreate] = useState(false);
   const [form, setForm] = useState<CreateForm>(defaultForm);
   const [saving, setSaving] = useState(false);
+  const [saveAction, setSaveAction] = useState<'draft' | 'publish' | null>(null);
   const [errMsg, setErrMsg] = useState('');
   const [openPreview, setOpenPreview] = useState(false);
 
@@ -1099,6 +1657,11 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   const [editActivityId, setEditActivityId] = useState<string | null>(null);
   const [qrDocId, setQrDocId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [editSection, setEditSection] = useState<EditSectionId>('basics');
+  const [openVersions, setOpenVersions] = useState(false);
+  const [versions, setVersions] = useState<ActivityVersionMeta[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
 
   // download menu
   const [dlMenu, setDlMenu] = useState<{ anchorEl: HTMLElement | null; activity: Activity | null }>({
@@ -1113,14 +1676,50 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
   const statusOf = (a: Activity) => {
     const now = new Date();
-    if (!a.isActive) return { label: 'ปิดใช้งาน', color: 'default' as const };
+    if (!a.isActive) return { label: 'ฉบับร่าง', color: 'warning' as const };
     if (a.startDateTime && now < a.startDateTime) return { label: 'รอเปิด', color: 'warning' as const };
     if (a.endDateTime && now > a.endDateTime) return { label: 'สิ้นสุดแล้ว', color: 'default' as const };
-    return { label: 'เปิดใช้งาน', color: 'success' as const };
+    return { label: 'เผยแพร่แล้ว', color: 'success' as const };
   };
 
   const handleToggle = async (a: Activity) => {
-    await toggleActivityLive(a.id, !a.isActive, { uid: currentAdmin.uid, email: currentAdmin.email });
+    try {
+      const opening = !a.isActive;
+      const result = await toggleActivityLive(a.id, opening, {
+        uid: currentAdmin.uid,
+        email: currentAdmin.email,
+      });
+      if (opening && result.extendedSchedule) {
+        enqueueSnackbar(
+          'เปิดกิจกรรมแล้ว และขยายวันสิ้นสุดอัตโนมัติ 24 ชม. — ปรับเวลาได้ในหน้าแก้ไข',
+          { variant: 'success' }
+        );
+      } else if (opening) {
+        enqueueSnackbar('เปิดการใช้งานกิจกรรมแล้ว', { variant: 'success' });
+      } else {
+        enqueueSnackbar('ปิดการใช้งานกิจกรรมแล้ว', { variant: 'info' });
+      }
+    } catch {
+      enqueueSnackbar('เปลี่ยนสถานะไม่สำเร็จ', { variant: 'error' });
+    }
+    await load();
+  };
+
+  const handleReopenEnded = async (a: Activity) => {
+    try {
+      const result = await reopenEndedActivity(a.id, {
+        uid: currentAdmin.uid,
+        email: currentAdmin.email,
+      });
+      enqueueSnackbar(
+        result.extendedSchedule
+          ? 'เปิดกิจกรรมใหม่อีกครั้งแล้ว (ขยายวันสิ้นสุด 24 ชม.) — ปรับเวลาได้ในหน้าแก้ไข'
+          : 'เปิดกิจกรรมใหม่อีกครั้งแล้ว',
+        { variant: 'success' }
+      );
+    } catch {
+      enqueueSnackbar('เปิดกิจกรรมใหม่ไม่สำเร็จ', { variant: 'error' });
+    }
     await load();
   };
 
@@ -1194,13 +1793,30 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        updateForm('latitude', pos.coords.latitude as any);
-        updateForm('longitude', pos.coords.longitude as any);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        updateForm('latitude', lat as any);
+        updateForm('longitude', lng as any);
         setErrMsg('');
+        void reverseGeocodeToPlaceName(lat, lng);
       },
       () => setErrMsg('ไม่สามารถอ่านตำแหน่งได้ กรุณาลองใหม่'),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+  };
+
+  const reverseGeocodeToPlaceName = async (lat: number, lng: number) => {
+    if (!isGoogleMapsLoaded || !(window as any).google?.maps?.Geocoder) return;
+    try {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ location: { lat, lng }, language: 'th' }, (results, status) => {
+        if (status !== window.google.maps.GeocoderStatus.OK || !results?.[0]) return;
+        const label = pickNameFromGeocodeResult(results[0]);
+        if (label) updateForm('location', label as any);
+      });
+    } catch {
+      /* ignore */
+    }
   };
 
   const uploadBannerIfNeeded = async (dept: string, code: string, file?: File | null) => {
@@ -1220,13 +1836,14 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     } catch {}
   };
 
-  const handleCreateSubmit = async () => {
+  const handleCreateSubmit = async (mode: 'draft' | 'publish') => {
     try {
       setErrMsg('');
       if (!form.activityName.trim()) return setErrMsg('กรุณากรอกชื่อกิจกรรม');
       if (!form.activityCode.trim()) return setErrMsg('กรุณากรอกรหัสกิจกรรม');
 
       const code = form.activityCode.trim().toUpperCase();
+      const willPublish = mode === 'publish';
 
       // กันซ้ำ
       const qDup = query(
@@ -1248,7 +1865,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       let bannerColor: string | undefined;
       if (form.bannerMode === 'image') {
         bannerUrl = await uploadBannerIfNeeded(currentAdmin.department, code, form.bannerFile || null);
-      } else if (form.bannerMode === 'color') {
+      } else if (form.bannerMode === 'color' || form.bannerMode === 'none') {
         bannerColor = (form.bannerColor || '').trim() || undefined;
       }
 
@@ -1290,6 +1907,44 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       const qrDataUrl = await generateQrPng(makeShortUrl(code), 600);
 
       setSaving(true);
+      setSaveAction(mode);
+
+      // เผยแพร่: ขยายเวลาถ้าหมดอายุแล้ว / บันทึกฉบับร่าง: ไม่บังคับเปิดใช้งาน
+      let createStart = form.startDateTime;
+      let createEnd = form.endDateTime;
+      let createSessions = form.sessions.map((s) => ({ ...s }));
+      if (willPublish) {
+        const now = dayjs();
+        const extendTo = now.add(24, 'hour').startOf('minute');
+        if (createEnd && createEnd.isBefore(now)) {
+          createEnd = extendTo;
+          if (!createStart || createStart.isAfter(extendTo)) createStart = now.startOf('minute');
+        }
+        if (createSessions.length > 0) {
+          const anyOpen = createSessions.some((s) => s.endDateTime && !s.endDateTime.isBefore(now));
+          if (!anyOpen) {
+            let lastIdx = 0;
+            let lastEnd = -Infinity;
+            createSessions.forEach((s, i) => {
+              const endMs = s.endDateTime?.valueOf() ?? -Infinity;
+              if (endMs >= lastEnd) {
+                lastEnd = endMs;
+                lastIdx = i;
+              }
+            });
+            const last = createSessions[lastIdx];
+            createSessions[lastIdx] = {
+              ...last,
+              startDateTime:
+                !last.startDateTime || last.startDateTime.isAfter(extendTo)
+                  ? now.startOf('minute')
+                  : last.startDateTime,
+              endDateTime: extendTo,
+            };
+            if (!createEnd || createEnd.isBefore(extendTo)) createEnd = extendTo;
+          }
+        }
+      }
 
       const qrPayload = clean({
         activityCode: code,
@@ -1304,9 +1959,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         latitude: lat,
         longitude: lng,
         checkInRadius: radius,
-        startDateTime: form.startDateTime?.toDate(),
-        endDateTime: form.endDateTime?.toDate(),
-        isActive: form.isActive,
+        startDateTime: createStart?.toDate(),
+        endDateTime: createEnd?.toDate(),
+        isActive: willPublish,
         scanEnabled: form.scanEnabled,
         requiresUniversityLogin: form.requiresUniversityLogin,
         singleUserMode: form.singleUserMode,
@@ -1329,7 +1984,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         dynamicQREnabled: form.dynamicQREnabled,
         onsiteRegistrationPoint: form.onsiteRegistrationPoint.trim() || undefined,
 
-        sessions: form.sessions.map(s => ({
+        sessions: createSessions.map(s => ({
           ...s,
           startDateTime: s.startDateTime?.toDate() || null,
           endDateTime: s.endDateTime?.toDate() || null,
@@ -1349,16 +2004,25 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         qrDataUrl,
         bannerUrl,
         bannerColor,
+        isActive: willPublish,
+        startDateTime: createStart,
+        endDateTime: createEnd,
+        sessions: createSessions,
         regCodeNext: shouldSaveReg ? regStart : p.regCodeNext,
         regCodeAssigned: shouldSaveReg ? 0 : p.regCodeAssigned,
       }));
 
+      enqueueSnackbar(
+        willPublish ? 'เผยแพร่กิจกรรมสำเร็จ' : 'บันทึกฉบับร่างสำเร็จ',
+        { variant: 'success' }
+      );
       setOpenCreate(false);
       await load();
     } catch (e: any) {
       setErrMsg(e?.message || 'เกิดข้อผิดพลาดในการบันทึก');
     } finally {
       setSaving(false);
+      setSaveAction(null);
     }
   };
 
@@ -1366,6 +2030,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   const openEditDialog = async (a: Activity) => {
     try {
       setErrMsg('');
+      setEditSection('basics');
       setEditActivityId(a.id);
       setQrDocId(null);
 
@@ -1489,15 +2154,70 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   };
 
   const handleCloseEdit = () => {
-    if (!editing) setOpenEdit(false);
+    if (!editing) {
+      setOpenEdit(false);
+      setOpenVersions(false);
+    }
   };
 
-  const handleEditSubmit = async () => {
+  const openVersionsDialog = async () => {
+    if (!qrDocId) {
+      enqueueSnackbar('ยังไม่มีเอกสารกิจกรรมสำหรับดูประวัติเวอร์ชัน', { variant: 'warning' });
+      return;
+    }
+    setOpenVersions(true);
+    setVersionsLoading(true);
+    try {
+      const list = await listActivityVersions(qrDocId);
+      setVersions(list);
+    } catch (e: any) {
+      enqueueSnackbar(e?.message || 'โหลดประวัติเวอร์ชันไม่สำเร็จ', { variant: 'error' });
+      setVersions([]);
+    } finally {
+      setVersionsLoading(false);
+    }
+  };
+
+  const handleRestoreVersion = async (versionId: string) => {
+    if (!qrDocId) return;
+    const ok = await confirm({
+      title: 'ยืนยันย้อนเวอร์ชัน',
+      description: 'ระบบจะบันทึกสถานะปัจจุบันเป็นเวอร์ชันใหม่ก่อน แล้วคืนค่าจากเวอร์ชันที่เลือก (จำนวนผู้สมัคร/รหัสที่แจกแล้วจะไม่ถูกย้อน)',
+      confirmText: 'ย้อนเวอร์ชัน',
+      cancelText: 'ยกเลิก',
+    });
+    if (!ok) return;
+
+    setRestoringVersionId(versionId);
+    try {
+      await restoreActivityVersion(qrDocId, versionId, {
+        uid: currentAdmin.uid,
+        email: currentAdmin.email,
+      });
+      enqueueSnackbar('ย้อนเวอร์ชันสำเร็จ', { variant: 'success' });
+      setOpenVersions(false);
+      await openEditDialog({
+        id: editActivityId || qrDocId,
+        activityCode: form.activityCode,
+        activityName: form.activityName,
+        department: currentAdmin.department,
+        isActive: form.isActive,
+      } as Activity);
+    } catch (e: any) {
+      enqueueSnackbar(e?.message || 'ย้อนเวอร์ชันไม่สำเร็จ', { variant: 'error' });
+    } finally {
+      setRestoringVersionId(null);
+    }
+  };
+
+  const handleEditSubmit = async (mode: 'draft' | 'publish') => {
     if (!editActivityId) return;
     try {
       setEditing(true);
+      setSaveAction(mode);
       setErrMsg('');
 
+      const willPublish = mode === 'publish';
       const code = form.activityCode.trim().toUpperCase();
       const radius = clamp(Number(form.checkInRadius || 0) || 100, 10, 2000);
       const max = typeof form.maxParticipants === 'number' ? clamp(form.maxParticipants, 0, 1_000_000) : 0;
@@ -1505,7 +2225,10 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       const lng = typeof form.longitude === 'number' ? form.longitude : undefined;
 
       let newBannerUrl = form.bannerUrl;
-      let bannerColor: string | undefined = form.bannerMode === 'color' ? (form.bannerColor || '').trim() || undefined : undefined;
+      let bannerColor: string | undefined =
+        form.bannerMode === 'color' || form.bannerMode === 'none'
+          ? (form.bannerColor || '').trim() || undefined
+          : undefined;
 
       if (form.bannerMode === 'image' && form.bannerFile) {
         if (form.bannerUrl) await deleteBannerIfOwned(form.bannerUrl);
@@ -1553,6 +2276,63 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         }
       }
 
+      // เผยแพร่แต่เวลาหมดแล้ว → ขยายอัตโนมัติ 24 ชม. / บันทึกฉบับร่างไม่บังคับขยาย
+      const now = dayjs();
+      const extendTo = now.add(24, 'hour').startOf('minute');
+      let saveStart = form.startDateTime;
+      let saveEnd = form.endDateTime;
+      let saveSessions = form.sessions.map((s) => ({ ...s }));
+      let autoExtended = false;
+
+      if (willPublish) {
+        if (saveEnd && saveEnd.isBefore(now)) {
+          saveEnd = extendTo;
+          if (!saveStart || saveStart.isAfter(extendTo)) saveStart = now.startOf('minute');
+          autoExtended = true;
+        }
+
+        if (saveSessions.length > 0) {
+          const anySessionOpen = saveSessions.some(
+            (s) => s.endDateTime && !s.endDateTime.isBefore(now)
+          );
+          if (!anySessionOpen) {
+            let lastIdx = 0;
+            let lastEnd = -Infinity;
+            saveSessions.forEach((s, i) => {
+              const endMs = s.endDateTime?.valueOf() ?? -Infinity;
+              if (endMs >= lastEnd) {
+                lastEnd = endMs;
+                lastIdx = i;
+              }
+            });
+            const last = saveSessions[lastIdx];
+            saveSessions[lastIdx] = {
+              ...last,
+              startDateTime:
+                !last.startDateTime || last.startDateTime.isAfter(extendTo)
+                  ? now.startOf('minute')
+                  : last.startDateTime,
+              endDateTime: extendTo,
+            };
+            if (!saveEnd || saveEnd.isBefore(extendTo)) saveEnd = extendTo;
+            autoExtended = true;
+          }
+        }
+      }
+
+      if (autoExtended) {
+        setForm((prev) => ({
+          ...prev,
+          startDateTime: saveStart,
+          endDateTime: saveEnd,
+          sessions: saveSessions,
+        }));
+        enqueueSnackbar(
+          'ขยายวันสิ้นสุด/รอบกิจกรรมอัตโนมัติ 24 ชม. เพื่อเผยแพร่ได้ — ปรับเวลาได้ในหมวดเวลา/รอบ',
+          { variant: 'info' }
+        );
+      }
+
       // legacy
       try {
         await updateDoc(
@@ -1561,11 +2341,11 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
             activityName: form.activityName,
             description: form.description || undefined,
             location: form.location,
-            startDateTime: form.startDateTime?.toDate(),
-            endDateTime: form.endDateTime?.toDate(),
+            startDateTime: saveStart?.toDate(),
+            endDateTime: saveEnd?.toDate(),
             checkInRadius: radius,
             maxParticipants: max || 0,
-            isActive: form.isActive,
+            isActive: willPublish,
             userCode: form.userCode?.trim() || undefined,
             bannerUrl: newBannerUrl || undefined,
             bannerColor: bannerColor || undefined,
@@ -1584,8 +2364,21 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         );
       } catch {}
 
-      // primary
+      // primary — เก็บเวอร์ชันก่อนแก้ แล้วอัปเดต
       if (qrDocId) {
+        try {
+          const curSnap = await getDoc(doc(db, 'activityQRCodes', qrDocId));
+          if (curSnap.exists()) {
+            await archiveActivityVersion(qrDocId, curSnap.data() as any, {
+              savedBy: currentAdmin.uid || currentAdmin.email || 'admin',
+              mode: willPublish ? 'publish' : 'draft',
+              label: form.activityName || form.activityCode,
+            });
+          }
+        } catch (e) {
+          console.warn('archiveActivityVersion failed', e);
+        }
+
         const updates: any = clean({
           activityName: form.activityName,
           headerTitle: form.headerTitle,
@@ -1593,9 +2386,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           latitude: lat,
           longitude: lng,
           checkInRadius: radius,
-          startDateTime: form.startDateTime?.toDate(),
-          endDateTime: form.endDateTime?.toDate(),
-          isActive: form.isActive,
+          startDateTime: saveStart?.toDate(),
+          endDateTime: saveEnd?.toDate(),
+          isActive: willPublish,
           scanEnabled: form.scanEnabled,
           requiresUniversityLogin: form.requiresUniversityLogin,
           singleUserMode: form.singleUserMode,
@@ -1620,7 +2413,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           dynamicQREnabled: form.dynamicQREnabled,
           onsiteRegistrationPoint: form.onsiteRegistrationPoint.trim() || undefined,
 
-          sessions: form.sessions.map(s => ({
+          sessions: saveSessions.map((s) => ({
             ...s,
             startDateTime: s.startDateTime?.toDate() || null,
             endDateTime: s.endDateTime?.toDate() || null,
@@ -1652,12 +2445,17 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         await updateDoc(doc(db, 'activityQRCodes', qrDocId), updates);
       }
 
+      enqueueSnackbar(
+        willPublish ? 'เผยแพร่กิจกรรมสำเร็จ' : 'บันทึกฉบับร่างสำเร็จ',
+        { variant: 'success' }
+      );
       setOpenEdit(false);
       await load();
     } catch (e: any) {
       setErrMsg(e?.message || 'เกิดข้อผิดพลาดในการบันทึกการแก้ไข');
     } finally {
       setEditing(false);
+      setSaveAction(null);
     }
   };
 
@@ -2509,14 +3307,24 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                         <Badge variant={st.color === 'default' ? 'secondary' : st.color}>{st.label}</Badge>
                       </div>
 
-                      <Button
-                        size="sm"
-                        className={`w-full ${a.isActive ? 'border-amber-500/60 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
-                        variant={a.isActive ? 'outline' : 'default'}
-                        onClick={() => handleToggle(a)}
-                      >
-                        {a.isActive ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}
-                      </Button>
+                      {st.label === 'สิ้นสุดแล้ว' ? (
+                        <Button
+                          size="sm"
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => handleReopenEnded(a)}
+                        >
+                          เปิดใหม่อีกครั้ง
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className={`w-full ${a.isActive ? 'border-amber-500/60 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                          variant={a.isActive ? 'outline' : 'default'}
+                          onClick={() => handleToggle(a)}
+                        >
+                          {a.isActive ? 'ยกเลิกเผยแพร่' : 'เผยแพร่'}
+                        </Button>
+                      )}
 
                       {/* ปุ่มจัดการ — ห่อได้บนมือถือ ไม่ล้นจอ */}
                       <TooltipProvider>
@@ -2593,6 +3401,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               <ActivityTable
                 activities={activities}
                 onToggleStatus={handleToggle}
+                onReopenEnded={handleReopenEnded}
                 onEdit={openEditDialog}
                 onDelete={handleDeleteActivity}
                 onDownload={openDownloadMenu}
@@ -2646,19 +3455,21 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
       {/* ===================== Create Dialog ===================== */}
       <Dialog open={openCreate} onOpenChange={(o) => { if (!o) handleCloseCreate(); }}>
-        <DialogContent className="max-w-none w-screen h-[100dvh] rounded-none p-0 gap-0 overflow-hidden flex flex-col [&>button]:hidden">
-          <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background px-3 sm:px-4 py-2 flex-row flex-wrap items-center gap-2 space-y-0 text-left">
-            <Button size="icon" variant="ghost" onClick={handleCloseCreate} aria-label="close">
-              <CloseIcon className="h-5 w-5" />
-            </Button>
-            <DialogTitle className="flex-1 min-w-0 truncate font-semibold text-[0.95rem] sm:text-[1.15rem]">
-              สร้างกิจกรรม & QR Code
-            </DialogTitle>
-            <div className="flex flex-row gap-2 w-full sm:w-auto sm:ml-auto">
+        <DialogContent className="!fixed !inset-0 !left-0 !top-0 z-50 !flex !h-[100dvh] !w-screen !max-h-none !max-w-none !flex-col !translate-x-0 !translate-y-0 !rounded-none !border-0 !p-0 !gap-0 overflow-hidden [&>button]:hidden">
+          <div className="z-20 flex w-full shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 sm:px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button size="icon" variant="ghost" onClick={handleCloseCreate} aria-label="close" className="shrink-0">
+                <CloseIcon className="h-5 w-5" />
+              </Button>
+              <DialogTitle className="truncate font-semibold text-[0.95rem] sm:text-[1.15rem]">
+                สร้างกิจกรรม & QR Code
+              </DialogTitle>
+            </div>
+            <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-2 flex-1 sm:flex-none"
+                className="gap-2"
                 onClick={async () => {
                   const code = form.activityCode.trim();
                   const url = code ? makeShortUrl(code) : '';
@@ -2666,24 +3477,33 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                   updateForm('qrDataUrl', data as any);
                   setOpenPreview(true);
                 }}
-              >
-                <PreviewIcon className="h-4 w-4" />
-                <span className="hidden sm:inline">พรีวิวหน้าลงทะเบียน</span>
-                <span className="inline sm:hidden">พรีวิว</span>
-              </Button>
-              <Button
-                autoFocus
-                size="sm"
-                className="gap-2 flex-1 sm:flex-none whitespace-nowrap"
-                onClick={handleCreateSubmit}
                 disabled={saving}
               >
-                {saving ? <Spinner size="sm" /> : <AddIcon className="h-4 w-4" />}
-                <span className="hidden sm:inline">บันทึก & สร้าง QR</span>
+                <PreviewIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">พรีวิว</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 whitespace-nowrap"
+                onClick={() => handleCreateSubmit('draft')}
+                disabled={saving}
+              >
+                {saving && saveAction === 'draft' ? <Spinner size="sm" /> : null}
+                <span className="hidden sm:inline">บันทึกข้อมูล</span>
                 <span className="inline sm:hidden">บันทึก</span>
               </Button>
+              <Button
+                size="sm"
+                className="gap-2 whitespace-nowrap bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => handleCreateSubmit('publish')}
+                disabled={saving}
+              >
+                {saving && saveAction === 'publish' ? <Spinner size="sm" /> : <AddIcon className="h-4 w-4" />}
+                เผยแพร่
+              </Button>
             </div>
-          </DialogHeader>
+          </div>
 
           <div className="flex-1 overflow-y-auto bg-muted/40 p-3 sm:p-4 md:p-8">
             <div className="mx-auto max-w-3xl">
@@ -2853,42 +3673,26 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                 </div>
               )}
 
-              {form.bannerMode === 'color' && (
+              {(form.bannerMode === 'color' || form.bannerMode === 'none') && (
                 <div className="col-span-12">
-                  <div className="flex flex-row items-center gap-2">
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
-                        <ColorIcon className="h-4 w-4" />
-                      </span>
-                      <Input
-                        className="pl-9"
-                        value={form.bannerColor}
-                        onChange={(e) => updateForm('bannerColor', e.target.value as any)}
-                        placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
-                      />
-                    </div>
-                    <div
-                      className="w-12 h-12 rounded border border-black/10 shrink-0"
-                      style={{ background: form.bannerColor }}
-                    />
-                  </div>
+                  <ColorPickerField
+                    label="สีแบนเนอร์"
+                    value={form.bannerColor}
+                    onChange={(v) => updateForm('bannerColor', v as any)}
+                    placeholder="#0ea5e9 หรือเลือกโหมดไล่สี"
+                    allowCssGradient
+                  />
                 </div>
               )}
 
               {/* สีทับ + ความทึบ */}
-              <div className="col-span-12 md:col-span-7 flex flex-col gap-1.5">
-                <Label>สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก</Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
-                    <ColorIcon className="h-4 w-4" />
-                  </span>
-                  <Input
-                    className="pl-9"
-                    value={form.bannerTintColor}
-                    onChange={(e) => updateForm('bannerTintColor', e.target.value as any)}
-                    placeholder="#0ea5e9 หรือ rgba(14,165,233,1)"
-                  />
-                </div>
+              <div className="col-span-12 md:col-span-7">
+                <ColorPickerField
+                  label="สีทับ (Tint) — ทับบนรูป / สีหลัก"
+                  value={form.bannerTintColor}
+                  onChange={(v) => updateForm('bannerTintColor', v as any)}
+                  placeholder="#0ea5e9"
+                />
               </div>
 
               <div className="col-span-12 md:col-span-5">
@@ -2951,6 +3755,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                   onCenterChange={(pos) => {
                     updateForm('latitude', pos.lat as any);
                     updateForm('longitude', pos.lng as any);
+                    void reverseGeocodeToPlaceName(pos.lat, pos.lng);
                   }}
                   onUseCurrentLocation={useCurrentLocation}
                 />
@@ -3021,7 +3826,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                 <div className="flex flex-col md:flex-row md:items-center md:justify-end gap-2 h-full flex-wrap">
                   <label className="flex items-center gap-2 cursor-pointer text-sm">
                     <Switch checked={form.isActive} onCheckedChange={(c) => updateForm('isActive', c as any)} />
-                    <span>เปิดใช้งาน</span>
+                    <span>สถานะเผยแพร่ (ใช้ปุ่มด้านบนบันทึก/เผยแพร่จะทับค่านี้)</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer text-sm">
                     <Switch checked={form.scanEnabled} onCheckedChange={(c) => updateForm('scanEnabled', c as any)} />
@@ -3191,372 +3996,542 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
       {/* ===================== Edit Dialog ===================== */}
       <Dialog open={openEdit} onOpenChange={(o) => { if (!o) handleCloseEdit(); }}>
-        <DialogContent className="max-w-none w-screen h-[100dvh] rounded-none p-0 gap-0 overflow-hidden flex flex-col [&>button]:hidden">
-          <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background px-3 sm:px-4 py-2 flex-row flex-wrap items-center gap-2 space-y-0 text-left">
-            <Button size="icon" variant="ghost" onClick={handleCloseEdit} aria-label="close">
-              <CloseIcon className="h-5 w-5" />
-            </Button>
-            <DialogTitle className="flex-1 min-w-0 truncate font-semibold text-[0.95rem] sm:text-[1.15rem]">
-              แก้ไขกิจกรรม
-            </DialogTitle>
-            <Button
-              autoFocus
-              size="sm"
-              className="gap-2 w-full sm:w-auto"
-              onClick={handleEditSubmit}
-              disabled={editing}
-            >
-              {editing ? <Spinner size="sm" /> : <EditIcon className="h-4 w-4" />}
-              บันทึกการแก้ไข
-            </Button>
-          </DialogHeader>
-
-          <div className="flex-1 overflow-y-auto bg-muted/40 p-3 sm:p-4 md:p-8">
-            <div className="mx-auto max-w-3xl">
-              <div className="p-4 md:p-8 rounded-2xl border border-border bg-background">
-          {errMsg && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertDescription>{errMsg}</AlertDescription>
-            </Alert>
+        <DialogContent
+          className={cn(
+            '!fixed !inset-0 !left-0 !top-0 z-50 !flex !h-[100dvh] !w-screen !max-h-none !max-w-none !flex-col',
+            '!translate-x-0 !translate-y-0 !rounded-none !border-0 !p-0 !gap-0 overflow-hidden',
+            'data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100',
+            'data-[state=closed]:slide-out-to-left-0 data-[state=open]:slide-in-from-left-0',
+            'data-[state=closed]:slide-out-to-top-0 data-[state=open]:slide-in-from-top-0',
+            '[&>button]:hidden'
           )}
+        >
+          <div className="z-20 flex w-full shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 sm:px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button size="icon" variant="ghost" onClick={handleCloseEdit} aria-label="close" className="shrink-0">
+                <CloseIcon className="h-5 w-5" />
+              </Button>
+              <DialogTitle className="truncate font-semibold text-[0.95rem] sm:text-[1.15rem]">
+                แก้ไขกิจกรรม
+              </DialogTitle>
+            </div>
+            <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 whitespace-nowrap"
+                onClick={openVersionsDialog}
+                disabled={editing || !qrDocId}
+                title="ประวัติเวอร์ชัน"
+              >
+                <HistoryIcon className="h-4 w-4" />
+                <span className="hidden md:inline">ย้อนเวอร์ชัน</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 whitespace-nowrap"
+                onClick={() => handleEditSubmit('draft')}
+                disabled={editing}
+              >
+                {editing && saveAction === 'draft' ? <Spinner size="sm" /> : <EditIcon className="h-4 w-4" />}
+                บันทึกข้อมูล
+              </Button>
+              <Button
+                autoFocus
+                size="sm"
+                className="gap-2 whitespace-nowrap bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => handleEditSubmit('publish')}
+                disabled={editing}
+              >
+                {editing && saveAction === 'publish' ? <Spinner size="sm" /> : null}
+                เผยแพร่
+              </Button>
+            </div>
+          </div>
 
-          <>
-            <div className="grid grid-cols-12 gap-4">
-              <div className="col-span-12 md:col-span-8 flex flex-col gap-1.5">
-                <Label>ชื่อกิจกรรม *</Label>
-                <Input
-                  value={form.activityName}
-                  onChange={(e) => updateForm('activityName', e.target.value as any)}
-                />
+          <div className="flex min-h-0 w-full flex-1 flex-col md:flex-row bg-muted/30">
+            {/* เมนูหมวดหมู่ — มือถือ */}
+            <div className="md:hidden shrink-0 border-b border-border bg-background px-3 py-2 overflow-x-auto">
+              <div className="flex gap-1.5 min-w-max">
+                {EDIT_SECTIONS.map((s) => (
+                  <Button
+                    key={s.id}
+                    type="button"
+                    size="sm"
+                    variant={editSection === s.id ? 'default' : 'outline'}
+                    className="whitespace-nowrap"
+                    onClick={() => setEditSection(s.id)}
+                  >
+                    {s.label}
+                  </Button>
+                ))}
               </div>
+            </div>
 
-              <div className="col-span-12 md:col-span-4 flex flex-col gap-1.5">
-                <Label>รหัสกิจกรรม</Label>
-                <Input value={form.activityCode} disabled />
-              </div>
-
-              {/* ส่วนหัว */}
-              <div className="col-span-12 md:col-span-8 flex flex-col gap-1.5">
-                <Label>ส่วนหัว</Label>
-                <Input value={form.headerTitle} onChange={(e) => updateForm('headerTitle', e.target.value as any)} />
-              </div>
-
-              {/* แบนเนอร์ */}
-              <div className="col-span-12 md:col-span-4 flex flex-col gap-1.5">
-                <Label>โหมดแบนเนอร์</Label>
-                <Select value={form.bannerMode} onValueChange={(v) => updateForm('bannerMode', v as any)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">ไม่ใช้ (แสดงเป็นสี)</SelectItem>
-                    <SelectItem value="image">รูปภาพ</SelectItem>
-                    <SelectItem value="color">สี/Gradient</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {form.bannerMode === 'image' && (
-                <div className="col-span-12">
-                  <div className="flex flex-col md:flex-row md:items-center gap-4">
-                    <Button asChild variant="outline" className="gap-2 cursor-pointer">
-                      <label>
-                        <ImageIcon className="h-4 w-4" />
-                        เปลี่ยนรูปส่วนหัว
-                        <input
-                          hidden
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0] || null;
-                            updateForm('bannerFile', file as any);
-                            if (file) updateForm('bannerUrl', URL.createObjectURL(file) as any);
-                          }}
-                        />
-                      </label>
-                    </Button>
-
-                    <Button
-                      variant="outline"
-                      className="gap-2"
-                      onClick={() => {
-                        if (form.activityName.trim()) {
-                          setMagnificPrompt(`A beautiful premium promotional banner for university activity: ${form.activityName.trim()}`);
-                        } else {
-                          setMagnificPrompt('A beautiful premium modern abstract banner for a university science activity');
-                        }
-                        setMagnificRatio('widescreen_16_9');
-                        setMagnificOpen(true);
-                      }}
-                    >
-                      <SparklesIcon className="h-4 w-4" />
-                      สร้างรูปด้วย Magnific AI
-                    </Button>
-
-
-                    {form.bannerUrl ? (
-                      <div className="flex flex-row items-center gap-2">
-                        <img src={form.bannerUrl} alt="banner-preview" style={{ height: 60, borderRadius: 8 }} />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          disabled={upscaling}
-                          onClick={handleUpscaleBanner}
-                        >
-                          {upscaling ? <Spinner size="sm" /> : <SparklesIcon className="h-4 w-4" />}
-                          {upscaling ? 'กำลังปรับความคมชัด...' : 'เพิ่มความคมชัด (AI Upscale)'}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="gap-2 text-destructive"
-                          onClick={async () => {
-                            await deleteBannerIfOwned(form.bannerUrl);
-                            updateForm('bannerUrl', undefined as any);
-                            updateForm('bannerFile', null as any);
-                          }}
-                        >
-                          <ClearIcon className="h-4 w-4" />
-                          ลบรูป
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        ไม่มีรูปส่วนหัว
-                      </span>
-                    )}
-                  </div>
-                  {upscaleError && (
-                    <span className="block mt-1 text-xs text-destructive">
-                      {upscaleError}
-                    </span>
+            {/* เมนูหมวดหมู่ — เดสก์ท็อป */}
+            <nav className="hidden md:flex w-56 lg:w-64 shrink-0 flex-col gap-1 border-r border-border bg-background p-3 overflow-y-auto">
+              <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                หมวดการตั้งค่า
+              </p>
+              {EDIT_SECTIONS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setEditSection(s.id)}
+                  className={cn(
+                    'rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                    editSection === s.id
+                      ? 'bg-primary text-primary-foreground font-medium'
+                      : 'text-foreground hover:bg-muted'
                   )}
-                </div>
-              )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </nav>
 
-              {form.bannerMode === 'color' && (
-                <div className="col-span-12">
-                  <div className="flex flex-row items-center gap-2">
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
-                        <ColorIcon className="h-4 w-4" />
-                      </span>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
+              <div className="mx-auto w-full max-w-5xl rounded-2xl border border-border bg-background p-4 md:p-6">
+                {errMsg && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertDescription>{errMsg}</AlertDescription>
+                  </Alert>
+                )}
+
+                <h3 className="mb-4 text-base font-semibold">
+                  {EDIT_SECTIONS.find((s) => s.id === editSection)?.label}
+                </h3>
+
+                {editSection === 'basics' && (
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-12 md:col-span-8 flex flex-col gap-1.5">
+                      <Label>ชื่อกิจกรรม *</Label>
                       <Input
-                        className="pl-9"
-                        value={form.bannerColor}
-                        onChange={(e) => updateForm('bannerColor', e.target.value as any)}
-                        placeholder="เช่น #0ea5e9 หรือ linear-gradient(135deg,#4f46e5,#06b6d4)"
+                        value={form.activityName}
+                        onChange={(e) => updateForm('activityName', e.target.value as any)}
                       />
                     </div>
-                    <div
-                      className="w-12 h-12 rounded border border-black/10 shrink-0"
-                      style={{ background: form.bannerColor }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* สีทับ + ความทึบ */}
-              <div className="col-span-12 md:col-span-7 flex flex-col gap-1.5">
-                <Label>สีทับ (Tint) — ใช้ทับบนรูป/กำหนดสีหลัก</Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
-                    <ColorIcon className="h-4 w-4" />
-                  </span>
-                  <Input
-                    className="pl-9"
-                    value={form.bannerTintColor}
-                    onChange={(e) => updateForm('bannerTintColor', e.target.value as any)}
-                    placeholder="#0ea5e9 หรือ rgba(14,165,233,1)"
-                  />
-                </div>
-              </div>
-
-              <div className="col-span-12 md:col-span-5">
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm font-semibold">
-                    ความทึบของสีทับ: {(form.bannerTintOpacity * 100).toFixed(0)}%
-                  </p>
-                  <input
-                    type="range"
-                    className="w-full accent-primary"
-                    value={Math.round(form.bannerTintOpacity * 100)}
-                    onChange={(e) => {
-                      const pct = Number(e.target.value);
-                      updateForm('bannerTintOpacity', (Math.max(0, Math.min(100, pct)) / 100) as any);
-                    }}
-                    step={1}
-                    min={0}
-                    max={100}
-                  />
-                </div>
-              </div>
-
-              {/* คำอธิบาย/สถานที่ */}
-              <div className="col-span-12">
-                <p className="mb-2 text-sm text-muted-foreground font-medium">
-                  รายละเอียดกิจกรรม (คำอธิบาย)
-                </p>
-                <QuillEditor
-                  value={form.description}
-                  onChange={(val) => updateForm('description', val as any)}
-                  placeholder="เขียนรายละเอียดกิจกรรม และจัดรูปแบบได้ที่นี่..."
-                  onUploadImage={uploadDescriptionImage}
-                />
-              </div>
-
-              <div className="col-span-12">
-                <GooglePlaceAutocomplete
-                  value={form.location || ''}
-                  isLoaded={isGoogleMapsLoaded}
-                  onChange={(address, lat, lng) => {
-                    updateForm('location', address as any);
-                    if (lat !== undefined && lng !== undefined) {
-                      updateForm('latitude', lat as any);
-                      updateForm('longitude', lng as any);
-                    }
-                  }}
-                />
-              </div>
-
-              {/* แผนที่ */}
-              <div className="col-span-12">
-                <GeofenceMap
-                  center={{
-                    lat: typeof form.latitude === 'number' ? form.latitude : 13.7563,
-                    lng: typeof form.longitude === 'number' ? form.longitude : 100.5018,
-                  }}
-                  radius={form.checkInRadius || 100}
-                  title="ปรับตำแหน่งกิจกรรม"
-                  editable
-                  onCenterChange={(pos) => {
-                    updateForm('latitude', pos.lat as any);
-                    updateForm('longitude', pos.lng as any);
-                  }}
-                  onUseCurrentLocation={useCurrentLocation}
-                />
-              </div>
-
-              {/* เลือกระยะ */}
-              <div className="col-span-12">
-                <p className="mb-1 text-sm font-bold">
-                  รัศมีเช็คอิน (เมตร): {form.checkInRadius}
-                </p>
-                <input
-                  type="range"
-                  className="w-full accent-primary"
-                  value={form.checkInRadius}
-                  onChange={(e) => updateForm('checkInRadius', Number(e.target.value) as any)}
-                  step={10}
-                  min={10}
-                  max={2000}
-                />
-              </div>
-
-              {/* เวลา */}
-              <div className="col-span-12 md:col-span-6">
-                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                  <DatePicker
-                    showTime
-                    placeholder="วันที่และเวลาเริ่มต้น"
-                    style={{ width: '100%', height: '56px' }}
-                    format="DD/MM/YYYY HH:mm"
-                    value={form.startDateTime}
-                    onChange={(value: any) => updateForm('startDateTime', value as any)}
-                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                  />
-                </ConfigProvider>
-              </div>
-
-              <div className="col-span-12 md:col-span-6">
-                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                  <DatePicker
-                    showTime
-                    placeholder="วันที่และเวลาสิ้นสุด"
-                    style={{ width: '100%', height: '56px' }}
-                    format="DD/MM/YYYY HH:mm"
-                    value={form.endDateTime}
-                    onChange={(value: any) => updateForm('endDateTime', value as any)}
-                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                  />
-                </ConfigProvider>
-              </div>
-
-              {/* options */}
-              <div className="col-span-12 md:col-span-6 flex flex-col gap-1.5">
-                <Label>จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)</Label>
-                <Input
-                  value={form.maxParticipants ?? ''}
-                  onChange={(e) => updateForm('maxParticipants', (e.target.value === '' ? undefined : Math.max(0, Number(e.target.value))) as any)}
-                />
-              </div>
-
-                <div className="col-span-12 flex flex-wrap gap-2 mt-2">
-                  <Button
-                    variant={form.isActive ? 'default' : 'outline'}
-                    className={form.isActive ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
-                    onClick={() => updateForm('isActive', !form.isActive as any)}
-                    size="sm"
-                  >
-                    เปิดใช้งาน
-                  </Button>
-                  <Button
-                    variant={form.scanEnabled ? 'default' : 'outline'}
-                    onClick={() => updateForm('scanEnabled', !form.scanEnabled as any)}
-                    size="sm"
-                  >
-                    เปิดให้สแกน QR
-                  </Button>
-                  <Button
-                    variant={form.requiresUniversityLogin ? 'secondary' : 'outline'}
-                    onClick={() => updateForm('requiresUniversityLogin', !form.requiresUniversityLogin as any)}
-                    size="sm"
-                  >
-                    บังคับ Login มหาลัย
-                  </Button>
-                  <Button
-                    variant={form.singleUserMode ? 'default' : 'outline'}
-                    className={form.singleUserMode ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
-                    onClick={() => updateForm('singleUserMode', !form.singleUserMode as any)}
-                    size="sm"
-                  >
-                    Single-user mode
-                  </Button>
-                  <Button
-                    variant={form.dynamicQREnabled ? 'default' : 'outline'}
-                    className={form.dynamicQREnabled ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}
-                    onClick={() => updateForm('dynamicQREnabled', !form.dynamicQREnabled as any)}
-                    size="sm"
-                  >
-                    Dynamic QR
-                  </Button>
-                </div>
-
-                {form.dynamicQREnabled && (
-                  <div className="col-span-12 space-y-1.5">
-                    <Label htmlFor="onsite-reg-point-edit">จุดลงทะเบียนหน้างาน (แสดงตอน QR หมดอายุ)</Label>
-                    <Input
-                      id="onsite-reg-point-edit"
-                      value={form.onsiteRegistrationPoint}
-                      onChange={(e) => updateForm('onsiteRegistrationPoint', e.target.value as any)}
-                      placeholder="เช่น โต๊ะลงทะเบียน หน้าหอประชุม / จุดเช็กอิน ลานกิจกรรม"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      ผู้เข้าร่วมที่สแกน QR เก่าจะเห็นข้อความให้ไปสแกนใหม่ที่จุดนี้ — ถ้าเว้นว่างจะใช้ชื่อสถานที่กิจกรรมแทน
-                    </p>
+                    <div className="col-span-12 md:col-span-4 flex flex-col gap-1.5">
+                      <Label>รหัสกิจกรรม</Label>
+                      <Input value={form.activityCode} disabled />
+                    </div>
+                    <div className="col-span-12 flex flex-col gap-1.5">
+                      <Label>ส่วนหัว</Label>
+                      <Input
+                        value={form.headerTitle}
+                        onChange={(e) => updateForm('headerTitle', e.target.value as any)}
+                      />
+                    </div>
                   </div>
                 )}
 
-              {/* ✅ Registration code series */}
-              {RegistrationSeriesSection()}
-              {SessionsSection()}
-              {SurveyConfigSection()}
-              {MainActivityFilesSection()}
-            </div>
-          </>
+                {editSection === 'banner' && (
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-12 md:col-span-5 flex flex-col gap-1.5">
+                      <Label>โหมดแบนเนอร์</Label>
+                      <Select value={form.bannerMode} onValueChange={(v) => updateForm('bannerMode', v as any)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">ไม่ใช้ (แสดงเป็นสี)</SelectItem>
+                          <SelectItem value="image">รูปภาพ</SelectItem>
+                          <SelectItem value="color">สี/Gradient</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {(form.bannerMode === 'none' || form.bannerMode === 'color') && (
+                      <div className="col-span-12">
+                        <ColorPickerField
+                          label="สีแบนเนอร์"
+                          value={form.bannerColor}
+                          onChange={(v) => updateForm('bannerColor', v as any)}
+                          placeholder="#0ea5e9 หรือ linear-gradient(...)"
+                          allowCssGradient
+                        />
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          เลือกจากจานสี หรือพิมพ์ hex / CSS gradient ได้
+                        </p>
+                      </div>
+                    )}
+
+                    {form.bannerMode === 'image' && (
+                      <div className="col-span-12 space-y-3">
+                        <div className="flex flex-col md:flex-row md:items-center gap-3 flex-wrap">
+                          <Button asChild variant="outline" className="gap-2 cursor-pointer">
+                            <label>
+                              <ImageIcon className="h-4 w-4" />
+                              เปลี่ยนรูปส่วนหัว
+                              <input
+                                hidden
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] || null;
+                                  updateForm('bannerFile', file as any);
+                                  if (file) updateForm('bannerUrl', URL.createObjectURL(file) as any);
+                                }}
+                              />
+                            </label>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="gap-2"
+                            onClick={() => {
+                              if (form.activityName.trim()) {
+                                setMagnificPrompt(
+                                  `A beautiful premium promotional banner for university activity: ${form.activityName.trim()}`
+                                );
+                              } else {
+                                setMagnificPrompt(
+                                  'A beautiful premium modern abstract banner for a university science activity'
+                                );
+                              }
+                              setMagnificRatio('widescreen_16_9');
+                              setMagnificOpen(true);
+                            }}
+                          >
+                            <SparklesIcon className="h-4 w-4" />
+                            สร้างรูปด้วย Magnific AI
+                          </Button>
+                          {form.bannerUrl ? (
+                            <div className="flex flex-row items-center gap-2 flex-wrap">
+                              <img
+                                src={form.bannerUrl}
+                                alt="banner-preview"
+                                className="h-[60px] rounded-lg object-cover"
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-2"
+                                disabled={upscaling}
+                                onClick={handleUpscaleBanner}
+                              >
+                                {upscaling ? <Spinner size="sm" /> : <SparklesIcon className="h-4 w-4" />}
+                                {upscaling ? 'กำลังปรับความคมชัด...' : 'เพิ่มความคมชัด (AI Upscale)'}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                className="gap-2 text-destructive"
+                                onClick={async () => {
+                                  await deleteBannerIfOwned(form.bannerUrl);
+                                  updateForm('bannerUrl', undefined as any);
+                                  updateForm('bannerFile', null as any);
+                                }}
+                              >
+                                <ClearIcon className="h-4 w-4" />
+                                ลบรูป
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">ไม่มีรูปส่วนหัว</span>
+                          )}
+                        </div>
+                        {upscaleError && (
+                          <span className="block text-xs text-destructive">{upscaleError}</span>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="col-span-12 md:col-span-7">
+                      <ColorPickerField
+                        label="สีทับ (Tint) — ทับบนรูป / สีหลัก"
+                        value={form.bannerTintColor}
+                        onChange={(v) => updateForm('bannerTintColor', v as any)}
+                        placeholder="#0ea5e9"
+                      />
+                    </div>
+                    <div className="col-span-12 md:col-span-5 flex flex-col gap-2 justify-end">
+                      <p className="text-sm font-semibold">
+                        ความทึบของสีทับ: {(form.bannerTintOpacity * 100).toFixed(0)}%
+                      </p>
+                      <input
+                        type="range"
+                        className="w-full accent-primary"
+                        value={Math.round(form.bannerTintOpacity * 100)}
+                        onChange={(e) => {
+                          const pct = Number(e.target.value);
+                          updateForm('bannerTintOpacity', (Math.max(0, Math.min(100, pct)) / 100) as any);
+                        }}
+                        step={1}
+                        min={0}
+                        max={100}
+                      />
+                      <div
+                        className="mt-1 h-16 w-full rounded-xl border border-border overflow-hidden relative"
+                        style={{
+                          background:
+                            form.bannerMode === 'image' && form.bannerUrl
+                              ? `url(${form.bannerUrl}) center/cover`
+                              : form.bannerColor || '#0ea5e9',
+                        }}
+                      >
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background: form.bannerTintColor || '#0ea5e9',
+                            opacity: form.bannerTintOpacity,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {editSection === 'content' && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">รายละเอียดกิจกรรม (คำอธิบาย)</p>
+                    <QuillEditor
+                      value={form.description}
+                      onChange={(val) => updateForm('description', val as any)}
+                      placeholder="เขียนรายละเอียดกิจกรรม และจัดรูปแบบได้ที่นี่..."
+                      onUploadImage={uploadDescriptionImage}
+                    />
+                  </div>
+                )}
+
+                {editSection === 'location' && (
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-12">
+                      <GooglePlaceAutocomplete
+                        value={form.location || ''}
+                        isLoaded={isGoogleMapsLoaded}
+                        onChange={(address, lat, lng) => {
+                          updateForm('location', address as any);
+                          if (lat !== undefined && lng !== undefined) {
+                            updateForm('latitude', lat as any);
+                            updateForm('longitude', lng as any);
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="col-span-12">
+                      <GeofenceMap
+                        center={{
+                          lat: typeof form.latitude === 'number' ? form.latitude : 13.7563,
+                          lng: typeof form.longitude === 'number' ? form.longitude : 100.5018,
+                        }}
+                        radius={form.checkInRadius || 100}
+                        title="ปรับตำแหน่งกิจกรรม"
+                        editable
+                        onCenterChange={(pos) => {
+                          updateForm('latitude', pos.lat as any);
+                          updateForm('longitude', pos.lng as any);
+                          void reverseGeocodeToPlaceName(pos.lat, pos.lng);
+                        }}
+                        onUseCurrentLocation={useCurrentLocation}
+                      />
+                    </div>
+                    <div className="col-span-12">
+                      <p className="mb-1 text-sm font-bold">รัศมีเช็คอิน (เมตร): {form.checkInRadius}</p>
+                      <input
+                        type="range"
+                        className="w-full accent-primary"
+                        value={form.checkInRadius}
+                        onChange={(e) => updateForm('checkInRadius', Number(e.target.value) as any)}
+                        step={10}
+                        min={10}
+                        max={2000}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {editSection === 'schedule' && (
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-12 md:col-span-6">
+                      <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                        <DatePicker
+                          showTime
+                          placeholder="วันที่และเวลาเริ่มต้น"
+                          style={{ width: '100%', height: '56px' }}
+                          format="DD/MM/YYYY HH:mm"
+                          value={form.startDateTime}
+                          onChange={(value: any) => updateForm('startDateTime', value as any)}
+                          getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                        />
+                      </ConfigProvider>
+                    </div>
+                    <div className="col-span-12 md:col-span-6">
+                      <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
+                        <DatePicker
+                          showTime
+                          placeholder="วันที่และเวลาสิ้นสุด"
+                          style={{ width: '100%', height: '56px' }}
+                          format="DD/MM/YYYY HH:mm"
+                          value={form.endDateTime}
+                          onChange={(value: any) => updateForm('endDateTime', value as any)}
+                          getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                        />
+                      </ConfigProvider>
+                    </div>
+                    <div className="col-span-12 md:col-span-6 flex flex-col gap-1.5">
+                      <Label>จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)</Label>
+                      <Input
+                        value={form.maxParticipants ?? ''}
+                        onChange={(e) =>
+                          updateForm(
+                            'maxParticipants',
+                            (e.target.value === '' ? undefined : Math.max(0, Number(e.target.value))) as any
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="col-span-12 flex flex-wrap gap-2 mt-2">
+                      <Button
+                        variant={form.isActive ? 'default' : 'outline'}
+                        className={form.isActive ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
+                        onClick={() => updateForm('isActive', !form.isActive as any)}
+                        size="sm"
+                      >
+                        {form.isActive ? 'สถานะ: เผยแพร่' : 'สถานะ: ฉบับร่าง'}
+                      </Button>
+                      <Button
+                        variant={form.scanEnabled ? 'default' : 'outline'}
+                        onClick={() => updateForm('scanEnabled', !form.scanEnabled as any)}
+                        size="sm"
+                      >
+                        เปิดให้สแกน QR
+                      </Button>
+                      <Button
+                        variant={form.requiresUniversityLogin ? 'secondary' : 'outline'}
+                        onClick={() =>
+                          updateForm('requiresUniversityLogin', !form.requiresUniversityLogin as any)
+                        }
+                        size="sm"
+                      >
+                        บังคับ Login มหาลัย
+                      </Button>
+                      <Button
+                        variant={form.singleUserMode ? 'default' : 'outline'}
+                        className={form.singleUserMode ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
+                        onClick={() => updateForm('singleUserMode', !form.singleUserMode as any)}
+                        size="sm"
+                      >
+                        Single-user mode
+                      </Button>
+                      <Button
+                        variant={form.dynamicQREnabled ? 'default' : 'outline'}
+                        className={form.dynamicQREnabled ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}
+                        onClick={() => updateForm('dynamicQREnabled', !form.dynamicQREnabled as any)}
+                        size="sm"
+                      >
+                        Dynamic QR
+                      </Button>
+                    </div>
+                    {form.dynamicQREnabled && (
+                      <div className="col-span-12 space-y-1.5">
+                        <Label htmlFor="onsite-reg-point-edit">จุดลงทะเบียนหน้างาน (แสดงตอน QR หมดอายุ)</Label>
+                        <Input
+                          id="onsite-reg-point-edit"
+                          value={form.onsiteRegistrationPoint}
+                          onChange={(e) => updateForm('onsiteRegistrationPoint', e.target.value as any)}
+                          placeholder="เช่น โต๊ะลงทะเบียน หน้าหอประชุม / จุดเช็กอิน ลานกิจกรรม"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          ผู้เข้าร่วมที่สแกน QR เก่าจะเห็นข้อความให้ไปสแกนใหม่ที่จุดนี้ — ถ้าเว้นว่างจะใช้ชื่อสถานที่กิจกรรมแทน
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {editSection === 'regcodes' && (
+                  <div className="grid grid-cols-12 gap-4">{RegistrationSeriesSection()}</div>
+                )}
+                {editSection === 'sessions' && (
+                  <div className="grid grid-cols-12 gap-4">{SessionsSection()}</div>
+                )}
+                {editSection === 'survey' && (
+                  <div className="grid grid-cols-12 gap-4">{SurveyConfigSection()}</div>
+                )}
+                {editSection === 'files' && (
+                  <div className="grid grid-cols-12 gap-4">{MainActivityFilesSection()}</div>
+                )}
               </div>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===================== Activity Versions Dialog ===================== */}
+      <Dialog open={openVersions} onOpenChange={(o) => { if (!o && !restoringVersionId) setOpenVersions(false); }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col gap-0 p-0">
+          <DialogHeader className="border-b border-border px-4 py-3 space-y-1 text-left">
+            <DialogTitle className="flex items-center gap-2">
+              <HistoryIcon className="h-5 w-5" />
+              ประวัติเวอร์ชัน
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground">
+              เลือกเวอร์ชันเพื่อย้อนกลับ — เก็บไว้สูงสุด 20 รายการล่าสุด
+            </p>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {versionsLoading ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                <Spinner size="sm" /> กำลังโหลดประวัติ…
+              </div>
+            ) : versions.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                ยังไม่มีประวัติเวอร์ชัน — จะถูกสร้างเมื่อบันทึก/เผยแพร่ครั้งถัดไป
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {versions.map((v) => {
+                  const when = v.savedAt
+                    ? dayjs(v.savedAt).format('DD/MM/YYYY HH:mm:ss')
+                    : 'ไม่ทราบเวลา';
+                  const modeLabel =
+                    v.mode === 'publish'
+                      ? 'ก่อนเผยแพร่'
+                      : v.mode === 'draft'
+                        ? 'ก่อนบันทึกฉบับร่าง'
+                        : v.mode === 'before_restore'
+                          ? 'ก่อนย้อนเวอร์ชัน'
+                          : v.mode;
+                  return (
+                    <li
+                      key={v.id}
+                      className="rounded-xl border border-border bg-card p-3 flex flex-col sm:flex-row sm:items-center gap-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{v.label || 'กิจกรรม'}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{when}</p>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          <Badge variant="secondary" className="text-[10px]">{modeLabel}</Badge>
+                          {typeof v.stateVersion !== 'undefined' && v.stateVersion !== null && (
+                            <Badge variant="outline" className="text-[10px]">
+                              v{String(v.stateVersion).slice(0, 12)}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 gap-2"
+                        disabled={Boolean(restoringVersionId)}
+                        onClick={() => handleRestoreVersion(v.id)}
+                      >
+                        {restoringVersionId === v.id ? <Spinner size="sm" /> : <HistoryIcon className="h-4 w-4" />}
+                        ย้อนกลับ
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <DialogFooter className="border-t border-border px-4 py-3">
+            <Button variant="outline" onClick={() => setOpenVersions(false)} disabled={Boolean(restoringVersionId)}>
+              ปิด
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -2,6 +2,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import Navbar from "@/components/Navbar";
@@ -34,6 +36,16 @@ import {
   RefreshCacheTtl,
   writeRefreshCache,
 } from "@/lib/refreshCache";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  getPaginationItems,
+} from "@/components/ui/pagination";
 
 // --- Hero media ---
 // วางไฟล์ /public/hero.mp4 และ /public/hero.jpg เพื่อใช้วิดีโอ/รูปของคณะเอง
@@ -76,6 +88,9 @@ const CATEGORY_OPTIONS = [
   "เวิร์กชอป / ฝึกอบรม",
   "กีฬา / สุขภาพ",
 ];
+
+/** จำนวนการ์ดต่อหน้า — เกินนี้แสดง pagination */
+const PAGE_SIZE = 9;
 
 const toDate = (d: any): Date =>
   d?.toDate?.() ?? (d instanceof Date ? d : new Date(d));
@@ -151,6 +166,11 @@ const readCachedActivities = (): ActivityListItem[] | null => {
 };
 
 const HomePage: React.FC = () => {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const isActivitiesPage = pathname === "/activities";
+
   const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState<ActivityListItem[]>([]);
   const [error, setError] = useState("");
@@ -159,10 +179,13 @@ const HomePage: React.FC = () => {
   // New Filter States
   const [categories, setCategories] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState("ทั้งหมด");
-  const [statuses, setStatuses] = useState<string[]>([]);
+  const [statuses, setStatuses] = useState<string[]>(() =>
+    searchParams.get("status") === "active" ? ["active"] : []
+  );
   const [departmentFilters, setDepartmentFilters] = useState<string[]>([]);
 
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
 
   const fetchActivities = async (opts?: { force?: boolean }) => {
     const force = opts?.force === true;
@@ -270,6 +293,32 @@ const HomePage: React.FC = () => {
       (a, b) => rank(getStatus(a).key) - rank(getStatus(b).key)
     );
   }, [activities, qText, statuses, categories, typeFilter, departmentFilters]);
+
+  // sync ?status= จาก URL (เช่น /activities?status=active)
+  useEffect(() => {
+    const s = searchParams.get("status");
+    if (s === "active") setStatuses(["active"]);
+  }, [searchParams]);
+
+  // เปลี่ยนตัวกรอง/ค้นหา → กลับหน้า 1
+  useEffect(() => {
+    setPage(1);
+  }, [qText, statuses, categories, typeFilter, departmentFilters]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedActivities = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredAndSorted.slice(start, start + PAGE_SIZE);
+  }, [filteredAndSorted, currentPage]);
+
+  const goToPage = (p: number) => {
+    const next = Math.max(1, Math.min(totalPages, p));
+    setPage(next);
+    if (typeof window !== "undefined") {
+      document.getElementById("activities")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
 
   const activeFilterCount =
     statuses.length +
@@ -394,7 +443,8 @@ const HomePage: React.FC = () => {
     <div className="flex min-h-screen flex-col bg-black">
       <Navbar />
 
-      {/* ===================== Hero — Cinematic Video Background ===================== */}
+      {/* ===================== Hero — เฉพาะหน้าแรก ===================== */}
+      {!isActivitiesPage && (
       <div className="relative z-[1] flex min-h-[78svh] flex-col justify-center overflow-hidden bg-black pb-16 pt-12 text-center text-white md:min-h-[86svh] md:pb-20 md:pt-10">
         {/* Layer 1: Poster image */}
         <div
@@ -481,21 +531,14 @@ const HomePage: React.FC = () => {
               className="flex flex-col items-center justify-center gap-4 sm:flex-row"
             >
               <Button
-                onClick={() =>
-                  document
-                    .getElementById("activities")
-                    ?.scrollIntoView({ behavior: "smooth" })
-                }
+                asChild
                 className="rounded-full bg-white px-9 py-6 text-base font-bold text-black shadow-[0_12px_32px_rgba(255,255,255,0.22)] transition-all hover:-translate-y-0.5 hover:bg-[#f5f5f7] hover:shadow-[0_16px_40px_rgba(255,255,255,0.3)]"
               >
-                สำรวจกิจกรรมทั้งหมด
+                <Link href="/activities">สำรวจกิจกรรมทั้งหมด</Link>
               </Button>
               <Button
                 onClick={() => {
-                  setStatuses(["active"]);
-                  document
-                    .getElementById("activities")
-                    ?.scrollIntoView({ behavior: "smooth" });
+                  router.push("/activities?status=active");
                 }}
                 className="rounded-full border border-white/25 bg-white/10 px-9 py-6 text-base font-bold text-white backdrop-blur-md transition-all hover:-translate-y-0.5 hover:bg-white/18"
               >
@@ -510,23 +553,49 @@ const HomePage: React.FC = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1, duration: 0.8 }}
-          onClick={() =>
-            document
-              .getElementById("activities")
-              ?.scrollIntoView({ behavior: "smooth" })
-          }
+          onClick={() => router.push("/activities")}
           className="absolute bottom-[110px] left-1/2 hidden h-[42px] w-[26px] -translate-x-1/2 cursor-pointer justify-center rounded-[14px] border-2 border-white/35 pt-[7px] md:flex"
         >
           <span className="h-[9px] w-1 rounded bg-white/75 animate-[heroScroll_1.8s_ease-in-out_infinite]" />
         </motion.div>
       </div>
+      )}
+
+      {/* หัวข้อหน้ารวมกิจกรรม */}
+      {isActivitiesPage && (
+        <div className="relative z-[2] border-b border-[var(--page-border)] bg-[var(--page-bg)] pt-6 pb-2 md:pt-8">
+          <div className="mx-auto w-full max-w-[1400px] px-4">
+            <p className="mb-1 text-sm font-semibold text-[var(--page-text-secondary)]">
+              <Link href="/" className="hover:text-[var(--page-text)] hover:underline">
+                หน้าแรก
+              </Link>
+              {" / "}
+              กิจกรรม
+            </p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-[var(--page-text)] md:text-3xl">
+              กิจกรรมทั้งหมด
+            </h1>
+            <p className="mt-1 text-sm text-[var(--page-text-secondary)] md:text-base">
+              ค้นหา กรอง และเรียกดูกิจกรรมที่เปิดรับสมัคร
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <div
         id="activities"
-        className="relative z-[2] flex-grow scroll-mt-20 rounded-t-[40px] bg-[var(--page-bg)]"
+        className={cn(
+          "relative z-[2] flex-grow scroll-mt-20 bg-[var(--page-bg)]",
+          !isActivitiesPage && "mt-0 rounded-t-[40px]"
+        )}
       >
-        <div className="mx-auto mb-24 mt-[-2.5rem] w-full max-w-[1400px] px-4">
+        <div
+          className={cn(
+            "mx-auto mb-24 w-full max-w-[1400px] px-4",
+            isActivitiesPage ? "mt-6 md:mt-8" : "mt-[-2.5rem]"
+          )}
+        >
           <div className="grid grid-cols-12 gap-4 md:gap-8">
             {/* Left Sidebar (Desktop) */}
             <div className="col-span-12 hidden md:col-span-3 md:block lg:col-span-3 xl:col-span-3">
@@ -654,8 +723,8 @@ const HomePage: React.FC = () => {
                     animate="show"
                   >
                     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                      <AnimatePresence>
-                        {filteredAndSorted.map((a) => (
+                      <AnimatePresence mode="popLayout">
+                        {pagedActivities.map((a) => (
                           <motion.div
                             key={a.id}
                             variants={itemVariants}
@@ -671,6 +740,49 @@ const HomePage: React.FC = () => {
                         ))}
                       </AnimatePresence>
                     </div>
+
+                    {filteredAndSorted.length > PAGE_SIZE && (
+                      <div className="mt-10 flex flex-col items-center gap-3">
+                        <p className="text-sm text-[var(--page-text-secondary)]">
+                          หน้า {currentPage} จาก {totalPages} · แสดง{" "}
+                          {(currentPage - 1) * PAGE_SIZE + 1}–
+                          {Math.min(currentPage * PAGE_SIZE, filteredAndSorted.length)} จาก{" "}
+                          {filteredAndSorted.length} กิจกรรม
+                        </p>
+                        <Pagination>
+                          <PaginationContent>
+                            <PaginationItem>
+                              <PaginationPrevious
+                                onClick={() => goToPage(currentPage - 1)}
+                                disabled={currentPage <= 1}
+                              />
+                            </PaginationItem>
+                            {getPaginationItems(currentPage, totalPages).map((item, idx) =>
+                              item === "ellipsis" ? (
+                                <PaginationItem key={`e-${idx}`}>
+                                  <PaginationEllipsis />
+                                </PaginationItem>
+                              ) : (
+                                <PaginationItem key={item}>
+                                  <PaginationLink
+                                    isActive={item === currentPage}
+                                    onClick={() => goToPage(item)}
+                                  >
+                                    {item}
+                                  </PaginationLink>
+                                </PaginationItem>
+                              )
+                            )}
+                            <PaginationItem>
+                              <PaginationNext
+                                onClick={() => goToPage(currentPage + 1)}
+                                disabled={currentPage >= totalPages}
+                              />
+                            </PaginationItem>
+                          </PaginationContent>
+                        </Pagination>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </div>
@@ -754,4 +866,16 @@ const HomePage: React.FC = () => {
   );
 };
 
-export default HomePage;
+export default function HomePageWithSuspense() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[var(--page-bg)]">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      }
+    >
+      <HomePage />
+    </React.Suspense>
+  );
+}

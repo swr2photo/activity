@@ -11,6 +11,7 @@ import dayjs from 'dayjs';
 interface ActivityTableProps {
   activities: Activity[];
   onToggleStatus: (activity: Activity) => void;
+  onReopenEnded?: (activity: Activity) => void;
   onEdit: (activity: Activity) => void;
   onDelete: (activity: Activity) => void;
   onDownload: (e: React.MouseEvent<HTMLElement>, activity: Activity) => void;
@@ -23,6 +24,7 @@ interface ActivityTableProps {
 export function ActivityTable({
   activities,
   onToggleStatus,
+  onReopenEnded,
   onEdit,
   onDelete,
   onDownload,
@@ -34,10 +36,10 @@ export function ActivityTable({
   
   const statusOf = (a: Activity) => {
     const now = new Date();
-    if (!a.isActive) return { label: 'ปิดใช้งาน', variant: 'secondary' as const };
+    if (!a.isActive) return { label: 'ฉบับร่าง', variant: 'warning' as const };
     if (a.startDateTime && now < a.startDateTime) return { label: 'รอเปิด', variant: 'warning' as const };
     if (a.endDateTime && now > a.endDateTime) return { label: 'สิ้นสุดแล้ว', variant: 'default' as const };
-    return { label: 'เปิดใช้งาน', variant: 'success' as const };
+    return { label: 'เผยแพร่แล้ว', variant: 'success' as const };
   };
 
   const fmt = (v: any) => {
@@ -137,11 +139,21 @@ export function ActivityTable({
                     )}
                   </div>
                   <div className="flex flex-col items-center gap-1.5 shrink-0">
-                    <Switch
-                      checked={a.isActive}
-                      onCheckedChange={() => canManage && onToggleStatus(a)}
-                      disabled={!canManage}
-                    />
+                    {s.label === 'สิ้นสุดแล้ว' && onReopenEnded && canManage ? (
+                      <Button
+                        size="sm"
+                        className="h-8 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => onReopenEnded(a)}
+                      >
+                        เปิดใหม่
+                      </Button>
+                    ) : (
+                      <Switch
+                        checked={a.isActive}
+                        onCheckedChange={() => canManage && onToggleStatus(a)}
+                        disabled={!canManage}
+                      />
+                    )}
                     <Badge variant={s.variant as any} className="text-[10px] whitespace-nowrap">
                       {s.label}
                     </Badge>
@@ -194,11 +206,21 @@ export function ActivityTable({
                     <TableRow key={a.id} className="group">
                       <TableCell>
                         <div className="flex flex-col items-center gap-2">
-                          <Switch
-                            checked={a.isActive}
-                            onCheckedChange={() => canManage && onToggleStatus(a)}
-                            disabled={!canManage}
-                          />
+                          {s.label === 'สิ้นสุดแล้ว' && onReopenEnded && canManage ? (
+                            <Button
+                              size="sm"
+                              className="h-8 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                              onClick={() => onReopenEnded(a)}
+                            >
+                              เปิดใหม่
+                            </Button>
+                          ) : (
+                            <Switch
+                              checked={a.isActive}
+                              onCheckedChange={() => canManage && onToggleStatus(a)}
+                              disabled={!canManage}
+                            />
+                          )}
                           <Badge variant={s.variant as any} className="text-[10px]">
                             {s.label}
                           </Badge>
