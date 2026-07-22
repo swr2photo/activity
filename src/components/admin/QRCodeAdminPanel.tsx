@@ -1047,7 +1047,7 @@ function pickPlaceName(
 
   const main = suggestion?.mainText?.trim();
   if (main && !isPlusCodeLike(main)) {
-    const secondary = suggestion.secondaryText?.trim();
+    const secondary = suggestion?.secondaryText?.trim();
     return secondary && !isPlusCodeLike(secondary) ? `${main}, ${secondary}` : main;
   }
 
