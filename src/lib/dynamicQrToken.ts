@@ -3,7 +3,20 @@ import { createHmac, timingSafeEqual } from 'crypto';
 /** ต้องตรงกับ src/lib/dynamicQrConstants.ts (แยกไฟล์เพื่อให้ client import ได้โดยไม่ดึง crypto) */
 export const DYNAMIC_QR_WINDOW_SECONDS = 45;
 
+/**
+ * จำนวนหน้าต่างก่อนหน้าที่ยอมรับได้ (นอกเหนือจากหน้าต่างปัจจุบัน)
+ * เช่น 3 = รับได้สูงสุด ~4×45s ≈ 3 นาที (กันโหลดหน้ารอบแรกช้า)
+ */
+export const DYNAMIC_QR_ACCEPT_PREVIOUS_WINDOWS = 3;
+
+/**
+ * อายุ “สิทธิ์หลังสแกน” (วินาที) — ใช้ข้ามช่วง login / เน็ตช้าโดยไม่ต้องสแกนใหม่
+ * ผูกกับ token ที่เคย validate ผ่านแล้วเท่านั้น
+ */
+export const DYNAMIC_QR_CLAIM_TTL_SECONDS = 15 * 60;
+
 const TOKEN_LEN = 16;
+const CLAIM_SIG_LEN = 20;
 
 export function getDynamicQrSecret(): string {
   const fromEnv = (process.env.DYNAMIC_QR_SECRET || '').trim();
@@ -47,7 +60,7 @@ function safeEqualToken(a: string, b: string): boolean {
   }
 }
 
-/** ตรวจ token — รับช่วงเวลาปัจจุบันและช่วงก่อนหน้า (กันสแกนตอนใกล้หมดรอบ) */
+/** ตรวจ token — รับช่วงปัจจุบันและช่วงก่อนหน้าหลายรอบ (กันโหลดช้า / ใกล้หมดรอบ) */
 export function verifyDynamicQrToken(
   secret: string,
   activityCode: string,
@@ -58,7 +71,9 @@ export function verifyDynamicQrToken(
   if (dt.length < 8) return false;
 
   const idx = getWindowIndex(nowMs);
-  for (const w of [idx, idx - 1]) {
+  const maxPrev = Math.max(0, Math.floor(DYNAMIC_QR_ACCEPT_PREVIOUS_WINDOWS));
+  for (let back = 0; back <= maxPrev; back++) {
+    const w = idx - back;
     if (w < 0) continue;
     const expected = makeDynamicQrToken(secret, activityCode, w);
     if (safeEqualToken(expected, dt)) return true;
@@ -74,4 +89,55 @@ export function currentDynamicQrToken(secret: string, activityCode: string, nowM
     windowSeconds: DYNAMIC_QR_WINDOW_SECONDS,
     expiresIn: secondsUntilWindowEnd(nowMs),
   };
+}
+
+function claimPayload(activityCode: string, dt: string, expiresAtSec: number): string {
+  const code = String(activityCode || '').trim().toUpperCase();
+  const token = String(dt || '').trim();
+  return `claim|v1|${code}|${token}|${expiresAtSec}`;
+}
+
+/** ออกสิทธิ์ชั่วคราวหลังสแกน QR ผ่านแล้ว (ใช้ข้ามช่วง login) */
+export function makeDynamicQrClaim(
+  secret: string,
+  activityCode: string,
+  dt: string,
+  nowMs = Date.now(),
+  ttlSeconds = DYNAMIC_QR_CLAIM_TTL_SECONDS
+): { claim: string; expiresAt: number } {
+  const ttl = Math.max(60, Math.floor(ttlSeconds || DYNAMIC_QR_CLAIM_TTL_SECONDS));
+  const expiresAtSec = Math.floor(nowMs / 1000) + ttl;
+  const sig = createHmac('sha256', secret)
+    .update(claimPayload(activityCode, dt, expiresAtSec))
+    .digest('base64url')
+    .slice(0, CLAIM_SIG_LEN);
+  return {
+    claim: `${expiresAtSec}.${sig}`,
+    expiresAt: expiresAtSec * 1000,
+  };
+}
+
+/** ตรวจสิทธิ์หลังสแกน — ต้องตรง activity + dt เดิม และยังไม่หมดอายุ */
+export function verifyDynamicQrClaim(
+  secret: string,
+  activityCode: string,
+  dt: string,
+  claim: string,
+  nowMs = Date.now()
+): boolean {
+  const raw = String(claim || '').trim();
+  const token = String(dt || '').trim();
+  if (!raw || token.length < 8) return false;
+
+  const [expStr, sig] = raw.split('.');
+  const expiresAtSec = Number(expStr);
+  if (!Number.isFinite(expiresAtSec) || !sig || sig.length < 8) return false;
+  if (Math.floor(nowMs / 1000) > expiresAtSec) return false;
+
+  const expected = createHmac('sha256', secret)
+    .update(claimPayload(activityCode, token, expiresAtSec))
+    .digest('base64url')
+    .slice(0, CLAIM_SIG_LEN);
+
+  return safeEqualToken(expected, sig);
 }

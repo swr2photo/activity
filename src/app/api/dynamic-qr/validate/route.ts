@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebaseAdmin';
-import { getDynamicQrSecret, verifyDynamicQrToken } from '@/lib/dynamicQrToken';
+import {
+  getDynamicQrSecret,
+  makeDynamicQrClaim,
+  verifyDynamicQrClaim,
+  verifyDynamicQrToken,
+} from '@/lib/dynamicQrToken';
 
 export const runtime = 'nodejs';
 
@@ -37,6 +42,7 @@ export async function GET(req: NextRequest) {
   try {
     const code = (req.nextUrl.searchParams.get('code') || '').trim();
     const dt = (req.nextUrl.searchParams.get('dt') || '').trim();
+    const claimIn = (req.nextUrl.searchParams.get('claim') || '').trim();
 
     if (!code || !dt) {
       return NextResponse.json({ valid: false, reason: 'missing_params' }, { status: 400 });
@@ -59,9 +65,27 @@ export async function GET(req: NextRequest) {
     const legacyOk =
       dt === activity.dynamicToken || dt === activity.previousDynamicToken;
 
+    // สิทธิ์หลังสแกนสำเร็จแล้ว — ข้ามช่วง login / เน็ตช้าโดยไม่ต้องสแกนใหม่
+    const claimOk = claimIn
+      ? verifyDynamicQrClaim(secret, activityCode, dt, claimIn)
+      : false;
+
+    const valid = hmacOk || Boolean(legacyOk) || claimOk;
+    if (!valid) {
+      return NextResponse.json({
+        valid: false,
+        reason: 'invalid',
+      });
+    }
+
+    const issued = makeDynamicQrClaim(secret, activityCode, dt);
+    const reason = hmacOk ? 'hmac' : legacyOk ? 'legacy' : 'claim';
+
     return NextResponse.json({
-      valid: hmacOk || Boolean(legacyOk),
-      reason: hmacOk ? 'hmac' : legacyOk ? 'legacy' : 'invalid',
+      valid: true,
+      reason,
+      claim: issued.claim,
+      claimExpiresAt: issued.expiresAt,
     });
   } catch (e: any) {
     return NextResponse.json(

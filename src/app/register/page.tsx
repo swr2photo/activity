@@ -72,6 +72,11 @@ import {
   dynamicQrExpiredTitle,
   type DynamicQrExpiredContext,
 } from '../../lib/dynamicQrMessages';
+import {
+  clearDynamicQrClaim,
+  readDynamicQrClaim,
+  writeDynamicQrClaim,
+} from '../../lib/dynamicQrClaimStorage';
 
 /* ============================= Types ============================= */
 interface ActivityData {
@@ -906,8 +911,23 @@ const RegisterPageContent: React.FC = () => {
             reason,
           });
 
-          const dt = searchParams.get('dt');
+          let dt = searchParams.get('dt')?.trim() || '';
+          const storedClaim = readDynamicQrClaim(activity.activityCode);
+
+          // หลัง login redirect บางกรณี query `dt` หาย — กู้จากสิทธิ์ที่สแกนไว้ก่อนหน้า
+          if (!dt && storedClaim?.dt) {
+            dt = storedClaim.dt;
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.set('dt', dt);
+              window.history.replaceState({}, '', url.toString());
+            } catch {
+              // ignore
+            }
+          }
+
           if (!dt) {
+            clearDynamicQrClaim(activity.activityCode);
             const ctx = expireCtx('missing_dt');
             setQrExpireMeta(ctx);
             setError(dynamicQrExpiredMessage(ctx));
@@ -919,19 +939,33 @@ const RegisterPageContent: React.FC = () => {
           let valid = false;
           let apiReason: string | null = null;
           try {
+            const claimParam =
+              storedClaim && storedClaim.dt === dt && storedClaim.claim
+                ? `&claim=${encodeURIComponent(storedClaim.claim)}`
+                : '';
             const res = await fetch(
-              `/api/dynamic-qr/validate?code=${encodeURIComponent(activity.activityCode)}&dt=${encodeURIComponent(dt)}`,
+              `/api/dynamic-qr/validate?code=${encodeURIComponent(activity.activityCode)}&dt=${encodeURIComponent(dt)}${claimParam}`,
               { cache: 'no-store' }
             );
             const data = await res.json();
             valid = Boolean(data?.valid);
             apiReason = data?.reason || null;
+
+            // เก็บสิทธิ์หลังสแกน — ใช้ต่อหลัง login / reload โดยไม่ต้องสแกนใหม่
+            if (valid && data?.claim && data?.claimExpiresAt) {
+              writeDynamicQrClaim(activity.activityCode, {
+                dt,
+                claim: String(data.claim),
+                expiresAt: Number(data.claimExpiresAt),
+              });
+            }
           } catch {
             // ถ้า API ล้ม ใช้เทียบ token เก่าในเอกสารชั่วคราว
             valid = dt === activity.dynamicToken || dt === activity.previousDynamicToken;
           }
 
           if (!valid) {
+            clearDynamicQrClaim(activity.activityCode);
             const ctx = expireCtx(apiReason === 'invalid' ? 'invalid' : 'expired');
             setQrExpireMeta(ctx);
             setError(dynamicQrExpiredMessage(ctx));
