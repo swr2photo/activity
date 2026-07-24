@@ -4,9 +4,24 @@ import { headers } from 'next/headers';
 import { getAdminDb } from '../../../lib/firebaseAdmin';
 import * as admin from 'firebase-admin';
 import FullPageError from '../../../components/common/FullPageError';
+import AdInterstitial from '../../../components/shortlink/AdInterstitial';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+function buildTargetUrl(baseUrl: string, queryString: string) {
+  if (!queryString) return baseUrl;
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}${queryString}`;
+}
+
+function hasActiveAd(linkData: any): boolean {
+  if (!linkData?.adEnabled) return false;
+  const title = typeof linkData.adTitle === 'string' ? linkData.adTitle.trim() : '';
+  const message = typeof linkData.adMessage === 'string' ? linkData.adMessage.trim() : '';
+  const imageUrl = typeof linkData.adImageUrl === 'string' ? linkData.adImageUrl.trim() : '';
+  return Boolean(title || message || imageUrl);
+}
 
 // GeoIP & Click Logging function (Non-blocking background run)
 async function logVisit(
@@ -215,8 +230,23 @@ export default async function R({
         // Log visit asynchronously
         logVisit(linkDoc.id, normalized, 'general', ip, userAgent).catch(console.error);
 
-        const separator = linkData.targetUrl.includes('?') ? '&' : '?';
-        const extUrl = queryString ? `${linkData.targetUrl}${separator}${queryString}` : linkData.targetUrl;
+        const extUrl = buildTargetUrl(linkData.targetUrl, queryString);
+
+        // แสดงหน้าโฆษณา/ประกาศก่อน redirect (ลิงก์ย่อทั่วไปเท่านั้น)
+        if (hasActiveAd(linkData)) {
+          const countdown = Number(linkData.adCountdownSeconds);
+          return (
+            <AdInterstitial
+              targetUrl={extUrl}
+              title={linkData.adTitle || 'ประกาศ'}
+              message={linkData.adMessage || ''}
+              imageUrl={linkData.adImageUrl || ''}
+              countdownSeconds={Number.isFinite(countdown) ? countdown : 5}
+              buttonText={linkData.adButtonText || 'ไปยังลิงก์ปลายทาง'}
+            />
+          );
+        }
+
         redirect(extUrl);
       }
     }

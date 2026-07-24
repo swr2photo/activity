@@ -43,5 +43,13 @@ service firebase.storage {
       allow read: if false;
       allow write: if isAdmin();
     }
+
+    // 6. Short-link ad / announcement images
+    match /shortlink-ads/{department}/{filename} {
+      allow read: if true;
+      allow write: if isAdmin()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
   }
 }

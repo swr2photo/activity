@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Link2, MonitorPlay, QrCode, RefreshCw, Trash2, Plus, BarChart2, Settings2, MapPin, Smartphone, Monitor, Cpu, Globe, Activity as ActivityIcon, TrendingUp, BarChart3, Sparkles, ImageOff, Copy, Search, Download, Eye, ExternalLink, Check, Pencil } from 'lucide-react';
+import { Link2, MonitorPlay, QrCode, RefreshCw, Trash2, Plus, BarChart2, Settings2, MapPin, Smartphone, Monitor, Cpu, Globe, Activity as ActivityIcon, TrendingUp, BarChart3, Sparkles, ImageOff, Copy, Search, Download, Eye, ExternalLink, Check, Pencil, Megaphone, Upload, X } from 'lucide-react';
 
 import {
   subscribeActivities,
@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
@@ -113,6 +114,13 @@ interface CustomShortLink {
   linkEnabled?: boolean;
   linkStartAt?: any;
   linkEndAt?: any;
+  /** โฆษณา / ประกาศก่อน redirect */
+  adEnabled?: boolean;
+  adTitle?: string;
+  adMessage?: string;
+  adImageUrl?: string;
+  adCountdownSeconds?: number;
+  adButtonText?: string;
 }
 
 interface Props {
@@ -143,6 +151,13 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
   const [generalCodeInput, setGeneralCodeInput] = useState('');
   const [generalUrlInput, setGeneralUrlInput] = useState('');
   const [savingGeneralLink, setSavingGeneralLink] = useState(false);
+  const [generalAdEnabled, setGeneralAdEnabled] = useState(false);
+  const [generalAdTitle, setGeneralAdTitle] = useState('');
+  const [generalAdMessage, setGeneralAdMessage] = useState('');
+  const [generalAdImageUrl, setGeneralAdImageUrl] = useState('');
+  const [generalAdCountdown, setGeneralAdCountdown] = useState(5);
+  const [generalAdButtonText, setGeneralAdButtonText] = useState('ไปยังลิงก์ปลายทาง');
+  const [uploadingAdImage, setUploadingAdImage] = useState(false);
 
   // Link settings & timer configurations
   const [openSettingsDialog, setOpenSettingsDialog] = useState(false);
@@ -439,12 +454,34 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
         return;
       }
 
+      if (generalAdEnabled) {
+        const hasAdContent =
+          generalAdTitle.trim() ||
+          generalAdMessage.trim() ||
+          generalAdImageUrl.trim();
+        if (!hasAdContent) {
+          setSnack({ message: 'กรุณากรอกหัวข้อ ข้อความ หรืออัปโหลดรูปโฆษณา/ประกาศอย่างน้อย 1 อย่าง', type: 'error' });
+          setSavingGeneralLink(false);
+          return;
+        }
+      }
+
+      const countdown = Math.max(0, Math.min(60, Math.floor(Number(generalAdCountdown) || 0)));
+
       const payload = {
         customCode: code,
         targetUrl: targetUrl,
         updatedAt: serverTimestamp(),
         createdBy: currentAdmin.uid,
         department: currentAdmin.department,
+        adEnabled: generalAdEnabled,
+        adTitle: generalAdEnabled ? generalAdTitle.trim() : '',
+        adMessage: generalAdEnabled ? generalAdMessage.trim() : '',
+        adImageUrl: generalAdEnabled ? generalAdImageUrl.trim() : '',
+        adCountdownSeconds: generalAdEnabled ? countdown : 5,
+        adButtonText: generalAdEnabled
+          ? (generalAdButtonText.trim() || 'ไปยังลิงก์ปลายทาง')
+          : 'ไปยังลิงก์ปลายทาง',
       };
 
       if (editingGeneralLink) {
@@ -476,6 +513,12 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
       setEditingGeneralLink(null);
       setGeneralCodeInput('');
       setGeneralUrlInput('');
+      setGeneralAdEnabled(false);
+      setGeneralAdTitle('');
+      setGeneralAdMessage('');
+      setGeneralAdImageUrl('');
+      setGeneralAdCountdown(5);
+      setGeneralAdButtonText('ไปยังลิงก์ปลายทาง');
     } catch (e: any) {
       console.error(e);
       setSnack({ message: `เกิดข้อผิดพลาด: ${e.message || ''}`, type: 'error' });
@@ -530,6 +573,12 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
     setEditingGeneralLink(null);
     setGeneralCodeInput('');
     setGeneralUrlInput('');
+    setGeneralAdEnabled(false);
+    setGeneralAdTitle('');
+    setGeneralAdMessage('');
+    setGeneralAdImageUrl('');
+    setGeneralAdCountdown(5);
+    setGeneralAdButtonText('ไปยังลิงก์ปลายทาง');
     setOpenGeneralDialog(true);
   };
 
@@ -538,7 +587,46 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
     setEditingGeneralLink(link);
     setGeneralCodeInput(link.customCode);
     setGeneralUrlInput(link.targetUrl);
+    setGeneralAdEnabled(!!link.adEnabled);
+    setGeneralAdTitle(link.adTitle || '');
+    setGeneralAdMessage(link.adMessage || '');
+    setGeneralAdImageUrl(link.adImageUrl || '');
+    setGeneralAdCountdown(
+      Number.isFinite(Number(link.adCountdownSeconds))
+        ? Math.max(0, Math.min(60, Number(link.adCountdownSeconds)))
+        : 5
+    );
+    setGeneralAdButtonText(link.adButtonText || 'ไปยังลิงก์ปลายทาง');
     setOpenGeneralDialog(true);
+  };
+
+  const handleUploadAdImage = async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setSnack({ message: 'กรุณาเลือกไฟล์รูปภาพเท่านั้น', type: 'error' });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setSnack({ message: 'ขนาดรูปต้องไม่เกิน 5MB', type: 'error' });
+      return;
+    }
+    setUploadingAdImage(true);
+    try {
+      const dept = currentAdmin.department || 'all';
+      const code = (generalCodeInput || editingGeneralLink?.customCode || 'ad').trim().toUpperCase() || 'AD';
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `shortlink-ads/${dept}/${code}_${Date.now()}.${ext}`;
+      const r = ref(storage, path);
+      await uploadBytes(r, file);
+      const url = await getDownloadURL(r);
+      setGeneralAdImageUrl(url);
+      setSnack({ message: 'อัปโหลดรูปโฆษณาสำเร็จ', type: 'success' });
+    } catch (e: any) {
+      console.error(e);
+      setSnack({ message: `อัปโหลดรูปไม่สำเร็จ: ${e?.message || ''}`, type: 'error' });
+    } finally {
+      setUploadingAdImage(false);
+    }
   };
 
   // Open Settings Dialog (Timers & Status)
@@ -1141,6 +1229,12 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                                     มีกำหนดเวลา
                                   </Badge>
                                 ) : null}
+                                {l.adEnabled ? (
+                                  <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-emerald-200 text-emerald-700 bg-emerald-50 flex items-center gap-1">
+                                    <Megaphone className="h-3 w-3" />
+                                    มีโฆษณา/ประกาศ
+                                  </Badge>
+                                ) : null}
                               </div>
                             </div>
                             <div className="flex gap-1">
@@ -1150,7 +1244,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                                     <Pencil className="h-[18px] w-[18px]" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>แก้ไข URL</TooltipContent>
+                                <TooltipContent>แก้ไขลิงก์ / โฆษณา</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1324,7 +1418,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
 
       {/* Create/Edit General Short Link Dialog */}
       <Dialog open={openGeneralDialog} onOpenChange={(v) => !v && setOpenGeneralDialog(false)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-bold">
               {editingGeneralLink ? 'แก้ไขลิงก์ย่อทั่วไป' : 'สร้างลิงก์ย่อทั่วไป (ลิงก์ภายนอก)'}
@@ -1332,7 +1426,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              สร้างลิงก์ย่อทั่วไปที่ไม่เกี่ยวข้องกับกิจกรรม เช่น ชี้ไปยัง Google Forms หรือเว็บไซต์อื่นๆ ของภาควิชา
+              สร้างลิงก์ย่อทั่วไปที่ไม่เกี่ยวข้องกับกิจกรรม เช่น ชี้ไปยัง Google Forms หรือเว็บไซต์อื่นๆ ของภาควิชา และสามารถใส่โฆษณา/ประกาศก่อนส่งต่อไปยังปลายทางได้
             </p>
             <div className="space-y-1.5">
               <Label>รหัสลิงก์ย่อ (Slug)</Label>
@@ -1375,14 +1469,125 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                 ลิงก์แบบเต็มที่ต้องการให้ส่งต่อผู้ใช้งานไป (เช่น https://...)
               </p>
             </div>
+
+            {/* Ad / Announcement */}
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 font-semibold text-sm">
+                    <Megaphone className="h-4 w-4 text-emerald-600 shrink-0" />
+                    โฆษณา / ประกาศก่อนไปปลายทาง
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    เมื่อเปิดใช้งาน ผู้ใช้จะเห็นหน้าประกาศก่อนถูกส่งต่อไปยัง URL ปลายทาง
+                  </p>
+                </div>
+                <Switch
+                  checked={generalAdEnabled}
+                  onCheckedChange={setGeneralAdEnabled}
+                  aria-label="เปิดโฆษณา/ประกาศ"
+                />
+              </div>
+
+              {generalAdEnabled && (
+                <div className="space-y-3 pt-1 border-t border-border/50">
+                  <div className="space-y-1.5">
+                    <Label>หัวข้อประกาศ</Label>
+                    <Input
+                      value={generalAdTitle}
+                      onChange={(e) => setGeneralAdTitle(e.target.value)}
+                      placeholder="เช่น รับสมัครทุนการศึกษาปี 2569"
+                      maxLength={120}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>ข้อความประกาศ</Label>
+                    <Textarea
+                      value={generalAdMessage}
+                      onChange={(e) => setGeneralAdMessage(e.target.value)}
+                      placeholder="รายละเอียดสั้น ๆ ที่ต้องการแสดงก่อนไปยังลิงก์ปลายทาง"
+                      rows={3}
+                      maxLength={1000}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>รูปโฆษณา / แบนเนอร์ (ไม่บังคับ)</Label>
+                    {generalAdImageUrl ? (
+                      <div className="relative overflow-hidden rounded-lg border border-border/60 bg-background">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={generalAdImageUrl}
+                          alt="Ad preview"
+                          className="h-36 w-full object-cover"
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="secondary"
+                          className="absolute right-2 top-2 h-8 w-8"
+                          onClick={() => setGeneralAdImageUrl('')}
+                          disabled={uploadingAdImage || savingGeneralLink}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/80 bg-background px-4 py-6 text-center hover:bg-muted/40 transition-colors">
+                        {uploadingAdImage ? (
+                          <Spinner size="sm" />
+                        ) : (
+                          <Upload className="h-5 w-5 text-muted-foreground" />
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          {uploadingAdImage ? 'กำลังอัปโหลด...' : 'คลิกเพื่ออัปโหลดรูป (สูงสุด 5MB)'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={uploadingAdImage || savingGeneralLink}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            e.target.value = '';
+                            void handleUploadAdImage(file);
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>หน่วงเวลาก่อนไปต่อ (วินาที)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={60}
+                        value={generalAdCountdown}
+                        onChange={(e) => setGeneralAdCountdown(Number(e.target.value))}
+                      />
+                      <p className="text-[11px] text-muted-foreground">0 = กดไปต่อได้ทันที (ไม่นับถอยหลัง)</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>ข้อความปุ่มไปต่อ</Label>
+                      <Input
+                        value={generalAdButtonText}
+                        onChange={(e) => setGeneralAdButtonText(e.target.value)}
+                        placeholder="ไปยังลิงก์ปลายทาง"
+                        maxLength={60}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenGeneralDialog(false)} disabled={savingGeneralLink}>
+            <Button variant="outline" onClick={() => setOpenGeneralDialog(false)} disabled={savingGeneralLink || uploadingAdImage}>
               ยกเลิก
             </Button>
             <Button
               onClick={handleSaveGeneralLink}
-              disabled={savingGeneralLink || !generalCodeInput.trim() || !generalUrlInput.trim() || generalCodeInput.length > 30}
+              disabled={savingGeneralLink || uploadingAdImage || !generalCodeInput.trim() || !generalUrlInput.trim() || generalCodeInput.length > 30}
             >
               {savingGeneralLink ? 'กำลังบันทึก...' : 'บันทึก'}
             </Button>
