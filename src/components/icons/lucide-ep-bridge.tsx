@@ -104,6 +104,7 @@ const EP_BY_LUCIDE: Record<string, EpName> = {
   MapPin: 'location',
   MapPinned: 'location',
   Maximize2: 'full-screen',
+  Megaphone: 'promotion',
   Menu: 'operation',
   MessageSquareText: 'chat-line-square',
   Monitor: 'monitor',
@@ -298,6 +299,7 @@ export const Map = getIcon('Map');
 export const MapPin = getIcon('MapPin');
 export const MapPinned = getIcon('MapPinned');
 export const Maximize2 = getIcon('Maximize2');
+export const Megaphone = getIcon('Megaphone');
 export const Menu = getIcon('Menu');
 export const MessageSquareText = getIcon('MessageSquareText');
 export const Monitor = getIcon('Monitor');
