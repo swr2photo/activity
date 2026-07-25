@@ -48,14 +48,11 @@ import {
 } from "@/components/ui/pagination";
 
 // --- Hero media ---
-// วางไฟล์ /public/hero.mp4 และ /public/hero.jpg เพื่อใช้วิดีโอ/รูปของคณะเอง
-// (ถ้าไม่มีจะ fallback ไปใช้สื่อฟรีจาก Pexels ด้านล่างโดยอัตโนมัติผ่านค่า default นี้)
+// วิดีโอบanner ม.อ. — override ได้ด้วย NEXT_PUBLIC_HERO_VIDEO_URL / NEXT_PUBLIC_HERO_POSTER_URL
 const HERO_VIDEO =
   process.env.NEXT_PUBLIC_HERO_VIDEO_URL ||
-  "https://videos.pexels.com/video-files/3129671/3129671-hd_1920_1080_30fps.mp4";
-const HERO_POSTER =
-  process.env.NEXT_PUBLIC_HERO_POSTER_URL ||
-  "https://images.pexels.com/videos/3129671/free-video-3129671.jpg?auto=compress&w=1920";
+  "https://www.psu.ac.th/img/vdo/PSU-4-06-02-2025.mp4";
+const HERO_POSTER = process.env.NEXT_PUBLIC_HERO_POSTER_URL || "";
 
 // --- Types ---
 type ActivityListItem = {
@@ -446,11 +443,13 @@ const HomePage: React.FC = () => {
       {/* ===================== Hero — เฉพาะหน้าแรก ===================== */}
       {!isActivitiesPage && (
       <div className="relative z-[1] flex min-h-[78svh] flex-col justify-center overflow-hidden bg-black pb-16 pt-12 text-center text-white md:min-h-[86svh] md:pb-20 md:pt-10">
-        {/* Layer 1: Poster image */}
-        <div
-          className="absolute inset-0 -z-[3] scale-105 bg-cover bg-center"
-          style={{ backgroundImage: `url(${HERO_POSTER})` }}
-        />
+        {/* Layer 1: Poster image (optional) */}
+        {HERO_POSTER ? (
+          <div
+            className="absolute inset-0 -z-[3] scale-105 bg-cover bg-center"
+            style={{ backgroundImage: `url(${HERO_POSTER})` }}
+          />
+        ) : null}
 
         {/* Layer 2: Video background */}
         <video
@@ -458,8 +457,8 @@ const HomePage: React.FC = () => {
           loop
           muted
           playsInline
-          preload="metadata"
-          poster={HERO_POSTER}
+          preload="auto"
+          {...(HERO_POSTER ? { poster: HERO_POSTER } : {})}
           className="absolute inset-0 -z-[2] h-full w-full object-cover animate-[heroZoom_28s_ease-in-out_infinite_alternate]"
         >
           <source src={HERO_VIDEO} type="video/mp4" />
@@ -528,21 +527,13 @@ const HomePage: React.FC = () => {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.35 }}
-              className="flex flex-col items-center justify-center gap-4 sm:flex-row"
+              className="flex items-center justify-center"
             >
               <Button
                 asChild
                 className="rounded-full bg-white px-9 py-6 text-base font-bold text-black shadow-[0_12px_32px_rgba(255,255,255,0.22)] transition-all hover:-translate-y-0.5 hover:bg-[#f5f5f7] hover:shadow-[0_16px_40px_rgba(255,255,255,0.3)]"
               >
                 <Link href="/activities">สำรวจกิจกรรมทั้งหมด</Link>
-              </Button>
-              <Button
-                onClick={() => {
-                  router.push("/activities?status=active");
-                }}
-                className="rounded-full border border-white/25 bg-white/10 px-9 py-6 text-base font-bold text-white backdrop-blur-md transition-all hover:-translate-y-0.5 hover:bg-white/18"
-              >
-                เฉพาะที่เปิดรับสมัคร
               </Button>
             </motion.div>
           </motion.div>
