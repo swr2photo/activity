@@ -1491,16 +1491,11 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   const handleToggle = async (a: Activity) => {
     try {
       const opening = !a.isActive;
-      const result = await toggleActivityLive(a.id, opening, {
+      await toggleActivityLive(a.id, opening, {
         uid: currentAdmin.uid,
         email: currentAdmin.email,
       });
-      if (opening && result.extendedSchedule) {
-        enqueueSnackbar(
-          'เปิดกิจกรรมแล้ว และขยายวันสิ้นสุดอัตโนมัติ 24 ชม. — ปรับเวลาได้ในหน้าแก้ไข',
-          { variant: 'success' }
-        );
-      } else if (opening) {
+      if (opening) {
         enqueueSnackbar('เปิดการใช้งานกิจกรรมแล้ว', { variant: 'success' });
       } else {
         enqueueSnackbar('ปิดการใช้งานกิจกรรมแล้ว', { variant: 'info' });

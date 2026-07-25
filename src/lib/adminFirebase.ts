@@ -582,7 +582,7 @@ export type ToggleActivityLiveResult = {
 };
 
 /** ใหม่: Toggle แบบ Transaction + version bump + เหตุผลปิด + ผู้แก้ไข
- * เมื่อเปิดใช้งาน (nextIsActive=true) ถ้าวันสิ้นสุด/รอบอยู่ในอดีต จะขยายอัตโนมัติ 24 ชม.
+ * การเผยแพร่ปกติจะไม่ขยายเวลาที่ผ่านมาแล้ว — ต้องส่ง extendIfEnded: true เท่านั้น (ใช้ผ่าน reopenEndedActivity)
  */
 export const toggleActivityLive = async (
   activityId: string,
@@ -591,7 +591,7 @@ export const toggleActivityLive = async (
   opts: { extendIfEnded?: boolean } = {}
 ): Promise<ToggleActivityLiveResult> => {
   const ref = doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId);
-  const extendIfEnded = opts.extendIfEnded !== false;
+  const extendIfEnded = opts.extendIfEnded === true;
   let extendedSchedule = false;
 
   await runTransaction(db, async (tx) => {
