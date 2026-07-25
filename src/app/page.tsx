@@ -4,8 +4,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
+import { collection, getDocs, limit, query } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import {
+  ActivityListItem,
+  toActivityListItem,
+} from "@/lib/activitiesList";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ActivityCard from "@/components/ActivityCard";
@@ -55,23 +59,6 @@ const HERO_VIDEO =
 const HERO_POSTER = process.env.NEXT_PUBLIC_HERO_POSTER_URL || "";
 
 // --- Types ---
-type ActivityListItem = {
-  id: string;
-  activityCode: string;
-  activityName: string;
-  location?: string;
-  startDateTime?: any;
-  endDateTime?: any;
-  isActive?: boolean;
-  maxParticipants?: number;
-  currentParticipants?: number;
-  bannerUrl?: string;
-  bannerColor?: string;
-  bannerAspect?: string;
-  closeReason?: string;
-  department?: string;
-};
-
 type StatusKey = "active" | "upcoming" | "full" | "ended" | "inactive";
 
 const STATUS_OPTIONS = [
@@ -138,28 +125,36 @@ const itemVariants: any = {
   },
 };
 
-const toMillis = (d: any): number | undefined => {
-  if (d == null) return undefined;
-  if (typeof d === "number") return d;
-  if (typeof d === "string") {
-    const t = Date.parse(d);
-    return Number.isNaN(t) ? undefined : t;
-  }
-  if (typeof d?.toDate === "function") return d.toDate().getTime();
-  if (d instanceof Date) return d.getTime();
-  if (typeof d?.seconds === "number") return d.seconds * 1000;
-  return undefined;
-};
-
-const serializeActivity = (a: ActivityListItem): ActivityListItem => ({
-  ...a,
-  startDateTime: toMillis(a.startDateTime),
-  endDateTime: toMillis(a.endDateTime),
-});
-
 const readCachedActivities = (): ActivityListItem[] | null => {
   const hit = readRefreshCache<ActivityListItem[]>(RefreshCacheKey.homeActivities);
   return hit?.data?.length ? hit.data : null;
+};
+
+/** อ่านตรงจาก Firestore — ใช้เมื่อ API ล่ม (payload ใหญ่กว่า จึงเป็นทางสำรอง) */
+const loadActivitiesFromFirestore = async (): Promise<ActivityListItem[]> => {
+  const snap = await getDocs(
+    query(collection(db, "activityQRCodes"), limit(200))
+  );
+  return snap.docs.flatMap((d) => {
+    const item = toActivityListItem(d.id, d.data() as Record<string, unknown>);
+    return item ? [item] : [];
+  });
+};
+
+/**
+ * ดึงรายการกิจกรรมผ่าน API ที่ select เฉพาะฟิลด์การ์ด + แคชที่ edge
+ * เร็วกว่าอ่าน Firestore ตรงมาก เพราะไม่ลาก description/surveyConfig/sessions มาด้วย
+ */
+const loadActivities = async (): Promise<ActivityListItem[]> => {
+  try {
+    const res = await fetch("/api/activities");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = (await res.json()) as { activities?: ActivityListItem[] };
+    if (!Array.isArray(json.activities)) throw new Error("bad payload");
+    return json.activities;
+  } catch {
+    return loadActivitiesFromFirestore();
+  }
 };
 
 const HomePage: React.FC = () => {
@@ -204,22 +199,7 @@ const HomePage: React.FC = () => {
       // มี cache อยู่แล้ว → อัปเดตเงียบ ๆ ไม่กระพริบ skeleton
       if (!hasCache) setLoading(true);
       setError("");
-      let snap;
-      try {
-        const qRef = query(
-          collection(db, "activityQRCodes"),
-          where("activityCode", "!=", ""),
-          orderBy("activityCode", "asc"),
-          limit(100)
-        );
-        snap = await getDocs(qRef);
-      } catch (err) {
-        snap = await getDocs(collection(db, "activityQRCodes"));
-      }
-      const list: ActivityListItem[] = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as any))
-        .filter((x) => !!x.activityCode)
-        .map(serializeActivity);
+      const list = await loadActivities();
       setActivities(list);
       writeRefreshCache(RefreshCacheKey.homeActivities, list);
     } catch (e) {
