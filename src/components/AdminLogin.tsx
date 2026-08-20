@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 import { Lock } from 'lucide-react';
 import { useSnackbar } from '@/lib/toast';
 
-import { adminAuth as auth } from '@/lib/firebase';
+import { adminAuth as auth } from '@/lib/firebaseAdminClient';
 import { signOut } from 'firebase/auth';
 import { signInAdmin } from '@/lib/adminFirebase';
 import { startSession } from '@/lib/useAdminSession';

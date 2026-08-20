@@ -22,7 +22,7 @@ import {
 } from 'firebase/firestore';
 
 // ✅ ใช้ Absolute Import เพื่อป้องกัน Path Error
-import { adminDb as db, adminAuth as auth } from '@/lib/firebase';
+import { adminDb as db, adminAuth as auth } from '@/lib/firebaseAdminClient';
 import {
   onAuthStateChanged,
   GoogleAuthProvider,

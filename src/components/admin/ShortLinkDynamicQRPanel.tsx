@@ -12,7 +12,8 @@ import {
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 import { PageHeader } from './shared/PageHeader';
 import { doc, updateDoc, serverTimestamp, collection, getDocs, query, where, onSnapshot, addDoc, deleteDoc } from 'firebase/firestore';
-import { adminDb as db, adminStorage as storage } from '../../lib/firebase';
+import { adminDb as db } from '../../lib/firebaseAdminClient';
+import { adminStorage as storage } from '../../lib/firebaseAdminStorage';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import MagnificImageDialog from './MagnificImageDialog';
 import { useConfirm } from '@/components/providers/ConfirmDialogProvider';

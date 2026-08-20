@@ -38,7 +38,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../../lib/firebase';
+import { storage } from '../../lib/firebaseStorage';
 import { optimizeAvatarUrl } from '@/utils/avatar';
 
 import {

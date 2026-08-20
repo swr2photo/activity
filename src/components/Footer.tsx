@@ -19,10 +19,10 @@ const InstagramIcon = ({ className }: { className?: string }) => (
 
 const Footer: React.FC = () => {
   const socialLinks = [
-    { icon: FacebookIcon, url: 'https://www.facebook.com/psuscc', color: '#1877F2' },
-    { icon: InstagramIcon, url: 'https://www.instagram.com/psuscc', color: '#E4405F' },
-    { icon: Mail, url: 'mailto:psuscc@psu.ac.th', color: 'hsl(var(--primary))' },
-    { icon: Phone, url: 'tel:+66-81-2345678', color: 'hsl(var(--primary))' },
+    { label: 'Facebook PSU SCC', icon: FacebookIcon, url: 'https://www.facebook.com/psuscc', color: '#1877F2' },
+    { label: 'Instagram PSU SCC', icon: InstagramIcon, url: 'https://www.instagram.com/psuscc', color: '#E4405F' },
+    { label: 'ส่งอีเมลถึง PSU SCC', icon: Mail, url: 'mailto:psuscc@psu.ac.th', color: 'hsl(var(--primary))' },
+    { label: 'โทรหา PSU SCC', icon: Phone, url: 'tel:+66-81-2345678', color: 'hsl(var(--primary))' },
   ];
 
   return (
@@ -45,10 +45,11 @@ const Footer: React.FC = () => {
           {/* Social & Contact Section */}
           <div className="flex flex-col items-center gap-2 md:items-end">
             <div className="flex gap-1">
-              {socialLinks.map(({ icon: Icon, url, color }, index) => (
+              {socialLinks.map(({ label, icon: Icon, url, color }) => (
                 <a
-                  key={index}
+                  key={url}
                   href={url}
+                  aria-label={label}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-border/20 text-muted-foreground transition-all duration-300 hover:-translate-y-0.5"

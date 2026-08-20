@@ -108,7 +108,9 @@ const Navbar: React.FC = () => {
     return () => mq.removeEventListener('change', update);
   }, []);
 
-  const { currentAdmin, refetch } = useAdminAuth();
+  const { currentAdmin, refetch } = useAdminAuth({
+    defer: !pathname?.startsWith('/admin'),
+  });
   const { user, userData, loading: authLoading, login: userLogin, loginWithGoogle, logout: userLogout, refreshUserData } = useAuth();
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);

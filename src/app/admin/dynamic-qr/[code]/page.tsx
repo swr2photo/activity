@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, onSnapshot, query, collection, where, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { adminDb as db, adminAuth } from '../../../../lib/firebase';
+import { adminDb as db, adminAuth } from '../../../../lib/firebaseAdminClient';
 import QRCode from 'qrcode';
 import { ArrowLeft, Maximize2, ScanLine } from 'lucide-react';
 import { Activity } from '../../../../lib/adminFirebase';

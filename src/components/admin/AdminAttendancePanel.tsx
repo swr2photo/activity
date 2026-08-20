@@ -18,7 +18,7 @@ import {
   type ActivityRecord
 } from '../../lib/adminFirebase';
 
-import { adminDb as db } from '../../lib/firebase';
+import { adminDb as db } from '../../lib/firebaseAdminClient';
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
   onSnapshot, Timestamp, QueryConstraint, startAfter

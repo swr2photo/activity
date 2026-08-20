@@ -8,7 +8,7 @@ import {
   Trash2, RotateCcw, Clock,
 } from 'lucide-react';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, where, writeBatch, Timestamp } from 'firebase/firestore';
-import { adminDb as db } from '@/lib/firebase';
+import { adminDb as db } from '@/lib/firebaseAdminClient';
 import type { AdminProfile } from '@/types/admin';
 import {
   Activity,

@@ -26,7 +26,7 @@ import {
   ClipboardCheck,
 } from 'lucide-react';
 
-import { adminAuth as auth } from '@/lib/firebase';
+import { adminAuth as auth } from '@/lib/firebaseAdminClient';
 import { cn } from '@/lib/utils';
 import type { AdminProfile, AdminPermission } from '@/types/admin';
 import { DEPARTMENT_LABELS, ROLE_LABELS, ROLE_PERMISSIONS } from '@/types/admin';

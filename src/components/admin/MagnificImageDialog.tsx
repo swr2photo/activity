@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, Image as ImageIcon } from 'lucide-react';
-import { adminAuth as auth } from '../../lib/firebase';
+import { adminAuth as auth } from '../../lib/firebaseAdminClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
-import { adminDb as db } from '@/lib/firebase';
+import { adminDb as db } from '@/lib/firebaseAdminClient';
 import type { AdminProfile } from '@/types/admin';
 
 import { Button } from '@/components/ui/button';

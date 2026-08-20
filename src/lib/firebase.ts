@@ -2,12 +2,10 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   initializeFirestore, 
-  memoryLocalCache, // ✅ 1. เพิ่ม import memoryLocalCache
+  memoryLocalCache,
   connectFirestoreEmulator,
-  getFirestore
 } from 'firebase/firestore';
-import { getAuth, connectAuthEmulator } from 'firebase/auth';
-import { getStorage, connectStorageEmulator } from 'firebase/storage';
+import { getAuth, connectAuthEmulator, type Auth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
@@ -19,7 +17,7 @@ const firebaseConfig = {
 };
 
 // Singleton pattern for Next.js
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 // ✅ 2. แก้ไข: เปลี่ยนมาใช้ memoryLocalCache() 
 // เพื่อแก้ปัญหา INTERNAL ASSERTION FAILED ระหว่างการพัฒนา
@@ -27,51 +25,24 @@ export const db = initializeFirestore(app, {
   localCache: memoryLocalCache()
 });
 
-export const auth = getAuth(app);
-
-// Fix Storage Bucket URL
-const bucketId = firebaseConfig.storageBucket || ''; 
-const bucketUrl = bucketId.startsWith('gs://') ? bucketId : `gs://${bucketId}`;
-export const storage = getStorage(app, bucketUrl);
-
-/* =========================
- * Admin app instance (แยกจากฝั่งผู้ใช้)
- * =========================
- * Firebase เก็บ session ของ Auth แยกตามชื่อ app
- * การให้ฝั่งแอดมินใช้ app คนละตัว ทำให้ล็อกอินแอดมิน (Google)
- * และล็อกอินนักศึกษา (Microsoft) ค้างอยู่พร้อมกันได้ ไม่เตะกันออก
- */
-const ADMIN_APP_NAME = 'admin-app';
-const adminApp =
-  getApps().find((a) => a.name === ADMIN_APP_NAME) ??
-  initializeApp(firebaseConfig, ADMIN_APP_NAME);
-
-export const adminDb = initializeFirestore(adminApp, {
-  localCache: memoryLocalCache(),
-});
-export const adminAuth = getAuth(adminApp);
-export const adminStorage = getStorage(adminApp, bucketUrl);
+// Auth depends on browser APIs and validates the public API key immediately.
+// Keep server prerender/builds from eagerly creating it; client components use
+// it only after hydration or from event handlers.
+export const auth: Auth =
+  typeof window === 'undefined' ? (null as unknown as Auth) : getAuth(app);
 
 // ---- Emulators (Optional) ----
-if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_USE_EMULATOR === 'true') {
+if (
+  typeof window !== 'undefined' &&
+  process.env.NODE_ENV === 'development' &&
+  process.env.NEXT_PUBLIC_USE_EMULATOR === 'true'
+) {
   try {
     if (!(db as any)._emulatorConfig) {
       connectFirestoreEmulator(db, 'localhost', 8080);
     }
     if (!(auth as any).emulatorConfig) {
         connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
-    }
-    if (!(storage as any)._emulatorConfig) {
-        connectStorageEmulator(storage, 'localhost', 9199);
-    }
-    if (!(adminDb as any)._emulatorConfig) {
-      connectFirestoreEmulator(adminDb, 'localhost', 8080);
-    }
-    if (!(adminAuth as any).emulatorConfig) {
-        connectAuthEmulator(adminAuth, 'http://localhost:9099', { disableWarnings: true });
-    }
-    if (!(adminStorage as any)._emulatorConfig) {
-        connectStorageEmulator(adminStorage, 'localhost', 9199);
     }
   } catch (e) {
     console.warn('Emulator connection warning:', e);

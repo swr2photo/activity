@@ -1,0 +1,806 @@
+// components/ActivitiesExplorer.tsx
+"use client";
+
+import React, { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import type { ActivityListItem } from "@/lib/activitiesList";
+import DeferredNavbar from "@/components/DeferredNavbar";
+import Footer from "@/components/Footer";
+import ActivityCard from "@/components/ActivityCard";
+import DeferredHeroVideo from "@/components/DeferredHeroVideo";
+import {
+  RefreshCw,
+  Search,
+  CalendarCheck,
+  Filter,
+  Info,
+  X,
+} from "lucide-react";
+import { glassCardLargeClass } from "@/lib/uiTheme";
+import { getDepartmentLabel } from "@/types/admin";
+import { motion, AnimatePresence } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
+import {
+  isRefreshCacheFresh,
+  readRefreshCache,
+  RefreshCacheKey,
+  RefreshCacheTtl,
+  writeRefreshCache,
+} from "@/lib/refreshCache";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  getPaginationItems,
+} from "@/components/ui/pagination";
+
+// --- Hero media ---
+// วิดีโอบanner ม.อ. — override ได้ด้วย NEXT_PUBLIC_HERO_VIDEO_URL / NEXT_PUBLIC_HERO_POSTER_URL
+const HERO_VIDEO =
+  process.env.NEXT_PUBLIC_HERO_VIDEO_URL ||
+  "https://www.psu.ac.th/img/vdo/PSU-4-06-02-2025.mp4";
+const HERO_POSTER =
+  process.env.NEXT_PUBLIC_HERO_POSTER_URL || "/hero-poster.svg";
+
+// --- Types ---
+type StatusKey = "active" | "upcoming" | "full" | "ended" | "inactive";
+
+const STATUS_OPTIONS = [
+  { value: "active", label: "เปิดให้ลงทะเบียนแล้ว" },
+  { value: "soon", label: "เร็วๆ นี้" },
+  { value: "full", label: "เต็มแล้ว" },
+  { value: "ended", label: "ผ่านมาแล้ว" },
+];
+/** จำนวนการ์ดต่อหน้า — เกินนี้แสดง pagination */
+const PAGE_SIZE = 9;
+
+const toDate = (d: any): Date =>
+  d?.toDate?.() ?? (d instanceof Date ? d : new Date(d));
+
+const getStatus = (
+  a: ActivityListItem
+): { key: StatusKey; label: string; tone: any } => {
+  const now = new Date();
+  const start = a.startDateTime ? toDate(a.startDateTime) : null;
+  const end = a.endDateTime ? toDate(a.endDateTime) : null;
+  if (a.isActive === false)
+    return { key: "inactive", label: a.closeReason || "ปิดรับ", tone: "default" };
+  if (start && now < start)
+    return { key: "upcoming", label: "กำลังจะเปิด", tone: "info" };
+  if (end && now > end)
+    return { key: "ended", label: "สิ้นสุดแล้ว", tone: "error" };
+  if (
+    (a.maxParticipants || 0) > 0 &&
+    (a.currentParticipants || 0) >= (a.maxParticipants || 0)
+  )
+    return { key: "full", label: "เต็มแล้ว", tone: "warning" };
+  return { key: "active", label: "เปิดรับสมัคร", tone: "success" };
+};
+
+const isSoon = (a: ActivityListItem, hours = 24) => {
+  if (!a.startDateTime) return false;
+  const now = new Date();
+  const start = toDate(a.startDateTime);
+  const diffMs = start.getTime() - now.getTime();
+  return diffMs > 0 && diffMs <= hours * 60 * 60 * 1000;
+};
+
+// Animation Variants
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 },
+  },
+};
+
+const itemVariants: any = {
+  hidden: { opacity: 0, y: 20 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { type: "spring", stiffness: 300, damping: 24 },
+  },
+};
+
+const readCachedActivities = (): ActivityListItem[] | null => {
+  const hit = readRefreshCache<ActivityListItem[]>(RefreshCacheKey.homeActivities);
+  return hit?.data?.length ? hit.data : null;
+};
+
+/**
+ * ใช้เฉพาะตอนผู้ใช้กดรีเฟรชหรือ server โหลดครั้งแรกไม่สำเร็จ
+ * หน้าแรกไม่ fallback ไป Firestore ฝั่ง browser เพื่อไม่ให้ดึง Firebase SDK เข้าหน้า public
+ */
+const loadActivities = async (): Promise<ActivityListItem[]> => {
+  const res = await fetch("/api/activities");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { activities?: ActivityListItem[] };
+  if (!Array.isArray(json.activities)) throw new Error("bad payload");
+  return json.activities;
+};
+
+type ActivitiesExplorerProps = {
+  initialActivities: ActivityListItem[] | null;
+};
+
+const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const isActivitiesPage = pathname === "/activities";
+
+  const [loading, setLoading] = useState(initialActivities === null);
+  const [activities, setActivities] = useState<ActivityListItem[]>(
+    initialActivities ?? []
+  );
+  const [error, setError] = useState("");
+  const [qText, setQText] = useState("");
+
+  const [statuses, setStatuses] = useState<string[]>(() =>
+    searchParams.get("status") === "active" ? ["active"] : []
+  );
+  const [departmentFilters, setDepartmentFilters] = useState<string[]>([]);
+
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
+
+  const fetchActivities = async (opts?: { force?: boolean }) => {
+    const force = opts?.force === true;
+    const cachedList = readCachedActivities();
+    const hasCache = Boolean(cachedList?.length);
+    const fresh = isRefreshCacheFresh(
+      RefreshCacheKey.homeActivities,
+      RefreshCacheTtl.homeActivities
+    );
+
+    // รีเฟรชหน้า + cache ยังสด → ไม่โหลด Firestore ซ้ำ (กดปุ่มรีเฟรช = force)
+    if (!force && hasCache && fresh) {
+      setActivities(cachedList!);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // มี cache อยู่แล้ว → อัปเดตเงียบ ๆ ไม่กระพริบ skeleton
+      if (!hasCache) setLoading(true);
+      setError("");
+      const list = await loadActivities();
+      setActivities(list);
+      writeRefreshCache(RefreshCacheKey.homeActivities, list);
+    } catch (e) {
+      if (!hasCache) setError("ไม่สามารถโหลดรายการกิจกรรมได้");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (initialActivities !== null) {
+      writeRefreshCache(RefreshCacheKey.homeActivities, initialActivities);
+      setLoading(false);
+      return;
+    }
+
+    const cached = readCachedActivities();
+    if (cached?.length) {
+      setActivities(cached);
+      setLoading(false);
+    }
+    void fetchActivities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialActivities]);
+
+  const counts = useMemo(() => {
+    const c = { all: activities.length, active: 0, soon: 0 };
+    activities.forEach((a) => {
+      const s = getStatus(a).key;
+      if (s === "active") c.active++;
+      if (s === "upcoming" && isSoon(a, 24)) c.soon++;
+    });
+    return c;
+  }, [activities]);
+
+  const availableDepartments = useMemo(() => {
+    const deps = new Set(
+      activities
+        .map((a) => (a.department || "").trim())
+        .filter((d) => {
+          const normalized = d.toLowerCase();
+          return (
+            d &&
+            d !== "ไม่ระบุ" &&
+            d !== "ทุกสังกัด" &&
+            normalized !== "all"
+          );
+        })
+    );
+    return Array.from(deps).sort((a, b) =>
+      getDepartmentLabel(a).localeCompare(getDepartmentLabel(b), "th")
+    );
+  }, [activities]);
+
+  const filteredAndSorted = useMemo(() => {
+    const t = qText.trim().toLowerCase();
+    let result = activities.filter((a) => {
+      const matchSearch =
+        !t ||
+        a.activityCode.toLowerCase().includes(t) ||
+        a.activityName.toLowerCase().includes(t) ||
+        (a.location || "").toLowerCase().includes(t);
+
+      const sObj = getStatus(a);
+      let sStr = sObj.key as string;
+      if (sStr === "upcoming" && isSoon(a, 24)) sStr = "soon";
+
+      const matchStatus = statuses.length === 0 || statuses.includes(sStr);
+      const matchDepartment =
+        departmentFilters.length === 0 ||
+        departmentFilters.includes(a.department || "ไม่ระบุ");
+
+      return matchSearch && matchStatus && matchDepartment;
+    });
+    const rank = (s: StatusKey) =>
+      s === "active" ? 0 : s === "upcoming" ? 1 : s === "full" ? 2 : 3;
+    return result.sort(
+      (a, b) => rank(getStatus(a).key) - rank(getStatus(b).key)
+    );
+  }, [activities, qText, statuses, departmentFilters]);
+
+  // sync ?status= จาก URL (เช่น /activities?status=active)
+  useEffect(() => {
+    const s = searchParams.get("status");
+    if (s === "active") setStatuses(["active"]);
+  }, [searchParams]);
+
+  // เปลี่ยนตัวกรอง/ค้นหา → กลับหน้า 1
+  useEffect(() => {
+    setPage(1);
+  }, [qText, statuses, departmentFilters]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedActivities = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredAndSorted.slice(start, start + PAGE_SIZE);
+  }, [filteredAndSorted, currentPage]);
+
+  const goToPage = (p: number) => {
+    const next = Math.max(1, Math.min(totalPages, p));
+    setPage(next);
+    if (typeof window !== "undefined") {
+      document.getElementById("activities")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  const activeFilterCount = statuses.length + departmentFilters.length;
+
+  const FilterSidebarContent = (
+    <div className="p-2 md:p-4">
+      {/* Status */}
+      <p className="mb-3 text-sm font-bold text-[var(--page-text)]">สถานะ</p>
+      <div className="flex flex-col gap-2">
+        {STATUS_OPTIONS.map((stat) => (
+          <div key={stat.value} className="flex items-center gap-2">
+            <Checkbox
+              id={`stat-${stat.value}`}
+              checked={statuses.includes(stat.value)}
+              onCheckedChange={(checked) => {
+                if (checked) setStatuses((prev) => [...prev, stat.value]);
+                else
+                  setStatuses((prev) => prev.filter((s) => s !== stat.value));
+              }}
+              className="border-[var(--page-border)] data-[state=checked]:border-[#34c759] data-[state=checked]:bg-[#34c759]"
+            />
+            <Label
+              htmlFor={`stat-${stat.value}`}
+              className="cursor-pointer text-sm font-medium text-[var(--page-text)] opacity-85"
+            >
+              {stat.label}
+            </Label>
+          </div>
+        ))}
+      </div>
+
+      {/* Department */}
+      {availableDepartments.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-3 text-sm font-bold text-[var(--page-text)]">
+            สังกัด / คณะ
+          </p>
+          <div className="mb-8 flex flex-col gap-2">
+            {availableDepartments.map((dep) => (
+              <div key={dep} className="flex items-center gap-2">
+                <Checkbox
+                  id={`dep-${dep}`}
+                  checked={departmentFilters.includes(dep)}
+                  onCheckedChange={(checked) => {
+                    if (checked)
+                      setDepartmentFilters((prev) => [...prev, dep]);
+                    else
+                      setDepartmentFilters((prev) =>
+                        prev.filter((d) => d !== dep)
+                      );
+                  }}
+                  className="border-[var(--page-border)] data-[state=checked]:border-[#0071e3] data-[state=checked]:bg-[#0071e3]"
+                />
+                <Label
+                  htmlFor={`dep-${dep}`}
+                  className="cursor-pointer text-sm font-semibold text-[var(--page-text)] opacity-90"
+                >
+                  {getDepartmentLabel(dep)}
+                </Label>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="flex min-h-screen flex-col bg-black">
+      <DeferredNavbar />
+
+      {/* ===================== Hero — เฉพาะหน้าแรก ===================== */}
+      {!isActivitiesPage && (
+      <div className="relative z-[1] flex min-h-[64svh] flex-col justify-center overflow-hidden bg-black pb-12 pt-16 text-center text-white md:min-h-[86svh] md:pb-20 md:pt-10">
+        <Link
+          href="/"
+          aria-label="PSU REGISTER หน้าแรก"
+          className="absolute left-4 top-4 z-10 rounded-full border border-white/20 bg-black/35 px-3 py-2 text-xs font-black tracking-wide text-white backdrop-blur-md md:hidden"
+        >
+          PSU REGISTER
+        </Link>
+
+        {/* Layer 1: Poster image (optional) */}
+        {HERO_POSTER ? (
+          <div
+            className="absolute inset-0 -z-[3] scale-105 bg-cover bg-center"
+            style={{ backgroundImage: `url(${HERO_POSTER})` }}
+          />
+        ) : null}
+
+        {/* Layer 2: Video background — โหลดหลังเนื้อหาหลักและไม่โหลดบนมือถือ/Save-Data */}
+        <DeferredHeroVideo src={HERO_VIDEO} poster={HERO_POSTER} />
+
+        {/* Layer 3: Readability overlays */}
+        <div
+          className="absolute inset-0 -z-[1]"
+          style={{
+            background: `
+              radial-gradient(ellipse 90% 70% at 50% 45%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.62) 100%),
+              linear-gradient(to bottom, rgba(0,0,0,0.68) 0%, rgba(0,0,0,0.12) 28%, rgba(0,0,0,0.12) 62%, #000000 100%)
+            `,
+          }}
+        />
+
+        <div className="relative mx-auto w-full max-w-3xl px-4">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+          >
+            {/* Badge */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.6, delay: 0.15 }}
+              className="mb-7 inline-flex items-center gap-2 rounded-full border border-white/18 bg-white/10 px-4 py-2 backdrop-blur-md"
+            >
+              <span className="h-2 w-2 rounded-full bg-[#34c759] shadow-[0_0_12px_rgba(52,199,89,0.9)] animate-[heroPulse_2s_ease-in-out_infinite]" />
+              <span className="text-[0.8rem] font-bold tracking-wider text-white/90">
+                {loading
+                  ? "กำลังโหลดกิจกรรม..."
+                  : counts.active > 0
+                    ? `เปิดรับสมัครแล้ว ${counts.active} กิจกรรม`
+                    : "ยังไม่มีกิจกรรมที่เปิดรับสมัคร"}
+              </span>
+            </motion.div>
+
+            <h1
+              className="mb-6 font-extrabold leading-[1.05] tracking-tight text-transparent"
+              style={{
+                fontSize: "clamp(2.9rem, 8vw, 5rem)",
+                fontFamily:
+                  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                background: "linear-gradient(135deg, #ffffff 35%, #c7c7cc 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                textShadow: "0 8px 40px rgba(0,0,0,0.4)",
+              }}
+            >
+              ค้นพบกิจกรรม
+              <br />
+              ที่คุณชอบ.
+            </h1>
+
+            <p
+              className="mx-auto mb-10 max-w-[560px] px-2 text-[1.05rem] font-medium tracking-tight text-white/78 md:text-[1.3rem]"
+              style={{ textShadow: "0 2px 16px rgba(0,0,0,0.5)" }}
+            >
+              ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ.
+              <br />
+              สะดวก รวดเร็ว และแม่นยำ
+            </p>
+
+            {/* CTA */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.35 }}
+              className="flex items-center justify-center"
+            >
+              <Button
+                asChild
+                className="rounded-full bg-white px-9 py-6 text-base font-bold text-black shadow-[0_12px_32px_rgba(255,255,255,0.22)] transition-all hover:-translate-y-0.5 hover:bg-[#f5f5f7] hover:shadow-[0_16px_40px_rgba(255,255,255,0.3)]"
+              >
+                <Link href="/activities">สำรวจกิจกรรมทั้งหมด</Link>
+              </Button>
+            </motion.div>
+          </motion.div>
+        </div>
+
+        {/* Scroll indicator */}
+        <motion.button
+          type="button"
+          aria-label="ไปยังรายการกิจกรรม"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1, duration: 0.8 }}
+          onClick={() => router.push("/activities")}
+          className="absolute bottom-[110px] left-1/2 hidden h-[42px] w-[26px] -translate-x-1/2 cursor-pointer justify-center rounded-[14px] border-2 border-white/35 pt-[7px] md:flex"
+        >
+          <span className="h-[9px] w-1 rounded bg-white/75 animate-[heroScroll_1.8s_ease-in-out_infinite]" />
+        </motion.button>
+      </div>
+      )}
+
+      {/* หัวข้อหน้ารวมกิจกรรม */}
+      {isActivitiesPage && (
+        <div className="relative z-[2] border-b border-[var(--page-border)] bg-[var(--page-bg)] pt-6 pb-2 md:pt-8">
+          <div className="mx-auto w-full max-w-[1400px] px-4">
+            <p className="mb-1 text-sm font-semibold text-[var(--page-text-secondary)]">
+              <Link href="/" className="hover:text-[var(--page-text)] hover:underline">
+                หน้าแรก
+              </Link>
+              {" / "}
+              กิจกรรม
+            </p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-[var(--page-text)] md:text-3xl">
+              กิจกรรมทั้งหมด
+            </h1>
+            <p className="mt-1 text-sm text-[var(--page-text-secondary)] md:text-base">
+              ค้นหา กรอง และเรียกดูกิจกรรมที่เปิดรับสมัคร
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      <div
+        id="activities"
+        className={cn(
+          "relative z-[2] flex-grow scroll-mt-20 bg-[var(--page-bg)]",
+          !isActivitiesPage && "mt-0 rounded-t-[40px]"
+        )}
+      >
+        <div
+          className={cn(
+            "mx-auto mb-24 w-full max-w-[1400px] px-4",
+            isActivitiesPage ? "mt-6 md:mt-8" : "mt-[-2.5rem]"
+          )}
+        >
+          <div className="grid grid-cols-12 gap-4 md:gap-8">
+            {/* Left Sidebar (Desktop) */}
+            <div className="col-span-12 hidden md:col-span-3 md:block lg:col-span-3 xl:col-span-3">
+              <motion.div
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+              >
+                <Card
+                  className={cn(
+                    glassCardLargeClass,
+                    "sticky top-[100px] p-2 shadow-[var(--page-shadow)]"
+                  )}
+                >
+                  {FilterSidebarContent}
+                </Card>
+              </motion.div>
+            </div>
+
+            {/* Right Content */}
+            <div className="col-span-12 md:col-span-9 lg:col-span-9">
+              {/* Floating Search Bar */}
+              <motion.div
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: 0.6,
+                  delay: 0.2,
+                  type: "spring",
+                  stiffness: 200,
+                }}
+              >
+                <Card
+                  className={cn(
+                    glassCardLargeClass,
+                    "p-4 shadow-[var(--page-shadow)] md:p-6"
+                  )}
+                >
+                  <div className="flex flex-col items-center gap-4 md:flex-row">
+                    <div className="relative w-full flex-1">
+                      <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--page-text-secondary)]" />
+                      <Input
+                        placeholder="ค้นหาชื่อกิจกรรม รหัส หรือสถานที่..."
+                        value={qText}
+                        onChange={(e) => setQText(e.target.value)}
+                        className="h-14 rounded-2xl border-[var(--page-border)] bg-[var(--page-card-solid)] pl-10 text-[1.05rem] text-[var(--page-text)] shadow-none focus-visible:ring-[#0071e3]/40"
+                      />
+                    </div>
+                    <div className="flex w-full items-center justify-start gap-3 md:w-auto md:justify-end">
+                      <Button
+                        variant="outline"
+                        onClick={() => setMobileFilterOpen(true)}
+                        className="relative flex h-12 rounded-xl border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] md:hidden"
+                      >
+                        <Filter className="h-4 w-4" />
+                        ตัวกรอง
+                        {activeFilterCount > 0 && (
+                          <Badge className="absolute -right-2 -top-2 h-5 min-w-5 justify-center rounded-full px-1.5 text-[0.65rem]">
+                            {activeFilterCount}
+                          </Badge>
+                        )}
+                      </Button>
+                      <div className="flex-grow md:hidden" />
+                      <Badge
+                        variant="success"
+                        className="h-12 gap-1.5 rounded-xl border border-[rgba(52,199,89,0.2)] bg-[rgba(52,199,89,0.12)] px-3 text-[0.95rem] font-bold text-[#248a3d]"
+                      >
+                        <CalendarCheck className="h-5 w-5 text-[#248a3d]" />
+                        เปิดรับสมัคร: {counts.active}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => fetchActivities({ force: true })}
+                        aria-label="รีเฟรชรายการกิจกรรม"
+                        title="รีเฟรชรายการกิจกรรม"
+                        className="h-12 w-12 rounded-xl border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] transition-all hover:scale-105 hover:bg-[var(--page-bg)]"
+                      >
+                        <RefreshCw className="h-5 w-5" />
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              </motion.div>
+
+              {/* Activity Cards List */}
+              <div className="mt-12">
+                {loading ? (
+                  <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+                    {[1, 2, 3, 4, 5, 6].map((i) => (
+                      <div key={i}>
+                        <Skeleton className="mb-2 h-[280px] rounded-[24px]" />
+                        <Skeleton className="mb-1 h-8 w-[70%] rounded-lg" />
+                        <Skeleton className="h-6 w-[40%] rounded-lg" />
+                      </div>
+                    ))}
+                  </div>
+                ) : error ? (
+                  <Alert variant="destructive" className="mx-auto max-w-2xl rounded-2xl">
+                    <AlertDescription className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+                      <span>{error}</span>
+                      <Button
+                        variant="outline"
+                        onClick={() => fetchActivities({ force: true })}
+                        className="shrink-0"
+                      >
+                        ลองใหม่อีกครั้ง
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                ) : filteredAndSorted.length === 0 ? (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    <div className="py-28 text-center">
+                      <Info className="mx-auto mb-6 h-[90px] w-[90px] text-[var(--page-border)]" />
+                      <h2 className="mb-2 text-xl font-bold text-[var(--page-text)]">
+                        ไม่พบกิจกรรมที่คุณมองหา
+                      </h2>
+                      <p className="mb-6 text-base text-[var(--page-text-secondary)]">
+                        ลองปรับเงื่อนไขการค้นหาใหม่ หรือเลือกดูทั้งหมด
+                      </p>
+                      <Button
+                        variant="outline"
+                        className="rounded-xl px-8 py-5 font-semibold"
+                        onClick={() => {
+                          setQText("");
+                          setStatuses([]);
+                          setDepartmentFilters([]);
+                        }}
+                      >
+                        ล้างตัวกรอง
+                      </Button>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="show"
+                  >
+                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      <AnimatePresence mode="popLayout">
+                        {pagedActivities.map((a) => (
+                          <motion.div
+                            key={a.id}
+                            variants={itemVariants}
+                            layoutId={a.id}
+                            className="h-full"
+                          >
+                            <ActivityCard
+                              {...a}
+                              status={getStatus(a)}
+                              canOpen={getStatus(a).key === "active"}
+                            />
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+
+                    {filteredAndSorted.length > PAGE_SIZE && (
+                      <div className="mt-10 flex flex-col items-center gap-3">
+                        <p className="text-sm text-[var(--page-text-secondary)]">
+                          หน้า {currentPage} จาก {totalPages} · แสดง{" "}
+                          {(currentPage - 1) * PAGE_SIZE + 1}–
+                          {Math.min(currentPage * PAGE_SIZE, filteredAndSorted.length)} จาก{" "}
+                          {filteredAndSorted.length} กิจกรรม
+                        </p>
+                        <Pagination>
+                          <PaginationContent>
+                            <PaginationItem>
+                              <PaginationPrevious
+                                onClick={() => goToPage(currentPage - 1)}
+                                disabled={currentPage <= 1}
+                              />
+                            </PaginationItem>
+                            {getPaginationItems(currentPage, totalPages).map((item, idx) =>
+                              item === "ellipsis" ? (
+                                <PaginationItem key={`e-${idx}`}>
+                                  <PaginationEllipsis />
+                                </PaginationItem>
+                              ) : (
+                                <PaginationItem key={item}>
+                                  <PaginationLink
+                                    isActive={item === currentPage}
+                                    onClick={() => goToPage(item)}
+                                  >
+                                    {item}
+                                  </PaginationLink>
+                                </PaginationItem>
+                              )
+                            )}
+                            <PaginationItem>
+                              <PaginationNext
+                                onClick={() => goToPage(currentPage + 1)}
+                                disabled={currentPage >= totalPages}
+                              />
+                            </PaginationItem>
+                          </PaginationContent>
+                        </Pagination>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Filter Panel */}
+      {mobileFilterOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setMobileFilterOpen(false)}
+          />
+          <div className="absolute inset-y-0 right-0 flex w-[300px] flex-col rounded-l-3xl border-l border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] shadow-2xl">
+            <div className="p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-extrabold">ตัวกรอง</h2>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setMobileFilterOpen(false)}
+                  aria-label="ปิดตัวกรอง"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+              <Separator className="mb-4" />
+              <div className="max-h-[calc(100dvh-180px)] overflow-y-auto">
+                {FilterSidebarContent}
+              </div>
+              <div className="mt-8 pb-8">
+                <Button
+                  className="w-full rounded-xl py-5 font-bold"
+                  onClick={() => setMobileFilterOpen(false)}
+                >
+                  แสดงผลลัพธ์ ({filteredAndSorted.length})
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Footer />
+
+      <style jsx global>{`
+        @keyframes heroZoom {
+          from {
+            transform: scale(1);
+          }
+          to {
+            transform: scale(1.08);
+          }
+        }
+        @keyframes heroPulse {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.45;
+          }
+        }
+        @keyframes heroScroll {
+          0% {
+            transform: translateY(0);
+            opacity: 1;
+          }
+          70% {
+            transform: translateY(12px);
+            opacity: 0;
+          }
+          100% {
+            transform: translateY(0);
+            opacity: 0;
+          }
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default function ActivitiesExplorer({
+  initialActivities,
+}: ActivitiesExplorerProps) {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[var(--page-bg)]">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      }
+    >
+      <HomePage initialActivities={initialActivities} />
+    </React.Suspense>
+  );
+}

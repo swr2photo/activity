@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-label="พื้นหลังคณะวิทยาศาสตร์ มหาวิทยาลัยสงขลานครินทร์">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071a35"/>
+      <stop offset="0.5" stop-color="#0b315c"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="60%">
+      <stop offset="0" stop-color="#1f9cf0" stop-opacity=".48"/>
+      <stop offset=".55" stop-color="#2563eb" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0f2745"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#sky)"/>
+  <rect width="1600" height="1000" fill="url(#glow)"/>
+  <g fill="none" stroke="#7dd3fc" stroke-opacity=".16">
+    <circle cx="800" cy="390" r="235"/>
+    <circle cx="800" cy="390" r="330"/>
+    <path d="M280 420c250-210 790-240 1050 12M350 260c285 145 650 145 900 0"/>
+  </g>
+  <g fill="#bae6fd" opacity=".55">
+    <circle cx="440" cy="280" r="6"/>
+    <circle cx="1180" cy="320" r="8"/>
+    <circle cx="1010" cy="160" r="4"/>
+    <circle cx="610" cy="180" r="5"/>
+  </g>
+  <path d="M0 690 210 630l165 52 190-118 205 92 218-150 180 124 206-68 226 118v320H0Z" fill="url(#ground)"/>
+  <g fill="#e0f2fe" opacity=".13">
+    <rect x="490" y="566" width="620" height="240" rx="12"/>
+    <rect x="570" y="500" width="460" height="80" rx="10"/>
+    <path d="m800 400 260 110H540Z"/>
+  </g>
+  <rect width="1600" height="1000" fill="#000" opacity=".2"/>
+</svg>

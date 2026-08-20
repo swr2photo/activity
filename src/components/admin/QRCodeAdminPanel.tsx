@@ -116,7 +116,8 @@ import {
   deleteField,
   getDoc,
 } from 'firebase/firestore';
-import { adminDb as db, adminStorage as storage, adminAuth as auth } from '../../lib/firebase';
+import { adminDb as db, adminAuth as auth } from '../../lib/firebaseAdminClient';
+import { adminStorage as storage } from '../../lib/firebaseAdminStorage';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 import GeofenceMap from '../maps/GeofenceMap';

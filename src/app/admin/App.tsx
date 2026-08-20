@@ -8,7 +8,7 @@ import AdminLogin from '../../components/AdminLogin';
 import AdminMain from '../../components/admin/AdminMain';
 
 import { onAuthStateChanged, User, signOut } from 'firebase/auth';
-import { adminAuth as auth, adminDb as db } from '../../lib/firebase';
+import { adminAuth as auth, adminDb as db } from '../../lib/firebaseAdminClient';
 import { doc, getDoc, onSnapshot, Timestamp } from 'firebase/firestore';
 import type { AdminProfile, AdminRole, AdminDepartment } from '../../types/admin';
 import { ROLE_PERMISSIONS, normalizeDepartment } from '../../types/admin';

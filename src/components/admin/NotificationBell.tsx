@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Bell } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { adminDb as db } from '@/lib/firebase';
+import { adminDb as db } from '@/lib/firebaseAdminClient';
 import type { AdminProfile } from '@/types/admin';
 
 import { Button } from '@/components/ui/button';

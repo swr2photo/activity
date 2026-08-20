@@ -132,7 +132,10 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
           {status.label}
         </Badge>
 
-        {department && (
+        {department &&
+          !['all', 'ทุกสังกัด', 'ไม่ระบุ'].includes(
+            department.trim().toLowerCase()
+          ) && (
           <Badge
             variant="secondary"
             className="absolute right-4 top-4 border-0 bg-white/85 px-2 py-0.5 text-[0.7rem] font-bold text-foreground shadow-md backdrop-blur-sm"
@@ -212,11 +215,13 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
           </Button>
         ) : (
           <Button
+            asChild
             variant="outline"
-            disabled
             className="w-full rounded-xl border-[var(--page-border)] py-5 text-[0.95rem] font-bold"
           >
-            {status.label}
+            <Link href={`/register?activity=${encodeURIComponent(activityCode)}`}>
+              ดูรายละเอียด
+            </Link>
           </Button>
         )}
       </CardContent>
