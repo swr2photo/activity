@@ -68,7 +68,7 @@ const FACULTY_OPTIONS = Array.from(new Set(Object.values(facultyMap)));
 const EDUCATION_OPTIONS = [...EDUCATION_LEVEL_OPTIONS];
 const TITLE_OPTIONS = [...NAME_TITLE_OPTIONS];
 
-/** Simple freeSolo-style combobox using input + datalist / filtered list */
+/** Custom styled combobox dropdown (แทน native <datalist> ที่เด้งหลุดขอบขวาของเบราว์เซอร์) */
 function FreeSoloField({
   id,
   label,
@@ -94,9 +94,28 @@ function FreeSoloField({
   loading?: boolean;
   required?: boolean;
 }) {
-  const listId = `${id}-list`;
+  const [openMenu, setOpenMenu] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) {
+        setOpenMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const filteredOptions = useMemo(() => {
+    const q = (value || '').trim().toLowerCase();
+    if (!q) return options.slice(0, 40);
+    const matched = options.filter((o) => o.toLowerCase().includes(q));
+    return (matched.length > 0 ? matched : options).slice(0, 40);
+  }, [options, value]);
+
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" ref={wrapRef}>
       <Label htmlFor={id}>
         {label}
         {required ? ' *' : ''}
@@ -109,22 +128,42 @@ function FreeSoloField({
         )}
         <Input
           id={id}
-          list={listId}
+          autoComplete="off"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setOpenMenu(true)}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpenMenu(true);
+          }}
           placeholder={placeholder}
           className={cn(icon && 'pl-10', error && 'border-destructive')}
           required={required}
         />
-        <datalist id={listId}>
-          {options.map((o) => (
-            <option key={o} value={o} />
-          ))}
-        </datalist>
         {loading && (
           <span className="absolute right-3 top-1/2 -translate-y-1/2">
             <Spinner size="sm" />
           </span>
+        )}
+        {openMenu && filteredOptions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+            {filteredOptions.map((o) => (
+              <button
+                key={o}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(o);
+                  setOpenMenu(false);
+                }}
+                className={cn(
+                  'flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+                  value === o && 'bg-accent/60 font-semibold'
+                )}
+              >
+                {o}
+              </button>
+            ))}
+          </div>
         )}
       </div>
       <p className={cn('text-xs', error ? 'text-destructive' : 'text-muted-foreground')}>
@@ -292,11 +331,26 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
     setUploadingImage(false);
   }, [open, user, userData]);
 
+  const facultySelectOptions = useMemo(() => {
+    const cur = formData.faculty.trim();
+    if (cur && cur !== 'ไม่ระบุ' && !FACULTY_OPTIONS.includes(cur)) {
+      return [cur, ...FACULTY_OPTIONS];
+    }
+    return FACULTY_OPTIONS;
+  }, [formData.faculty]);
+
   const availableDepartments = useMemo(() => {
     const facultyCode = Object.keys(facultyMap).find((key) => facultyMap[key] === formData.faculty);
-    if (!facultyCode || !departmentMap[facultyCode]) return [] as string[];
-    return Object.values(departmentMap[facultyCode]);
-  }, [formData.faculty]);
+    const base =
+      facultyCode && departmentMap[facultyCode]
+        ? Object.values(departmentMap[facultyCode]).sort((a, b) => a.localeCompare(b, 'th'))
+        : ([] as string[]);
+    const cur = formData.department.trim();
+    if (cur && cur !== 'ไม่ระบุ' && !base.includes(cur)) {
+      return [cur, ...base];
+    }
+    return base;
+  }, [formData.faculty, formData.department]);
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
@@ -649,46 +703,91 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                       loading={institutionLoading}
                     />
                   </div>
-                  <div className="sm:col-span-6">
-                    <FreeSoloField
-                      id="educationLevel"
-                      label="ระดับการศึกษา"
-                      required
-                      value={formData.educationLevel}
-                      onChange={(v) => handleInputChange('educationLevel', v)}
-                      options={EDUCATION_OPTIONS}
-                      placeholder="เลือกหรือพิมพ์ระดับการศึกษา"
-                      helperText="เช่น ม.ปลาย = นักเรียนโรงเรียน / ปริญญาตรี = มหาวิทยาลัย"
-                      error={validationErrors.educationLevel}
-                      icon={<BadgeIcon className="h-4 w-4" />}
-                    />
+                  <div className="space-y-1.5 sm:col-span-6">
+                    <Label>ระดับการศึกษา *</Label>
+                    <Select
+                      value={formData.educationLevel || undefined}
+                      onValueChange={(v) => handleInputChange('educationLevel', v)}
+                    >
+                      <SelectTrigger
+                        className={cn(validationErrors.educationLevel && 'border-destructive')}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <BadgeIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <SelectValue placeholder="เลือกระดับการศึกษา" />
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EDUCATION_OPTIONS.map((lv) => (
+                          <SelectItem key={lv} value={lv}>
+                            {lv}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p
+                      className={cn(
+                        'text-xs',
+                        validationErrors.educationLevel ? 'text-destructive' : 'text-muted-foreground'
+                      )}
+                    >
+                      {validationErrors.educationLevel ||
+                        'เช่น ม.ปลาย = นักเรียนโรงเรียน / ปริญญาตรี = มหาวิทยาลัย'}
+                    </p>
                   </div>
                 </>
               ) : (
                 <>
-                  <div className="sm:col-span-6">
-                    <FreeSoloField
-                      id="faculty"
-                      label="คณะ"
-                      value={formData.faculty}
-                      onChange={handleFacultyChange}
-                      options={FACULTY_OPTIONS}
-                      placeholder="เช่น วิทยาศาสตร์"
-                      helperText="คณะที่คุณศึกษาหรือทำงาน"
-                      icon={<GraduationCap className="h-4 w-4" />}
-                    />
+                  <div className="space-y-1.5 sm:col-span-6">
+                    <Label>คณะ</Label>
+                    <Select
+                      value={formData.faculty || undefined}
+                      onValueChange={handleFacultyChange}
+                    >
+                      <SelectTrigger>
+                        <span className="flex items-center gap-2 truncate">
+                          <GraduationCap className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <SelectValue placeholder="เลือกคณะ" />
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {facultySelectOptions.map((fac) => (
+                          <SelectItem key={fac} value={fac}>
+                            {fac}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">คณะที่คุณศึกษาหรือทำงาน</p>
                   </div>
-                  <div className="sm:col-span-6">
-                    <FreeSoloField
-                      id="department"
-                      label="สาขา/หน่วยงาน"
-                      value={formData.department}
-                      onChange={(v) => handleInputChange('department', v)}
-                      options={availableDepartments}
-                      placeholder="เช่น วิทยาการคอมพิวเตอร์"
-                      helperText="สาขาวิชาหรือหน่วยงานที่สังกัด"
-                      icon={<BadgeIcon className="h-4 w-4" />}
-                    />
+                  <div className="space-y-1.5 sm:col-span-6">
+                    <Label>สาขา/หน่วยงาน</Label>
+                    <Select
+                      value={formData.department || undefined}
+                      onValueChange={(v) => handleInputChange('department', v)}
+                      disabled={availableDepartments.length === 0}
+                    >
+                      <SelectTrigger>
+                        <span className="flex items-center gap-2 truncate">
+                          <BadgeIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <SelectValue
+                            placeholder={
+                              availableDepartments.length > 0
+                                ? 'เลือกสาขาวิชา'
+                                : 'เลือกคณะก่อน'
+                            }
+                          />
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDepartments.map((dep) => (
+                          <SelectItem key={dep} value={dep}>
+                            {dep}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">สาขาวิชาหรือหน่วยงานที่สังกัด</p>
                   </div>
                   <div className="space-y-1.5 sm:col-span-6">
                     <Label htmlFor="studentId">รหัสนักศึกษา/รหัสพนักงาน</Label>
