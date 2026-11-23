@@ -11,10 +11,13 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/adminUsers/$(request.auth.uid)).data;
     }
 
+    // ใช้ Custom Claims ก่อน (0 Firestore reads!) และ fallback ไป adminUsers/{uid} สำหรับเซสชันเก่า
     function isAdmin() {
-      return isAuthenticated() && 
-        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid)) &&
-        getAdminData().isActive == true;
+      return isAuthenticated() && (
+        (request.auth.token.isActive == true && request.auth.token.role != null) ||
+        (exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid)) &&
+         getAdminData().isActive == true)
+      );
     }
 
     function getStudentData() {
@@ -23,18 +26,15 @@ service cloud.firestore {
 
     function isActivityOpen(activityDocId) {
       let activity = get(/databases/$(database)/documents/activityQRCodes/$(activityDocId)).data;
-      // หน้าต่างเวลาตรวจฝั่ง client แล้ว — rules ตรวจแค่เปิดรับและโควต้า
       return activity.get('isActive', true) != false &&
         (activity.get('maxParticipants', 0) == 0 ||
          activity.get('currentParticipants', 0) < activity.get('maxParticipants', 0));
     }
 
-    // 1. adminUsers
+    // 1. adminUsers — ปิดช่องโหว่ self-promote (การรับคำเชิญทำผ่าน /api/invites/claim ด้วย Admin SDK)
     match /adminUsers/{uid} {
-      // เจ้าของอ่านเอกสารตัวเองได้แม้ยังไม่ใช่แอดมิน (exists=false ก็ผ่าน get ของตัวเอง)
       allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin());
-      allow create: if isAuthenticated() && request.auth.uid == uid;
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     // legacy collection — ปิดการเข้าถึงจาก client
@@ -42,82 +42,78 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // 2. adminInvites
+    // 2. adminInvites — ปิดไม่ให้ผู้ใช้ทั่วไปอ่าน token คำเชิญได้
     match /adminInvites/{inviteId} {
-      allow read: if isAuthenticated(); // Anyone logged in can check if they are invited
-      allow write: if isAdmin();
+      allow read, write: if isAdmin();
     }
 
     // 3. activities & activityQRCodes (PRIMARY_ACTIVITY_COLLECTION)
     match /activities/{activityId} {
-      allow read: if true; // Publicly readable for registration page
+      allow read: if true;
       allow write: if isAdmin();
     }
     match /activityQRCodes/{qrId} {
-      allow read: if true; // Publicly readable for registration page
+      allow read: if true;
       allow create, delete: if isAdmin();
-      // นักศึกษาเพิ่มตัวนับตอนลงทะเบียน (FieldValue.increment)
-      allow update: if isAdmin() || (
+      // วางเงื่อนไขนักศึกษาก่อน isAdmin() เพื่อลดการอ่าน adminUsers/{uid}
+      allow update: if (
         isAuthenticated() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentParticipants']) &&
         request.resource.data.currentParticipants == resource.data.get('currentParticipants', 0) + 1
-      );
+      ) || isAdmin();
 
-      // ประวัติเวอร์ชันกิจกรรม (แอดมินเท่านั้น)
       match /versions/{versionId} {
         allow read, write: if isAdmin();
       }
     }
 
-    // 4. activityRecords (Registration records)
+    // 4. activityRecords — วาง Ownership check ก่อน isAdmin() เพื่อลด +1-4 reads/request
     match /activityRecords/{recordId} {
-      // transaction ต้อง get เอกสารที่ยังไม่มี → อนุญาตเมื่อ resource == null
       allow get: if isAuthenticated() && (
         resource == null ||
-        isAdmin() ||
         resource.data.userId == request.auth.uid ||
         (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
-         string(resource.data.studentId) == string(getStudentData().studentId))
+         string(resource.data.studentId) == string(getStudentData().studentId)) ||
+        isAdmin()
       );
       allow list: if isAuthenticated() && (
-        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
         (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
-         resource.data.studentId == getStudentData().studentId)
+         resource.data.studentId == getStudentData().studentId) ||
+        isAdmin()
       );
       allow create: if isAuthenticated() && (
-        isAdmin() ||
-        (exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
+        (request.resource.data.userId == request.auth.uid &&
+         exists(/databases/$(database)/documents/universityUsers/$(request.auth.uid)) &&
          getStudentData().get('isActive', true) != false &&
-         request.resource.data.userId == request.auth.uid &&
          string(request.resource.data.studentId) == string(getStudentData().studentId) &&
-         isActivityOpen(request.resource.data.activityDocId))
+         isActivityOpen(request.resource.data.activityDocId)) ||
+        isAdmin()
       );
-      // เจ้าของอัปเดตได้เฉพาะเช็กอินรอบถัดไป (คง userId/studentId/activityCode)
-      allow update: if isAdmin() || (
-        isAuthenticated() &&
-        resource.data.userId == request.auth.uid &&
-        request.resource.data.userId == resource.data.userId &&
-        request.resource.data.studentId == resource.data.studentId &&
-        request.resource.data.activityCode == resource.data.activityCode &&
-        request.resource.data.activityDocId == resource.data.activityDocId
+      allow update: if isAuthenticated() && (
+        (resource.data.userId == request.auth.uid &&
+         request.resource.data.userId == resource.data.userId &&
+         request.resource.data.studentId == resource.data.studentId &&
+         request.resource.data.activityCode == resource.data.activityCode &&
+         request.resource.data.activityDocId == resource.data.activityDocId) ||
+        isAdmin()
       );
       allow delete: if isAdmin();
     }
 
-    // 5. universityUsers (Student profiles)
-    // เจ้าของแก้โปรไฟล์ตัวเองได้ แต่ห้ามแก้สถานะบัญชี (isActive / isVerified)
+    // 5. universityUsers — วาง request.auth.uid == uid ก่อน isAdmin()
     match /universityUsers/{uid} {
-      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin());
       allow create: if isAuthenticated() && (
-        isAdmin() || (
-          request.auth.uid == uid &&
-          request.resource.data.get('isActive', true) == true
-        )
+        (request.auth.uid == uid &&
+         request.resource.data.get('isActive', true) == true) ||
+        isAdmin()
       );
-      allow update: if isAdmin() || (
-        isAuthenticated() && request.auth.uid == uid &&
-        request.resource.data.get('isActive', true) == resource.data.get('isActive', true) &&
-        request.resource.data.get('isVerified', true) == resource.data.get('isVerified', true)
+      allow update: if isAuthenticated() && (
+        (request.auth.uid == uid &&
+         request.resource.data.get('isActive', true) == resource.data.get('isActive', true) &&
+         request.resource.data.get('isVerified', true) == resource.data.get('isVerified', true)) ||
+        isAdmin()
       );
       allow delete: if isAdmin();
     }
@@ -127,36 +123,28 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    // 7. ipLoginRecords (IP limits for verification)
+    // 7. ipLoginRecords — ปิดไม่ให้สาธารณะอ่านอีเมล/IP หรือเขียนขยะ (ไม่ใช้บล็อก IP แล้ว)
     match /ipLoginRecords/{recordId} {
-      allow read: if true;
-      allow create, update: if true 
-        && request.resource.data.keys().hasAll(['ipAddress', 'userEmail', 'loginTime', 'expiresAt'])
-        && request.resource.data.ipAddress is string
-        && request.resource.data.userEmail is string
-        && request.resource.data.ipAddress.size() < 50
-        && request.resource.data.userEmail.size() < 150;
-      allow delete: if isAdmin();
+      allow read, write: if isAdmin();
     }
 
-    // 8. errorReports (Frontend errors)
+    // 8. errorReports (Frontend errors — จำกัดขนาด payload)
     match /errorReports/{reportId} {
-      allow create: if true 
-        && request.resource.data.keys().hasAll(['message', 'createdAt'])
+      allow create: if request.resource.data.keys().hasAll(['message', 'createdAt'])
         && request.resource.data.message is string
-        && request.resource.data.message.size() < 10000;
+        && request.resource.data.message.size() < 5000;
       allow read, update, delete: if isAdmin();
     }
 
-    // 9. departments (Faculty / department list)
+    // 9. departments
     match /departments/{deptId} {
-      allow read: if true; // Publicly readable
+      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // 10. systemSettings (Global settings)
+    // 10. systemSettings
     match /systemSettings/{settingId} {
-      allow read: if true; // Publicly readable (e.g. check maintenance mode)
+      allow read: if true;
       allow write: if isAdmin();
     }
 
@@ -168,52 +156,53 @@ service cloud.firestore {
     // 12. shortLinkVisits
     match /shortLinkVisits/{visitId} {
       allow read: if isAdmin();
-      allow write: if false; // Only written via Admin SDK on the server
+      allow write: if false;
     }
 
-    // 13. surveyResponses (คำตอบแบบประเมินกิจกรรม)
+    // 13. surveyResponses — วางเจ้าของก่อน isAdmin()
     match /surveyResponses/{responseId} {
-      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
-    // 14. users (โปรไฟล์ compat เดิม — mirror ของ universityUsers)
-    // กฎเดียวกับ universityUsers: ห้ามเจ้าของแก้สถานะบัญชีเอง
+    // 14. users (compat mirror — วางเจ้าของก่อน isAdmin())
     match /users/{uid} {
-      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin());
       allow create: if isAuthenticated() && (
-        isAdmin() || (
-          request.auth.uid == uid &&
-          request.resource.data.get('isActive', true) == true
-        )
+        (request.auth.uid == uid &&
+         request.resource.data.get('isActive', true) == true) ||
+        isAdmin()
       );
-      allow update: if isAdmin() || (
-        isAuthenticated() && request.auth.uid == uid &&
-        request.resource.data.get('isActive', true) == resource.data.get('isActive', true) &&
-        request.resource.data.get('isVerified', true) == resource.data.get('isVerified', true)
+      allow update: if isAuthenticated() && (
+        (request.auth.uid == uid &&
+         request.resource.data.get('isActive', true) == resource.data.get('isActive', true) &&
+         request.resource.data.get('isVerified', true) == resource.data.get('isVerified', true)) ||
+        isAdmin()
       );
       allow delete: if isAdmin();
     }
 
-    // 15. adminSettings (การตั้งค่าแบรนด์/ฟอร์มลงทะเบียน — หน้า register ต้องอ่านได้)
+    // 15. adminSettings
     match /adminSettings/{settingId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // 16. loginSessions (เซสชันจำกัดการล็อกอินของนักศึกษา)
+    // 16. loginSessions — วางเจ้าของก่อน isAdmin()
     match /loginSessions/{uid} {
-      allow read, write: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      allow read, write: if isAuthenticated() && (request.auth.uid == uid || isAdmin());
     }
 
-    // 17. activityClaims (โหมดผู้ใช้เดียว — จองสิทธิ์ระหว่างทำ transaction ลงทะเบียน)
+    // 17. activityClaims — เจ้าของเดิมหรือสร้างใหม่เท่านั้น
     match /activityClaims/{claimId} {
-      allow read, create, update: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
     }
 
-    // 18. adminNotifications (กระดิ่งแจ้งเตือนในหน้าแอดมิน)
+    // 18. adminNotifications
     match /adminNotifications/{notifId} {
       allow read, write: if isAdmin();
     }

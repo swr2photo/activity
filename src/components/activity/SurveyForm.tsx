@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { SurveyConfig, SurveyQuestion } from '../../lib/adminFirebase';
+import type { SurveyConfig, SurveyQuestion } from '../../lib/adminFirebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -19,6 +19,13 @@ interface SurveyFormProps {
   activityDocId: string;
   surveyConfig: SurveyConfig;
   userId: string;
+  userProfile?: {
+    studentId?: string;
+    firstName?: string;
+    lastName?: string;
+    department?: string;
+    email?: string;
+  };
   onCompleted: () => void;
 }
 
@@ -27,6 +34,7 @@ export default function SurveyForm({
   activityDocId,
   surveyConfig,
   userId,
+  userProfile,
   onCompleted,
 }: SurveyFormProps) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -117,6 +125,15 @@ export default function SurveyForm({
         activityCode,
         activityDocId,
         userId,
+        ...(userProfile
+          ? {
+              studentId: userProfile.studentId || '',
+              firstName: userProfile.firstName || '',
+              lastName: userProfile.lastName || '',
+              department: userProfile.department || '',
+              email: userProfile.email || '',
+            }
+          : {}),
         answers,
         timestamp: serverTimestamp(),
       });

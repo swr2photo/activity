@@ -196,14 +196,9 @@ export default function DynamicQrPage() {
 
     fetchAndRenderToken();
 
+    // นับถอยหลัง UI เท่านั้น — ให้ refreshTimerRef เป็นตัวดึง token รอบใหม่ตัวเดียว (ไม่เรียก side effect ใน setState)
     timerRef.current = setInterval(() => {
-      setTimeRemaining((prev) => {
-        const next = Math.max(0, prev - 1);
-        if (next === 0) {
-          fetchAndRenderToken();
-        }
-        return next;
-      });
+      setTimeRemaining((prev) => Math.max(0, prev - 1));
     }, 1000);
 
     return () => {

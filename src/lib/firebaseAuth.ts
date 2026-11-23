@@ -145,14 +145,21 @@ export const AUTH_ALLOWED_DOMAINS = ['@psu.ac.th'] as const;
 export const facultyMap: Record<string, string> = {
   '01': 'คณะวิศวกรรมศาสตร์',
   '02': 'คณะวิทยาศาสตร์',
-  '03': 'คณะมนุษยศาสตร์และสังคมศาสตร์',
-  '04': 'คณะแพทยศาสตร์',
-  '05': 'คณะพยาบาลศาสตร์',
-  '06': 'คณะเทคโนโลยีสารสนเทศ',
-  '07': 'คณะบริหารธุรกิจ',
-  '08': 'คณะศิลปกรรมศาสตร์',
-  '09': 'คณะเกษตรศาสตร์',
-  '10': 'คณะวิทยาศาสตร์',
+  '03': 'คณะแพทยศาสตร์',
+  '04': 'คณะทรัพยากรธรรมชาติ',
+  '05': 'คณะศึกษาศาสตร์',
+  '06': 'คณะมนุษยศาสตร์และสังคมศาสตร์',
+  '07': 'คณะเศรษฐศาสตร์',
+  '08': 'คณะบริหารธุรกิจ',
+  '09': 'คณะศิลปกรรมศาสตร์',
+  '10': 'คณะพยาบาลศาสตร์',
+  '11': 'คณะเภสัชศาสตร์',
+  '12': 'คณะทันตแพทยศาสตร์',
+  '13': 'คณะสัตวแพทยศาสตร์',
+  '14': 'คณะนิติศาสตร์',
+  '15': 'คณะอุตสาหกรรมเกษตร',
+  '16': 'คณะการจัดการสิ่งแวดล้อม',
+  '18': 'คณะเทคนิคการแพทย์',
 };
 
 export const departmentMap: Record<string, Record<string, string>> = {
@@ -163,6 +170,10 @@ export const departmentMap: Record<string, Record<string, string>> = {
     '04': 'วิศวกรรมโยธา',
     '05': 'วิศวกรรมเคมี',
     '06': 'วิศวกรรมอุตสาหการ',
+    '07': 'วิศวกรรมเหมืองแร่และวัสดุ',
+    '08': 'วิศวกรรมสิ่งแวดล้อม',
+    '09': 'วิศวกรรมชีวการแพทย์',
+    '10': 'วิศวกรรมปัญญาประดิษฐ์',
   },
   '02': {
     '01': 'คณิตศาสตร์',
@@ -171,16 +182,34 @@ export const departmentMap: Record<string, Record<string, string>> = {
     '04': 'ชีววิทยา',
     '05': 'วิทยาการคอมพิวเตอร์',
     '06': 'สถิติ',
-  },
-  '10': {
-    '01': 'คณิตศาสตร์',
-    '02': 'ฟิสิกส์',
-    '03': 'เคมี',
-    '04': 'ชีววิทยา',
-    '05': 'วิทยาการคอมพิวเตอร์',
-    '06': 'สถิติ',
+    '07': 'วิทยาการคำนวณ',
+    '08': 'เทคโนโลยีสารสนเทศและการสื่อสาร',
+    '09': 'จุลชีววิทยา',
+    '10': 'เทคโนโลยีชีวภาพ',
+    '11': 'วัสดุศาสตร์',
+    '12': 'วิทยาศาสตร์พอลิเมอร์',
+    '13': 'วิทยาศาสตร์และเทคโนโลยีการอาหาร',
+    '14': 'เคมี-ชีววิทยาประยุกต์',
+    '15': 'เทคโนโลยีสารสนเทศ (ต่อเนื่อง)',
   },
   '03': {
+    '01': 'แพทยศาสตรบัณฑิต',
+    '02': 'กายภาพบำบัด',
+    '03': 'รังสีเทคนิค',
+    '04': 'ฉุกเฉินการแพทย์',
+  },
+  '04': {
+    '01': 'ทรัพยากรธรรมชาติและสิ่งแวดล้อม',
+    '02': 'สัตวศาสตร์',
+    '03': 'วาริชศาสตร์และนวัตกรรมการประมง',
+    '04': 'พืชศาสตร์',
+  },
+  '05': {
+    '01': 'การศึกษาปฐมวัย',
+    '02': 'วิทยาศาสตรศึกษา',
+    '03': 'การประถมศึกษา',
+  },
+  '06': {
     '01': 'ภาษาไทย',
     '02': 'ภาษาอังกฤษ',
     '03': 'ประวัติศาสตร์',
@@ -188,11 +217,48 @@ export const departmentMap: Record<string, Record<string, string>> = {
     '05': 'สังคมวิทยา',
     '06': 'จิตวิทยา',
   },
+  '07': {
+    '01': 'เศรษฐศาสตร์',
+  },
+  '08': {
+    '01': 'การจัดการ',
+    '02': 'การตลาด',
+    '03': 'การบัญชี',
+    '04': 'การเงินและการลงทุน',
+    '05': 'ระบบสารสนเทศทางธุรกิจ',
+    '06': 'รัฐประศาสนศาสตร์',
+  },
+  '09': {
+    '01': 'ทัศนศิลป์',
+    '02': 'การออกแบบ',
+  },
+  '10': {
+    '01': 'พยาบาลศาสตรบัณฑิต',
+  },
+  '11': {
+    '01': 'เภสัชศาสตรบัณฑิต',
+  },
+  '12': {
+    '01': 'ทันตแพทยศาสตรบัณฑิต',
+  },
+  '13': {
+    '01': 'สัตวแพทยศาสตรบัณฑิต',
+  },
+  '14': {
+    '01': 'นิติศาสตรบัณฑิต',
+  },
+  '15': {
+    '01': 'วิทยาศาสตร์และเทคโนโลยีอาหาร',
+    '02': 'เทคโนโลยีการจัดการอุตสาหกรรมเกษตร',
+  },
 };
 
-/** แมปข้อมูลจากอีเมลนักศึกษาเป็น faculty/department/degree */
-export const parseStudentInfo = (email: string) => {
-  const studentId = email.split('@')[0];
+/**
+ * แมปข้อมูลจากรหัสนักศึกษา ม.อ. (10 หลัก เช่น 6710210317 = ปี 67 + ระดับ 1 ป.ตรี + คณะ 02 วิทยาศาสตร์)
+ * หรืออีเมลนักศึกษา เป็น faculty / department / degreeLevel
+ */
+export const parseStudentInfo = (emailOrStudentId: string) => {
+  const studentId = (emailOrStudentId || '').trim().split('@')[0];
 
   let degreeLevel = 'ไม่ระบุ';
   let faculty = 'ไม่ระบุ';
@@ -200,15 +266,27 @@ export const parseStudentInfo = (email: string) => {
 
   if (studentId.length >= 8) {
     const yearCode = studentId.substring(0, 2);
-    const facultyCode = studentId.substring(2, 4);
-    const deptCode = studentId.substring(4, 6);
-
-    const currentYear = new Date().getFullYear() % 100;
+    const currentYear = (new Date().getFullYear() + 543) % 100;
     const studentYear = parseInt(yearCode, 10);
 
-    if (/^[Mm]/.test(studentId)) degreeLevel = 'ปริญญาโท';
-    else if (/^[Dd]/.test(studentId)) degreeLevel = 'ปริญญาเอก';
-    else if (!Number.isNaN(studentYear) && studentYear >= currentYear - 6) degreeLevel = 'ปริญญาตรี';
+    // รูปแบบรหัสนักศึกษา ม.อ. 10 หลัก: YY (0..2) + Degree/Campus (2..3) + Faculty (3..5) + ...
+    const isTenDigitPsu =
+      studentId.length >= 10 &&
+      /^\d+$/.test(studentId) &&
+      ['1', '2', '3'].includes(studentId.substring(2, 3)) &&
+      Boolean(facultyMap[studentId.substring(3, 5)]);
+
+    const degreeDigit = isTenDigitPsu ? studentId.substring(2, 3) : '';
+    const facultyCode = isTenDigitPsu ? studentId.substring(3, 5) : studentId.substring(2, 4);
+    const deptCode = isTenDigitPsu ? studentId.substring(5, 7) : studentId.substring(4, 6);
+
+    if (/^[Mm]/.test(studentId) || degreeDigit === '2') {
+      degreeLevel = 'ปริญญาโท';
+    } else if (/^[Dd]/.test(studentId) || degreeDigit === '3') {
+      degreeLevel = 'ปริญญาเอก';
+    } else if (degreeDigit === '1' || (!Number.isNaN(studentYear) && studentYear <= currentYear + 1)) {
+      degreeLevel = 'ปริญญาตรี';
+    }
 
     faculty = facultyMap[facultyCode] || 'ไม่ระบุ';
     department = departmentMap[facultyCode]?.[deptCode] || 'ไม่ระบุ';
@@ -348,14 +426,24 @@ async function upsertUserAfterSignIn(
       throw new Error('บัญชีของคุณถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
     }
 
+    const healedFaculty =
+      prev.faculty && prev.faculty !== 'ไม่ระบุ' ? prev.faculty : faculty;
+    const healedDegree =
+      prev.degreeLevel && prev.degreeLevel !== 'ไม่ระบุ' ? prev.degreeLevel : degreeLevel;
+    const healedDept =
+      prev.department && prev.department !== 'ไม่ระบุ' ? prev.department : department;
+
     userData = {
       ...prev,
       displayName: firebaseUser.displayName || prev.displayName,
       photoURL: firebaseUser.photoURL || prev.photoURL,
       userType: prev.userType || userType,
       authProvider,
-      // เติม studentId ภายนอกถ้ายังไม่มี
+      // เติม studentId / faculty / degreeLevel ที่เคยเป็น 'ไม่ระบุ' จากรหัสนักศึกษาอัตโนมัติ
       studentId: prev.studentId || studentId,
+      faculty: healedFaculty,
+      degreeLevel: healedDegree,
+      department: healedDept,
       updatedAt: serverTimestamp(),
       lastLoginAt: serverTimestamp(),
       loginCount: (prev.loginCount || 0) + 1,
@@ -505,11 +593,35 @@ export const signOutUser = async (): Promise<void> => {
   await firebaseSignOut(auth);
 };
 
-/** ดึงโปรไฟล์ผู้ใช้ */
+/** ดึงโปรไฟล์ผู้ใช้ (พร้อมซ่อม faculty / degreeLevel จากรหัสนักศึกษาอัตโนมัติหากเคยถูกบันทึกเป็น 'ไม่ระบุ') */
 export const getUserProfile = async (uid: string): Promise<UniversityUserProfile | null> => {
   const ref = doc(db, 'universityUsers', uid);
   const snap = await getDoc(ref);
-  return snap.exists() ? (snap.data() as UniversityUserProfile) : null;
+  if (!snap.exists()) return null;
+  const data = snap.data() as UniversityUserProfile;
+  if (
+    data.userType !== 'external' &&
+    (!data.faculty || data.faculty === 'ไม่ระบุ' || !data.degreeLevel || data.degreeLevel === 'ไม่ระบุ')
+  ) {
+    const parsed = parseStudentInfo(data.studentId || data.email || '');
+    const patch: Record<string, string> = {};
+    if ((!data.faculty || data.faculty === 'ไม่ระบุ') && parsed.faculty !== 'ไม่ระบุ') {
+      data.faculty = parsed.faculty;
+      patch.faculty = parsed.faculty;
+    }
+    if ((!data.degreeLevel || data.degreeLevel === 'ไม่ระบุ') && parsed.degreeLevel !== 'ไม่ระบุ') {
+      data.degreeLevel = parsed.degreeLevel;
+      patch.degreeLevel = parsed.degreeLevel;
+    }
+    if ((!data.department || data.department === 'ไม่ระบุ') && parsed.department !== 'ไม่ระบุ') {
+      data.department = parsed.department;
+      patch.department = parsed.department;
+    }
+    if (Object.keys(patch).length > 0) {
+      void setDoc(ref, { ...patch, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
+    }
+  }
+  return data;
 };
 
 /** อัปเดตโปรไฟล์ */
@@ -563,8 +675,34 @@ type AuthShellCache = {
   userData: UniversityUserProfile | null;
 };
 
+function healProfileInMemory(data: UniversityUserProfile | null): UniversityUserProfile | null {
+  if (!data || data.userType === 'external') return data;
+  if (
+    !data.faculty ||
+    data.faculty === 'ไม่ระบุ' ||
+    !data.degreeLevel ||
+    data.degreeLevel === 'ไม่ระบุ'
+  ) {
+    const parsed = parseStudentInfo(data.studentId || data.email || '');
+    return {
+      ...data,
+      faculty: !data.faculty || data.faculty === 'ไม่ระบุ' ? parsed.faculty : data.faculty,
+      degreeLevel:
+        !data.degreeLevel || data.degreeLevel === 'ไม่ระบุ' ? parsed.degreeLevel : data.degreeLevel,
+      department:
+        !data.department || data.department === 'ไม่ระบุ' ? parsed.department : data.department,
+    };
+  }
+  return data;
+}
+
 function readAuthShell(): AuthShellCache | null {
-  return readRefreshCache<AuthShellCache>(RefreshCacheKey.auth)?.data ?? null;
+  const raw = readRefreshCache<AuthShellCache>(RefreshCacheKey.auth)?.data ?? null;
+  if (!raw) return null;
+  return {
+    ...raw,
+    userData: healProfileInMemory(raw.userData),
+  };
 }
 
 function writeAuthShell(user: User, userData: UniversityUserProfile | null) {
@@ -592,96 +730,140 @@ function initialAuthState(): AuthState {
   return { user: null, userData: null, loading: true, error: null };
 }
 
-export const useAuth = () => {
-  const [authState, setAuthState] = React.useState<AuthState>(initialAuthState);
+/**
+ * Shared singleton auth store (แทนการสร้าง onAuthStateChanged ซ้ำในทุก component)
+ * - ลด Firestore reads ซ้ำระหว่าง Navbar + /register + /my-history
+ * - เมื่อแก้ไขโปรไฟล์จากจุดใดจุดหนึ่ง ทุก component จะได้ userData ใหม่พร้อมกันทันที
+ * - ไม่ต้องวาง Provider ใน layout.tsx เพื่อไม่ให้ดึง Firebase SDK เข้าหน้าสาธารณะ
+ */
+type AuthListener = (state: AuthState) => void;
 
-  // ตอนรีเฟรช: คืนเชลล์จาก session ก่อน paint — ไม่ต้องรอ Firebase / ไม่แวบปุ่ม login
-  React.useLayoutEffect(() => {
-    const shell = readAuthShell();
-    if (!shell?.uid) return;
-    setAuthState((prev) => {
-      if (prev.user?.uid) return prev;
-      return {
-        user: shellAsUser(shell),
-        userData: shell.userData,
-        loading: false,
-        error: null,
-      };
-    });
-  }, []);
+const authStore = {
+  state: initialAuthState(),
+  listeners: new Set<AuthListener>(),
+  initialized: false,
+  ensuredSessionUid: null as string | null,
+  redirectConsumed: false,
+};
 
-  React.useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      try {
-        if (firebaseUser) {
-          const cached = readAuthShell();
-          const cacheFresh =
-            cached?.uid === firebaseUser.uid &&
-            isRefreshCacheFresh(RefreshCacheKey.auth, RefreshCacheTtl.auth);
+function emitAuthState(next: AuthState) {
+  authStore.state = next;
+  authStore.listeners.forEach((fn) => fn(next));
+}
 
-          // รีเฟรชแล้ว cache ยังสด → ใช้โปรไฟล์เดิม ไม่ดึง Firestore ซ้ำ
-          if (cacheFresh && cached.userData) {
-            writeAuthShell(firebaseUser, cached.userData);
-            setAuthState({
-              user: firebaseUser,
-              userData: cached.userData,
-              loading: false,
-              error: null,
-            });
-            void SessionManager.ensureSession(firebaseUser.uid, firebaseUser.email || '');
-            return;
-          }
+function patchAuthState(updater: (prev: AuthState) => AuthState) {
+  emitAuthState(updater(authStore.state));
+}
 
-          let userData = await getUserProfile(firebaseUser.uid);
-          if (!userData) {
-            await new Promise((r) => setTimeout(r, 500));
-            userData = await getUserProfile(firebaseUser.uid);
-          }
-          await SessionManager.ensureSession(firebaseUser.uid, firebaseUser.email || '');
-          writeAuthShell(firebaseUser, userData);
-          setAuthState({ user: firebaseUser, userData, loading: false, error: null });
-        } else {
-          clearRefreshCache(RefreshCacheKey.auth);
-          setAuthState({ user: null, userData: null, loading: false, error: null });
+function ensureAuthStoreStarted() {
+  if (authStore.initialized || typeof window === 'undefined' || !auth) return;
+  authStore.initialized = true;
+
+  onAuthStateChanged(auth, async (firebaseUser) => {
+    try {
+      if (firebaseUser) {
+        const cached = readAuthShell();
+        const cacheFresh =
+          cached?.uid === firebaseUser.uid &&
+          isRefreshCacheFresh(RefreshCacheKey.auth, RefreshCacheTtl.auth);
+
+        const shouldEnsureSession = authStore.ensuredSessionUid !== firebaseUser.uid;
+        if (shouldEnsureSession) {
+          authStore.ensuredSessionUid = firebaseUser.uid;
+          void SessionManager.ensureSession(firebaseUser.uid, firebaseUser.email || '');
         }
-      } catch (e: any) {
-        clearRefreshCache(RefreshCacheKey.auth);
-        setAuthState({ user: null, userData: null, loading: false, error: e.message });
-      }
-    });
-    return () => unsubscribe();
-  }, []);
 
-  // รับผลหลัง OAuth redirect (Google / Microsoft)
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
+        if (cacheFresh && cached.userData) {
+          writeAuthShell(firebaseUser, cached.userData);
+          emitAuthState({
+            user: firebaseUser,
+            userData: cached.userData,
+            loading: false,
+            error: null,
+          });
+          return;
+        }
+
+        let userData = await getUserProfile(firebaseUser.uid);
+        if (!userData) {
+          await new Promise((r) => setTimeout(r, 400));
+          userData = await getUserProfile(firebaseUser.uid);
+        }
+        writeAuthShell(firebaseUser, userData);
+        emitAuthState({ user: firebaseUser, userData, loading: false, error: null });
+      } else {
+        authStore.ensuredSessionUid = null;
+        clearRefreshCache(RefreshCacheKey.auth);
+        emitAuthState({ user: null, userData: null, loading: false, error: null });
+      }
+    } catch (e: any) {
+      clearRefreshCache(RefreshCacheKey.auth);
+      emitAuthState({ user: null, userData: null, loading: false, error: e.message });
+    }
+  });
+
+  if (!authStore.redirectConsumed) {
+    authStore.redirectConsumed = true;
+    void (async () => {
       try {
         const result = await consumeAuthRedirectResult();
-        if (cancelled || !result) return;
+        if (!result) return;
+        authStore.ensuredSessionUid = result.user.uid;
         writeAuthShell(result.user, result.userData);
-        setAuthState({
+        emitAuthState({
           user: result.user,
           userData: result.userData,
           loading: false,
           error: null,
         });
       } catch (e: any) {
-        if (cancelled) return;
         const msg = mapAuthError(e) || e?.message;
-        if (msg) setAuthState((prev) => ({ ...prev, loading: false, error: msg }));
+        if (msg) patchAuthState((prev) => ({ ...prev, loading: false, error: msg }));
       }
     })();
+  }
+}
+
+export const useAuth = () => {
+  const [authState, setAuthState] = React.useState<AuthState>(() =>
+    authStore.initialized ? authStore.state : initialAuthState()
+  );
+
+  // ตอนรีเฟรช: คืนเชลล์จาก session ก่อน paint — ไม่ต้องรอ Firebase / ไม่แวบปุ่ม login
+  React.useLayoutEffect(() => {
+    if (authStore.state.user?.uid) {
+      setAuthState(authStore.state);
+      return;
+    }
+    const shell = readAuthShell();
+    if (!shell?.uid) return;
+    const shellState: AuthState = {
+      user: shellAsUser(shell),
+      userData: shell.userData,
+      loading: false,
+      error: null,
+    };
+    if (!authStore.state.user?.uid) {
+      authStore.state = shellState;
+    }
+    setAuthState(shellState);
+  }, []);
+
+  React.useEffect(() => {
+    authStore.listeners.add(setAuthState);
+    ensureAuthStoreStarted();
+    setAuthState(authStore.state);
     return () => {
-      cancelled = true;
+      authStore.listeners.delete(setAuthState);
     };
   }, []);
 
-  const login = async () => {
+  const login = React.useCallback(async () => {
     try {
       const { user, userData } = await signInWithMicrosoft();
+      authStore.ensuredSessionUid = user.uid;
       writeAuthShell(user, userData);
-      setAuthState({ user, userData, loading: false, error: null });
+      emitAuthState({ user, userData, loading: false, error: null });
       return { user, userData };
     } catch (e: any) {
       if (e instanceof AuthRedirectPendingError || e?.code === 'auth/redirect-pending') {
@@ -689,13 +871,14 @@ export const useAuth = () => {
       }
       throw e;
     }
-  };
+  }, []);
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = React.useCallback(async () => {
     try {
       const { user, userData } = await signInWithGoogle();
+      authStore.ensuredSessionUid = user.uid;
       writeAuthShell(user, userData);
-      setAuthState({ user, userData, loading: false, error: null });
+      emitAuthState({ user, userData, loading: false, error: null });
       return { user, userData };
     } catch (e: any) {
       if (e instanceof AuthRedirectPendingError || e?.code === 'auth/redirect-pending') {
@@ -703,25 +886,26 @@ export const useAuth = () => {
       }
       throw e;
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = React.useCallback(async () => {
     const uid = auth.currentUser?.uid;
     if (uid) await SessionManager.destroySession(uid);
     await signOutUser();
+    authStore.ensuredSessionUid = null;
     clearRefreshCache(RefreshCacheKey.auth);
     clearRefreshCache(RefreshCacheKey.homeActivities);
-    setAuthState({ user: null, userData: null, loading: false, error: null });
-  };
+    emitAuthState({ user: null, userData: null, loading: false, error: null });
+  }, []);
 
-  const refreshUserData = async () => {
+  const refreshUserData = React.useCallback(async () => {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) return null;
     const userData = await getUserProfile(firebaseUser.uid);
     writeAuthShell(firebaseUser, userData);
-    setAuthState((prev) => ({ ...prev, user: firebaseUser, userData }));
+    patchAuthState((prev) => ({ ...prev, user: firebaseUser, userData }));
     return userData;
-  };
+  }, []);
 
   return { ...authState, login, loginWithGoogle, logout, refreshUserData };
 };

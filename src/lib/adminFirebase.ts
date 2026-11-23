@@ -1549,53 +1549,30 @@ export async function signInAdmin(): Promise<AdminProfile> {
   let finalRef = existingRef;
 
   if (!existingData) {
-    // Check if there is an accepted/pending invitation for this email
-    if (user.email) {
-      const invitesRef = collection(db, 'adminInvites');
-      const q = query(
-        invitesRef,
-        where('email', '==', user.email.toLowerCase()),
-        where('status', 'in', ['accepted', 'pending'])
-      );
-      const inviteSnap = await getDocs(q);
-      
-      if (!inviteSnap.empty) {
-        const inviteDoc = inviteSnap.docs[0];
-        const inviteData = inviteDoc.data();
-        
-        // Auto-create admin user from invite
-        const newRef = doc(db, 'adminUsers', user.uid);
-        const newAdminData: AdminProfile = {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || inviteData.email.split('@')[0],
-          firstName: user.displayName?.split(' ')[0] || '',
-          lastName: user.displayName?.split(' ')[1] || '',
-          role: inviteData.role as AdminRole,
-          department: inviteData.department as AdminDepartment,
-          permissions: inviteData.permissions || ROLE_PERMISSIONS[inviteData.role as AdminRole] || [],
-          isActive: true,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          lastLoginAt: serverTimestamp(),
-          createdBy: inviteData.invitedByUid || 'system',
-          profileImage: user.photoURL || '',
-        };
-        
-        await setDoc(newRef, newAdminData);
-        
-        // Update invite status
-        await updateDoc(doc(db, 'adminInvites', inviteDoc.id), {
-          status: 'registered',
-          acceptedByUid: user.uid,
-          updatedAt: serverTimestamp()
-        });
-
-        // Re-read doc to update finalData
+    // ตรวจสอบและรับสิทธิ์จากคำเชิญผ่าน Server API (Admin SDK) อย่างปลอดภัย
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/invites/claim', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+      if (res.ok) {
+        // รีเฟรช token เพื่อรับ Custom Claims ใหม่ทันที
+        await user.getIdToken(true);
         const { data: newlyCreatedData, ref: newlyCreatedRef } = await readAdminDoc(user.uid);
         finalData = newlyCreatedData;
         finalRef = newlyCreatedRef;
+      } else {
+        const body = await res.json().catch(() => ({}));
+        if (body?.error === 'ADMIN_DISABLED') {
+          await fbSignOut(auth);
+          throw new Error('ADMIN_DISABLED');
+        }
       }
+    } catch (e: any) {
+      if (e?.message === 'ADMIN_DISABLED') throw e;
     }
   }
 
@@ -1606,6 +1583,31 @@ export async function signInAdmin(): Promise<AdminProfile> {
   if (finalData.isActive === false) {
     await fbSignOut(auth);
     throw new Error('ADMIN_DISABLED');
+  }
+
+  // ซิงค์ Custom Claims อัตโนมัติผ่าน Server API สำหรับแอดมินเดิม (รองรับ Spark Plan ที่ไม่มี Cloud Functions)
+  if (existingData) {
+    try {
+      const tokenRes = await user.getIdTokenResult();
+      const claims = tokenRes.claims || {};
+      if (
+        claims.isActive !== true ||
+        claims.role !== finalData.role ||
+        claims.department !== finalData.department
+      ) {
+        const res = await fetch('/api/invites/claim', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${tokenRes.token}`,
+          },
+        });
+        if (res.ok) {
+          await user.getIdToken(true);
+        }
+      }
+    } catch {
+      /* best-effort claims sync */
+    }
   }
 
   try {

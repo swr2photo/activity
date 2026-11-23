@@ -46,6 +46,21 @@ export const useAdminAuth = ({ defer = false }: UseAdminAuthOptions = {}) => {
     let cancelled = false;
     let unsubscribe: (() => void) | undefined;
 
+    // บนหน้าสาธารณะ/นักศึกษา (defer=true) ถ้าไม่เคยล็อกอินแอดมินเลย ไม่ต้องโหลด admin Firebase App ตัวที่ 2
+    if (defer && typeof window !== 'undefined') {
+      try {
+        const hasAdminSession = Boolean(window.localStorage.getItem('adminSession'));
+        if (!hasAdminSession) {
+          setCurrentAdmin(null);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        setLoading(false);
+        return;
+      }
+    }
+
     const initialize = async () => {
       const [{ onAuthStateChanged }, { adminAuth }] = await Promise.all([
         import('firebase/auth'),

@@ -25,9 +25,6 @@ import {
 import { glassCardClass } from '@/lib/uiTheme';
 import { cn } from '@/lib/utils';
 
-import { reportError } from '../lib/errorReporter';
-import { auth } from '../lib/firebase';
-
 export default function GlobalError({
   error,
   reset,
@@ -63,7 +60,12 @@ export default function GlobalError({
     let mounted = true;
     (async () => {
       try {
-        const user = auth.currentUser;
+        // โหลด Firebase เฉพาะตอนเกิด Error จริงเท่านั้น — ไม่ให้ 425 KB SDK รั่วเข้าหน้าสาธารณะ
+        const [{ reportError }, { auth }] = await Promise.all([
+          import('../lib/errorReporter'),
+          import('../lib/firebase'),
+        ]);
+        const user = auth?.currentUser;
         const id = await reportError({
           message: error.message,
           stack: error.stack,

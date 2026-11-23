@@ -2,8 +2,10 @@ import { getApps, initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, type Auth } from 'firebase/auth';
 import {
   connectFirestoreEmulator,
+  getFirestore,
   initializeFirestore,
   memoryLocalCache,
+  type Firestore,
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -20,9 +22,15 @@ export const adminApp =
   getApps().find((candidate) => candidate.name === ADMIN_APP_NAME) ??
   initializeApp(firebaseConfig, ADMIN_APP_NAME);
 
-export const adminDb = initializeFirestore(adminApp, {
-  localCache: memoryLocalCache(),
-});
+function initSafeAdminFirestore(): Firestore {
+  try {
+    return initializeFirestore(adminApp, { localCache: memoryLocalCache() });
+  } catch {
+    return getFirestore(adminApp);
+  }
+}
+
+export const adminDb = initSafeAdminFirestore();
 export const adminAuth: Auth =
   typeof window === 'undefined' ? (null as unknown as Auth) : getAuth(adminApp);
 

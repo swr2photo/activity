@@ -1,28 +1,38 @@
 // src/app/admin/App.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 
 import AdminLogin from '../../components/AdminLogin';
-import AdminMain from '../../components/admin/AdminMain';
 
 import { onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { adminAuth as auth, adminDb as db } from '../../lib/firebaseAdminClient';
-import { doc, getDoc, onSnapshot, Timestamp } from 'firebase/firestore';
-import type { AdminProfile, AdminRole, AdminDepartment } from '../../types/admin';
+import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
+import type { AdminProfile, AdminRole } from '../../types/admin';
 import { ROLE_PERMISSIONS, normalizeDepartment } from '../../types/admin';
 
 import useAdminSession, { endSession, getSession } from '../../lib/useAdminSession';
 import { useSnackbar } from '@/lib/toast';
 
-// ✅ รายการหน้าที่อนุญาต
+const AdminMain = dynamic(() => import('../../components/admin/AdminMain'), {
+  ssr: false,
+  loading: () => (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+      <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+    </div>
+  ),
+});
+
+// ✅ รายการหน้าที่อนุญาต (รองรับทั้ง 5 หมวดใหม่และ key เดิมใน localStorage)
 const VALID_SECTIONS = [
   'dashboard',
+  'activities',
   'activity-list',
   'qr-generator',
   'short-links',
   'users',
+  'team-settings',
   'admin-management',
   'reports',
   'registration-history',
@@ -77,25 +87,104 @@ function App() {
   useEffect(() => {
     let unsubLive: (() => void) | null = null;
 
-    const unsubscribe = onAuthStateChanged(auth, async (user: User | null) => {
+    const unsubscribe = onAuthStateChanged(auth, (user: User | null) => {
       unsubLive?.();
       unsubLive = null;
 
-      if (user) {
-        await bootstrapAdminOnce(user);
-        unsubLive = startLiveAdminSubscribe(user.uid);
-      } else {
+      if (!user) {
         setCurrentAdmin(null);
+        setAuthChecked(true);
+        setLoading(false);
+        return;
       }
-      setAuthChecked(true);
-      setLoading(false);
+
+      // ใช้ onSnapshot ตัวเดียวทั้งโหลดครั้งแรกและอัปเดตสด (ลด getDoc ซ้ำ)
+      const ref = doc(db, 'adminUsers', user.uid);
+      unsubLive = onSnapshot(
+        ref,
+        (snap) => {
+          if (!snap.exists()) {
+            setCurrentAdmin(null);
+            setAuthChecked(true);
+            setLoading(false);
+            return;
+          }
+          const d = snap.data() as any;
+          if (d.isActive === false) {
+            setCurrentAdmin(null);
+            setAuthChecked(true);
+            setLoading(false);
+            void signOut(auth).catch(() => {});
+            return;
+          }
+
+          const rawRole = d.role as string;
+          const mappedRole = (rawRole === 'admin' ? 'department_admin' : rawRole) as AdminRole;
+
+          setCurrentAdmin((prev) => {
+            const nextEmail = d.email ?? prev?.email ?? user.email ?? '';
+            const nextDisplayName = d.displayName ?? prev?.displayName ?? user.displayName ?? '';
+            const nextFirstName = d.firstName ?? prev?.firstName ?? '';
+            const nextLastName = d.lastName ?? prev?.lastName ?? '';
+            const nextDept = normalizeDepartment(d.department ?? prev?.department);
+            const nextPerms = Array.isArray(d.permissions)
+              ? d.permissions
+              : (prev?.permissions?.length ? prev.permissions : (ROLE_PERMISSIONS[mappedRole] ?? []));
+            const nextImage = d.profileImage ?? prev?.profileImage;
+            const nextX = clamp(d.profileImagePosX) ?? prev?.profileImagePosX ?? 50;
+            const nextY = clamp(d.profileImagePosY) ?? prev?.profileImagePosY ?? 50;
+
+            if (
+              prev &&
+              prev.uid === user.uid &&
+              prev.email === nextEmail &&
+              prev.displayName === nextDisplayName &&
+              prev.firstName === nextFirstName &&
+              prev.lastName === nextLastName &&
+              prev.department === nextDept &&
+              prev.role === mappedRole &&
+              prev.profileImage === nextImage &&
+              prev.profileImagePosX === nextX &&
+              prev.profileImagePosY === nextY &&
+              JSON.stringify(prev.permissions) === JSON.stringify(nextPerms)
+            ) {
+              return prev;
+            }
+
+            return normalizeAdmin({
+              uid: user.uid,
+              email: nextEmail,
+              displayName: nextDisplayName,
+              firstName: nextFirstName,
+              lastName: nextLastName,
+              department: nextDept,
+              role: mappedRole,
+              isActive: true,
+              lastLoginAt: d.lastLogin instanceof Timestamp ? d.lastLogin.toDate() : (d.lastLogin as Date) ?? new Date(),
+              createdAt: d.createdAt instanceof Timestamp ? d.createdAt.toDate() : (d.createdAt as Date) ?? new Date(),
+              permissions: nextPerms,
+              updatedAt: d.updatedAt instanceof Timestamp ? d.updatedAt.toDate() : new Date(),
+              profileImage: nextImage,
+              profileImagePosX: nextX,
+              profileImagePosY: nextY,
+            });
+          });
+
+          setAuthChecked(true);
+          setLoading(false);
+        },
+        () => {
+          setCurrentAdmin(null);
+          setAuthChecked(true);
+          setLoading(false);
+        }
+      );
     });
 
     return () => {
       unsubLive?.();
       unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -105,98 +194,16 @@ function App() {
     }
   }, [currentAdmin]);
 
-  const bootstrapAdminOnce = async (user: User) => {
-    const ref = doc(db, 'adminUsers', user.uid);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return;
-    const d = snap.data() as any;
-    if (d.isActive === false) return;
-
-    const rawRole = d.role as string;
-    const mappedRole = (rawRole === 'admin' ? 'department_admin' : rawRole) as AdminRole;
-
-    const profile: AdminProfile = {
-      uid: user.uid,
-      email: d.email ?? user.email ?? '',
-      displayName: d.displayName ?? user.displayName ?? '',
-      firstName: d.firstName ?? '',
-      lastName: d.lastName ?? '',
-      department: normalizeDepartment(d.department),
-      role: mappedRole,
-      isActive: d.isActive ?? true,
-      lastLoginAt: d.lastLogin instanceof Timestamp ? d.lastLogin.toDate() : (d.lastLogin as Date) ?? new Date(),
-      createdAt: d.createdAt instanceof Timestamp ? d.createdAt.toDate() : (d.createdAt as Date) ?? new Date(),
-      permissions: Array.isArray(d.permissions) ? d.permissions : (ROLE_PERMISSIONS[mappedRole] ?? []),
-      updatedAt: d.updatedAt instanceof Timestamp ? d.updatedAt.toDate() : new Date(),
-      profileImage: d.profileImage,
-      profileImagePosX: clamp(d.profileImagePosX) ?? 50,
-      profileImagePosY: clamp(d.profileImagePosY) ?? 50,
-    };
+  const handleLoginSuccess = useCallback((profile: AdminProfile) => {
     setCurrentAdmin(normalizeAdmin(profile));
-  };
+  }, []);
 
-  const startLiveAdminSubscribe = (uid: string) => {
-    const ref = doc(db, 'adminUsers', uid);
-    return onSnapshot(ref, (snap) => {
-      if (!snap.exists()) return;
-      const d = snap.data() as any;
-      if (d.isActive === false) return;
-
-      setCurrentAdmin((prev) => {
-        if (!prev) return prev;
-        const rawRole = d.role as string;
-        const mappedRole = (rawRole === 'admin' ? 'department_admin' : rawRole) as AdminRole;
-        const nextEmail = d.email ?? prev.email;
-        const nextDisplayName = d.displayName ?? prev.displayName;
-        const nextFirstName = d.firstName ?? prev.firstName;
-        const nextLastName = d.lastName ?? prev.lastName;
-        const nextDept = normalizeDepartment(d.department ?? prev.department);
-        const nextPerms = Array.isArray(d.permissions) ? d.permissions : prev.permissions;
-        const nextImage = d.profileImage ?? prev.profileImage;
-        const nextX = clamp(d.profileImagePosX) ?? prev.profileImagePosX;
-        const nextY = clamp(d.profileImagePosY) ?? prev.profileImagePosY;
-
-        // ข้าม setState ถ้าข้อมูลสำคัญไม่เปลี่ยน — ลดการกระพริบ
-        const same =
-          prev.email === nextEmail &&
-          prev.displayName === nextDisplayName &&
-          prev.firstName === nextFirstName &&
-          prev.lastName === nextLastName &&
-          prev.department === nextDept &&
-          prev.role === mappedRole &&
-          prev.profileImage === nextImage &&
-          prev.profileImagePosX === nextX &&
-          prev.profileImagePosY === nextY &&
-          JSON.stringify(prev.permissions) === JSON.stringify(nextPerms);
-        if (same) return prev;
-
-        return normalizeAdmin({
-          ...prev,
-          email: nextEmail,
-          displayName: nextDisplayName,
-          firstName: nextFirstName,
-          lastName: nextLastName,
-          department: nextDept,
-          role: mappedRole,
-          permissions: nextPerms,
-          profileImage: nextImage,
-          profileImagePosX: nextX,
-          profileImagePosY: nextY,
-        } as AdminProfile);
-      });
-    });
-  };
-
-  const handleLoginSuccess = (profile: AdminProfile) => {
-    setCurrentAdmin(normalizeAdmin(profile));
-  };
-
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try { await signOut(auth); } catch {}
     end();
     endSession();
     setCurrentAdmin(null);
-  };
+  }, [end]);
 
   if (loading || !authChecked) {
     return (

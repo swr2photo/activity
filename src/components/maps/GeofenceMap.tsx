@@ -63,6 +63,41 @@ function useIsMobile(breakpoint = 640) {
   return isMobile;
 }
 
+const MapToolBtn = React.memo(function MapToolBtn({
+  title: tip,
+  onClick,
+  active,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={onClick}
+          aria-label={tip}
+          className={cn(
+            'h-8 w-8 border border-border/40 shadow-sm',
+            active
+              ? 'bg-[#0a6bcf]/15 text-[#0a6bcf] hover:bg-[#0a6bcf]/20'
+              : 'bg-background/90 text-foreground hover:bg-[#0a6bcf]/10'
+          )}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{tip}</TooltipContent>
+    </Tooltip>
+  );
+});
+
 const GeofenceMap: React.FC<GeofenceMapProps> = ({
   center,
   radius,
@@ -82,7 +117,7 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   });
 
   const [map, setMap] = useState<google.maps.Map | null>(null);
-  const [mode, setMode] = useState<'roadmap' | 'satellite'>('satellite');
+  const [mode, setMode] = useState<'roadmap' | 'satellite'>('roadmap');
   const [wantRoute, setWantRoute] = useState(false);
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
@@ -237,12 +272,13 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
   const handleDirections = useCallback(
     (res: google.maps.DirectionsResult | null, status: string) => {
       setIsLoadingRoute(false);
+      // ปิด wantRoute เสมอหลังได้รับคำตอบ กัน DirectionsService ยิง API ซ้ำทุก re-render
+      setWantRoute(false);
       if (status === 'OK' && res) {
         setDirections(res);
         setShowingRoute(true);
       } else {
         setDirections(null);
-        setWantRoute(false);
         setShowingRoute(false);
       }
     },
@@ -306,39 +342,6 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
       </div>
     );
   }
-
-  const ToolBtn = ({
-    title: tip,
-    onClick,
-    active,
-    children,
-  }: {
-    title: string;
-    onClick: () => void;
-    active?: boolean;
-    children: React.ReactNode;
-  }) => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          onClick={onClick}
-          aria-label={tip}
-          className={cn(
-            'h-8 w-8 border border-border/40 shadow-sm',
-            active
-              ? 'bg-[#0a6bcf]/15 text-[#0a6bcf] hover:bg-[#0a6bcf]/20'
-              : 'bg-background/90 text-foreground hover:bg-[#0a6bcf]/10'
-          )}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{tip}</TooltipContent>
-    </Tooltip>
-  );
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -433,21 +436,21 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
           </GoogleMap>
 
           <div className="absolute right-2.5 top-2.5 z-[3] flex flex-col gap-1.5">
-            <ToolBtn title="โฟกัสจุดกิจกรรม" onClick={panToCenter}>
+            <MapToolBtn title="โฟกัสจุดกิจกรรม" onClick={panToCenter}>
               <LocateFixed className="h-4 w-4" />
-            </ToolBtn>
+            </MapToolBtn>
             {userPos ? (
-              <ToolBtn title="ไปตำแหน่งของฉัน" onClick={panToUser}>
+              <MapToolBtn title="ไปตำแหน่งของฉัน" onClick={panToUser}>
                 <Crosshair className="h-4 w-4" />
-              </ToolBtn>
+              </MapToolBtn>
             ) : (
               onUseCurrentLocation && (
-                <ToolBtn title="ค้นหาตำแหน่งฉัน" onClick={onUseCurrentLocation}>
+                <MapToolBtn title="ค้นหาตำแหน่งฉัน" onClick={onUseCurrentLocation}>
                   <Crosshair className="h-4 w-4" />
-                </ToolBtn>
+                </MapToolBtn>
               )
             )}
-            <ToolBtn
+            <MapToolBtn
               title={mode === 'satellite' ? 'แผนที่' : 'ดาวเทียม'}
               onClick={() =>
                 setMode((m) => (m === 'satellite' ? 'roadmap' : 'satellite'))
@@ -459,14 +462,14 @@ const GeofenceMap: React.FC<GeofenceMapProps> = ({
               ) : (
                 <Satellite className="h-4 w-4" />
               )}
-            </ToolBtn>
-            <ToolBtn title="เปิดใน Google Maps" onClick={openInMaps}>
+            </MapToolBtn>
+            <MapToolBtn title="เปิดใน Google Maps" onClick={openInMaps}>
               <ExternalLink className="h-4 w-4" />
-            </ToolBtn>
+            </MapToolBtn>
             {editable && onUseCurrentLocation && (
-              <ToolBtn title="ตั้งจุดเป็นตำแหน่งฉัน" onClick={onUseCurrentLocation}>
+              <MapToolBtn title="ตั้งจุดเป็นตำแหน่งฉัน" onClick={onUseCurrentLocation}>
                 <MapPin className="h-4 w-4" />
-              </ToolBtn>
+              </MapToolBtn>
             )}
           </div>
 

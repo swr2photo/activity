@@ -9,14 +9,18 @@ function verifySignature(secretKey: string, contentToSign: string, headerSignatu
   const secretKeyBytes = Buffer.from(secretKey, 'utf-8');
   const hmac = crypto.createHmac('sha256', secretKeyBytes);
   hmac.update(contentToSign);
-  const generatedSignature = hmac.digest('base64');
+  const generatedBuf = Buffer.from(hmac.digest('base64'), 'utf-8');
 
   const signatures = headerSignatures.split(' ');
   for (const sig of signatures) {
     const parts = sig.split(',');
     if (parts.length === 2) {
-      const [version, expectedSignature] = parts;
-      if (expectedSignature === generatedSignature) {
+      const [, expectedSignature] = parts;
+      const expectedBuf = Buffer.from(expectedSignature, 'utf-8');
+      if (
+        expectedBuf.length === generatedBuf.length &&
+        crypto.timingSafeEqual(expectedBuf, generatedBuf)
+      ) {
         return true;
       }
     }
@@ -31,6 +35,12 @@ export async function POST(request: NextRequest) {
 
   if (!webhookId || !webhookTimestamp || !webhookSignature) {
     return NextResponse.json({ error: 'Missing webhook headers' }, { status: 400 });
+  }
+
+  // ป้องกัน replay attack (ยอมรับความคลาดเคลื่อนไม่เกิน 5 นาที)
+  const tsSeconds = Number(webhookTimestamp);
+  if (!Number.isFinite(tsSeconds) || Math.abs(Math.floor(Date.now() / 1000) - tsSeconds) > 300) {
+    return NextResponse.json({ error: 'Webhook timestamp expired' }, { status: 401 });
   }
 
   const secret = process.env.MAGNIFIC_WEBHOOK_SECRET;

@@ -12,17 +12,19 @@ function toMs(ts: any) {
 
 export async function GET(req: NextRequest) {
   try {
-    const adminUser = await verifyAdminToken(req);
-    const adminDb = getAdminDb(); // ✅ lazy init ที่ runtime
-    const limit = Number(req.nextUrl.searchParams.get('limit') ?? 100);
+    const adminUser = await verifyAdminToken(req, { requiredPermission: 'manage_admins' });
+    const adminDb = getAdminDb();
+    const rawLimit = Number(req.nextUrl.searchParams.get('limit') ?? 100);
+    const safeLimit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(200, Math.floor(rawLimit))) : 100;
 
-    const qs = await adminDb
-      .collection('adminInvites')
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
+    let ref: FirebaseFirestore.Query = adminDb.collection('adminInvites');
+    if (adminUser.role !== 'super_admin' && adminUser.department !== 'all') {
+      ref = ref.where('department', '==', adminUser.department);
+    }
 
-    const items = qs.docs.map((d: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>) => {
+    const qs = await ref.orderBy('createdAt', 'desc').limit(safeLimit).get();
+
+    const items = qs.docs.map((d) => {
       const x = d.data() as any;
       return {
         id: d.id,
@@ -42,6 +44,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ ok: true, items });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || 'List invites failed' }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || 'List invites failed' },
+      { status: e?.status || 500 }
+    );
   }
 }

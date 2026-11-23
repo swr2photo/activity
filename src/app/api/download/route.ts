@@ -5,7 +5,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  // ตรวจสอบว่าผู้ใช้เข้าสู่ระบบแล้ว
   try {
     await verifyUserToken(request);
   } catch {
@@ -23,35 +22,35 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Decode base64
     const fileUrl = Buffer.from(encodedUrl, 'base64').toString('utf-8');
-
-    // Basic security check: Make sure it only fetches from Firebase Storage domain
     const parsedUrl = new URL(fileUrl);
-    if (!parsedUrl.hostname.includes('firebasestorage.googleapis.com')) {
+
+    // ตรวจ hostname แบบตรงตัวและต้องเป็น HTTPS เท่านั้น ป้องกัน SSRF
+    if (
+      parsedUrl.protocol !== 'https:' ||
+      parsedUrl.hostname.toLowerCase() !== 'firebasestorage.googleapis.com'
+    ) {
       return NextResponse.json({ error: 'Unauthorized download source' }, { status: 403 });
     }
 
     const response = await fetch(fileUrl);
-    if (!response.ok) {
-      return NextResponse.json({ error: 'Failed to fetch file from storage' }, { status: response.status });
+    if (!response.ok || !response.body) {
+      return NextResponse.json({ error: 'Failed to fetch file from storage' }, { status: response.status || 502 });
     }
 
-    const blob = await response.blob();
-    
-    // Get headers from response or set defaults
     const contentType = response.headers.get('Content-Type') || 'application/octet-stream';
     const contentDisposition = response.headers.get('Content-Disposition') || 'inline';
 
-    return new NextResponse(blob, {
+    // Stream ตรงไม่โหลดทั้งไฟล์เข้า RAM 512MB และใช้ private cache สำหรับ endpoint ที่ต้อง auth
+    return new NextResponse(response.body, {
       status: 200,
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': contentDisposition,
-        'Cache-Control': 'public, max-age=3600, s-maxage=3600', // Cache for 1 hour
+        'Cache-Control': 'private, max-age=3600',
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err?.message || 'Download failed' }, { status: 500 });
   }
 }

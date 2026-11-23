@@ -7,21 +7,20 @@ import {
   AlertTriangle, MapPin, Globe, Mail
 } from 'lucide-react';
 import { useSnackbar } from '@/lib/toast';
-import { DatePicker, ConfigProvider } from 'antd';
-import thTH from 'antd/locale/th_TH';
 import type { AdminProfile, AdminPermission } from '../../types/admin';
-import { normalizeDepartment, deptEquals, getDepartmentLabel } from '../../types/admin';
+import { normalizeDepartment, getDepartmentLabel } from '../../types/admin';
 
 import {
   deleteActivityRecord,
   adjustParticipantsByActivityCode,
+  getActivitiesByDepartment,
   type ActivityRecord
 } from '../../lib/adminFirebase';
 
 import { adminDb as db } from '../../lib/firebaseAdminClient';
 import {
-  collection, doc, getDoc, getDocs, query, where, orderBy, limit,
-  onSnapshot, Timestamp, QueryConstraint, startAfter
+  collection, getDocs, query, where, orderBy, limit,
+  Timestamp, QueryConstraint, startAfter
 } from 'firebase/firestore';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,29 +52,69 @@ interface FilterState {
 
 interface Props {
   currentAdmin: AdminProfile;
+  /** ถ้าระบุ จะล็อกแสดงเฉพาะกิจกรรมนี้ (ใช้ใน Activity Workspace) */
+  fixedActivityCode?: string;
+  fixedActivityName?: string;
+  embedded?: boolean;
 }
-
-type AdminNotif = {
-  id: string;
-  title?: string;
-  message?: string;
-  department?: string;
-  departmentKey?: string;
-  createdAt?: Date | Timestamp | null;
-};
 
 type RecordAnomaly = { level: 'warning' | 'danger'; message: string };
 
+type AnomalyIndex = {
+  ipByActivity: Map<string, Set<string>>;
+  ipAny: Map<string, Set<string>>;
+  nameByActivity: Map<string, Set<string>>;
+  emailAny: Map<string, Set<string>>;
+};
+
+/** สร้างดัชนี O(N) แทนการวน filter O(4N^2) */
+function buildAnomalyIndex(all: ActivityRecord[]): AnomalyIndex {
+  const ipByActivity = new Map<string, Set<string>>();
+  const ipAny = new Map<string, Set<string>>();
+  const nameByActivity = new Map<string, Set<string>>();
+  const emailAny = new Map<string, Set<string>>();
+
+  const addTo = (map: Map<string, Set<string>>, key: string, sid: string) => {
+    let set = map.get(key);
+    if (!set) {
+      set = new Set<string>();
+      map.set(key, set);
+    }
+    set.add(sid);
+  };
+
+  for (const r of all) {
+    const sid = (r.studentId || '').trim();
+    const code = r.activityCode || '';
+    const ip = (r.ipAddress || '').trim();
+    const email = (r.email || '').trim().toLowerCase();
+    const fullName = `${r.firstName || ''} ${r.lastName || ''}`.trim().toLowerCase();
+
+    if (ip && ip !== 'unknown') {
+      addTo(ipByActivity, `${code}::${ip}`, sid);
+      addTo(ipAny, ip, sid);
+    }
+    if (fullName.length >= 4) {
+      addTo(nameByActivity, `${code}::${fullName}`, sid);
+    }
+    if (email) {
+      addTo(emailAny, email, sid);
+    }
+  }
+
+  return { ipByActivity, ipAny, nameByActivity, emailAny };
+}
+
 function detectRecordAnomalies(
   record: ActivityRecord,
-  all: ActivityRecord[]
+  index: AnomalyIndex
 ): RecordAnomaly[] {
   const out: RecordAnomaly[] = [];
   const sid = (record.studentId || '').trim();
   const ip = (record.ipAddress || '').trim();
   const email = (record.email || '').trim().toLowerCase();
   const fullName = `${record.firstName || ''} ${record.lastName || ''}`.trim().toLowerCase();
-  const code = record.activityCode;
+  const code = record.activityCode || '';
 
   const loc = record.location;
   if (!loc || (typeof loc.latitude === 'number' && loc.latitude === 0 && loc.longitude === 0)) {
@@ -90,60 +129,43 @@ function detectRecordAnomalies(
   }
 
   if (ip && ip !== 'unknown') {
-    const sameIpSameActivity = all.filter(
-      (r) =>
-        r.id !== record.id &&
-        r.activityCode === code &&
-        (r.ipAddress || '').trim() === ip &&
-        (r.studentId || '').trim() !== sid
-    );
-    const uniqueUsers = new Set(sameIpSameActivity.map((r) => r.studentId));
-    if (uniqueUsers.size >= 1) {
+    const sameIpSameAct = index.ipByActivity.get(`${code}::${ip}`);
+    const otherSameAct = sameIpSameAct ? [...sameIpSameAct].filter((s) => s !== sid) : [];
+    if (otherSameAct.length >= 1) {
       out.push({
-        level: uniqueUsers.size >= 2 ? 'danger' : 'warning',
-        message: `IP เดียวกัน (${ip}) ใช้ลงทะเบียนกิจกรรมนี้กับอีก ${uniqueUsers.size} บัญชี: ${[...uniqueUsers].slice(0, 5).join(', ')}${uniqueUsers.size > 5 ? '…' : ''}`,
+        level: otherSameAct.length >= 2 ? 'danger' : 'warning',
+        message: `IP เดียวกัน (${ip}) ใช้ลงทะเบียนกิจกรรมนี้กับอีก ${otherSameAct.length} บัญชี: ${otherSameAct.slice(0, 5).join(', ')}${otherSameAct.length > 5 ? '…' : ''}`,
       });
-    }
-
-    const sameIpAny = all.filter(
-      (r) => r.id !== record.id && (r.ipAddress || '').trim() === ip && (r.studentId || '').trim() !== sid
-    );
-    const anyUsers = new Set(sameIpAny.map((r) => r.studentId));
-    if (anyUsers.size >= 3 && uniqueUsers.size < 1) {
-      out.push({
-        level: 'warning',
-        message: `IP นี้พบกับอีก ${anyUsers.size} บัญชีในข้อมูลที่โหลด (อาจเป็น Wi‑Fi ร่วม หรือแชร์อุปกรณ์)`,
-      });
+    } else {
+      const sameIpAny = index.ipAny.get(ip);
+      const otherAny = sameIpAny ? [...sameIpAny].filter((s) => s !== sid) : [];
+      if (otherAny.length >= 3) {
+        out.push({
+          level: 'warning',
+          message: `IP นี้พบกับอีก ${otherAny.length} บัญชีในข้อมูลที่โหลด (อาจเป็น Wi‑Fi ร่วม หรือแชร์อุปกรณ์)`,
+        });
+      }
     }
   }
 
   if (fullName.length >= 4) {
-    const sameName = all.filter(
-      (r) =>
-        r.id !== record.id &&
-        r.activityCode === code &&
-        `${r.firstName || ''} ${r.lastName || ''}`.trim().toLowerCase() === fullName &&
-        (r.studentId || '').trim() !== sid
-    );
-    if (sameName.length > 0) {
+    const sameName = index.nameByActivity.get(`${code}::${fullName}`);
+    const otherNames = sameName ? [...sameName].filter((s) => s !== sid) : [];
+    if (otherNames.length > 0) {
       out.push({
         level: 'danger',
-        message: `ชื่อ-นามสกุลซ้ำกับบัญชีอื่นในกิจกรรมนี้ (${sameName.map((r) => r.studentId).slice(0, 3).join(', ')})`,
+        message: `ชื่อ-นามสกุลซ้ำกับบัญชีอื่นในกิจกรรมนี้ (${otherNames.slice(0, 3).join(', ')})`,
       });
     }
   }
 
   if (email) {
-    const sameEmail = all.filter(
-      (r) =>
-        r.id !== record.id &&
-        (r.email || '').trim().toLowerCase() === email &&
-        (r.studentId || '').trim() !== sid
-    );
-    if (sameEmail.length > 0) {
+    const sameEmail = index.emailAny.get(email);
+    const otherEmails = sameEmail ? [...sameEmail].filter((s) => s !== sid) : [];
+    if (otherEmails.length > 0) {
       out.push({
         level: 'danger',
-        message: `อีเมลเดียวกันใช้กับรหัสอื่น: ${sameEmail.map((r) => r.studentId).slice(0, 3).join(', ')}`,
+        message: `อีเมลเดียวกันใช้กับรหัสอื่น: ${otherEmails.slice(0, 3).join(', ')}`,
       });
     }
   }
@@ -171,7 +193,12 @@ function DetailField({
 
 
 // --- Main Component ---
-const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
+const AdminAttendancePanel: React.FC<Props> = ({
+  currentAdmin,
+  fixedActivityCode,
+  fixedActivityName,
+  embedded = false,
+}) => {
   const { enqueueSnackbar } = useSnackbar();
   const confirm = useConfirm();
 
@@ -179,6 +206,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   const [records, setRecords] = useState<ActivityRecord[]>([]);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [deptActivityCodes, setDeptActivityCodes] = useState<string[] | null>(null);
   
   // UI State
   const [selected, setSelected] = useState<string[]>([]);
@@ -187,32 +215,38 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<ActivityRecord | null>(null);
 
+  const anomalyIndex = useMemo(() => buildAnomalyIndex(records), [records]);
+
   const selectedAnomalies = useMemo(() => {
     if (!selectedRecord) return [] as RecordAnomaly[];
-    return detectRecordAnomalies(selectedRecord, records);
-  }, [selectedRecord, records]);
+    return detectRecordAnomalies(selectedRecord, anomalyIndex);
+  }, [selectedRecord, anomalyIndex]);
 
   const anomalyCountById = useMemo(() => {
     const map = new Map<string, number>();
     for (const r of records) {
-      const n = detectRecordAnomalies(r, records).length;
+      const n = detectRecordAnomalies(r, anomalyIndex).length;
       if (n > 0) map.set(r.id, n);
     }
     return map;
-  }, [records]);
+  }, [records, anomalyIndex]);
 
   // Export State
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportFilename, setExportFilename] = useState(`attendance_${new Date().toISOString().slice(0, 10)}.csv`);
+  const [exportFilename, setExportFilename] = useState(
+    `attendance_${fixedActivityCode ? `${fixedActivityCode}_` : ''}${new Date().toISOString().slice(0, 10)}.csv`
+  );
   const [isExporting, setIsExporting] = useState(false);
 
   // Cache
-  const [activityNameByCode, setActivityNameByCode] = useState<Record<string, string>>({});
+  const [activityNameByCode, setActivityNameByCode] = useState<Record<string, string>>(
+    fixedActivityCode && fixedActivityName ? { [fixedActivityCode]: fixedActivityName } : {}
+  );
 
   // Filter State
   const [filters, setFilters] = useState<FilterState>({
     search: '',
-    activities: [],
+    activities: fixedActivityCode ? [fixedActivityCode] : [],
     faculties: [],
     dateRange: { start: '', end: '' }
   });
@@ -222,66 +256,102 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
   const perms = (currentAdmin.permissions || []) as AdminPermission[];
   const canExport = isSuperAdmin || perms.includes('export_data') || perms.includes('view_reports');
   const allowedDeptKey = normalizeDepartment(currentAdmin.department as any);
-  const isDeptScoped = allowedDeptKey !== 'all';
+  const isDeptScoped = allowedDeptKey !== 'all' && !fixedActivityCode;
 
-  const loadActivityNames = async (codes: string[]) => {
-    const uniq = Array.from(new Set(codes.filter(c => c && !activityNameByCode[c])));
+  // โหลดรหัสกิจกรรมของสังกัด (แทนการเทียบ activityRecords.department ที่เก็บชื่อสาขาภาษาไทย)
+  useEffect(() => {
+    if (!isDeptScoped) {
+      setDeptActivityCodes(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const acts = await getActivitiesByDepartment(allowedDeptKey);
+        if (cancelled) return;
+        const codes = acts.map((a) => a.activityCode).filter(Boolean);
+        setDeptActivityCodes(codes);
+        const namePatch: Record<string, string> = {};
+        acts.forEach((a) => {
+          if (a.activityCode && a.activityName) namePatch[a.activityCode] = a.activityName;
+        });
+        setActivityNameByCode((prev) => ({ ...prev, ...namePatch }));
+      } catch {
+        if (!cancelled) setDeptActivityCodes([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isDeptScoped, allowedDeptKey]);
+
+  // Batch fetch activity names ด้วย where('activityCode', 'in', chunk30) แทน 3N queries
+  const loadActivityNames = useCallback(async (codes: string[]) => {
+    const uniq = Array.from(new Set(codes.filter((c) => c && !activityNameByCode[c])));
     if (uniq.length === 0) return;
 
-    const results: Record<string, string> = { ...activityNameByCode };
-    await Promise.all(uniq.map(async (code) => {
-      try {
-        let found = false;
-        
-        // Try activityQRCodes collection first
-        const qNew = query(collection(db, 'activityQRCodes'), where('activityCode', '==', code), limit(1));
-        const snapNew = await getDocs(qNew);
-        if (!snapNew.empty) {
-            const d: any = snapNew.docs[0].data();
-            results[code] = d?.activityName || d?.nameTh || d?.name || code;
-            found = true;
-        }
-
-        if (!found) {
-            // Fallback to legacy activities collection
-            const s = await getDoc(doc(db, 'activities', code));
-            if (s.exists()) {
-               const d: any = s.data();
-               results[code] = d?.nameTh || d?.name || code;
-            } else {
-                const qs = await getDocs(query(collection(db, 'activities'), where('code', '==', code), limit(1)));
-                if (!qs.empty) {
-                    const d:any = qs.docs[0].data();
-                    results[code] = d?.nameTh || d?.name || code;
-                } else {
-                    results[code] = code;
-                }
-            }
-        }
-      } catch { results[code] = code; }
-    }));
-    setActivityNameByCode(results);
-  };
+    const patch: Record<string, string> = {};
+    const chunks: string[][] = [];
+    for (let i = 0; i < uniq.length; i += 30) {
+      chunks.push(uniq.slice(i, i + 30));
+    }
+    try {
+      const snaps = await Promise.all(
+        chunks.map((chunk) =>
+          getDocs(query(collection(db, 'activityQRCodes'), where('activityCode', 'in', chunk)))
+        )
+      );
+      snaps.forEach((snap) => {
+        snap.forEach((d) => {
+          const data: any = d.data();
+          const code = String(data.activityCode || '').trim();
+          if (code) patch[code] = data.activityName || data.nameTh || data.name || code;
+        });
+      });
+    } catch {
+      // ignore
+    }
+    uniq.forEach((c) => {
+      if (!patch[c]) patch[c] = c;
+    });
+    setActivityNameByCode((prev) => ({ ...prev, ...patch }));
+  }, [activityNameByCode]);
 
   const loadData = useCallback(async (isLoadMore = false) => {
     if (loading) return;
+    if (isDeptScoped && deptActivityCodes === null) return;
     setLoading(true);
     setProgress(30);
 
     try {
       const constraints: QueryConstraint[] = [];
 
-      if (isDeptScoped) {
-        constraints.push(where('department', '==', allowedDeptKey));
+      if (fixedActivityCode) {
+        constraints.push(where('activityCode', '==', fixedActivityCode));
+      } else if (isDeptScoped) {
+        if (!deptActivityCodes || deptActivityCodes.length === 0) {
+          setRecords([]);
+          setHasMore(false);
+          setLoading(false);
+          setProgress(0);
+          return;
+        }
+        // Firestore 'in' รองรับสูงสุด 30 ค่า — ถ้าไม่เกินกรองฝั่งเซิร์ฟเวอร์เลย
+        if (deptActivityCodes.length <= 30) {
+          constraints.push(where('activityCode', 'in', deptActivityCodes));
+        }
       }
 
+      // ใช้ Firestore Timestamp ให้ตรงกับ serverTimestamp() ที่บันทึกไว้จริง
       if (filters.dateRange.start) {
-        constraints.push(where('timestamp', '>=', new Date(filters.dateRange.start).toISOString()));
+        const startDate = new Date(filters.dateRange.start);
+        if (!Number.isNaN(startDate.getTime())) {
+          constraints.push(where('timestamp', '>=', Timestamp.fromDate(startDate)));
+        }
       }
       if (filters.dateRange.end) {
-        const e = new Date(filters.dateRange.end);
-        e.setHours(23, 59, 59, 999);
-        constraints.push(where('timestamp', '<=', e.toISOString()));
+        const endDate = new Date(filters.dateRange.end);
+        if (!Number.isNaN(endDate.getTime())) {
+          constraints.push(where('timestamp', '<=', Timestamp.fromDate(endDate)));
+        }
       }
 
       constraints.push(orderBy('timestamp', 'desc'));
@@ -292,12 +362,23 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
       
       constraints.push(limit(100));
 
-      const q = query(collection(db, 'activityRecords'), ...constraints);
-      const snap = await getDocs(q);
+      let snap;
+      try {
+        snap = await getDocs(query(collection(db, 'activityRecords'), ...constraints));
+      } catch (indexErr: any) {
+        // Fallback เมื่อยังไม่ได้ deploy composite index สำหรับ fixedActivityCode/dateRange + orderBy
+        if (fixedActivityCode && String(indexErr?.code || '').includes('failed-precondition')) {
+          snap = await getDocs(
+            query(collection(db, 'activityRecords'), where('activityCode', '==', fixedActivityCode), limit(500))
+          );
+        } else {
+          throw indexErr;
+        }
+      }
       
       setProgress(70);
 
-      const newRecords = snap.docs.map(d => {
+      let newRecords = snap.docs.map(d => {
         const data = d.data();
         return {
           id: d.id,
@@ -305,6 +386,22 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
           timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp || Date.now())
         } as ActivityRecord;
       });
+
+      // กรองตามสังกัดฝั่ง client เฉพาะกรณีสังกัดมีมากกว่า 30 กิจกรรม
+      if (isDeptScoped && deptActivityCodes && deptActivityCodes.length > 30) {
+        const allowedSet = new Set(deptActivityCodes);
+        newRecords = newRecords.filter((r) => allowedSet.has(r.activityCode));
+      }
+      // กรองช่วงวันที่ฝั่ง client ซ้ำกรณีตก fallback ที่ไม่ใส่ where timestamp
+      if (filters.dateRange.start) {
+        const sMs = new Date(filters.dateRange.start).getTime();
+        if (!Number.isNaN(sMs)) newRecords = newRecords.filter((r) => r.timestamp.getTime() >= sMs);
+      }
+      if (filters.dateRange.end) {
+        const eMs = new Date(filters.dateRange.end).getTime();
+        if (!Number.isNaN(eMs)) newRecords = newRecords.filter((r) => r.timestamp.getTime() <= eMs);
+      }
+      newRecords.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
       if (isLoadMore) {
         setRecords(prev => [...prev, ...newRecords]);
@@ -324,12 +421,13 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
       setLoading(false);
       setTimeout(() => setProgress(0), 500);
     }
-  }, [allowedDeptKey, isDeptScoped, filters.dateRange, lastDoc, loading, enqueueSnackbar]);
+  }, [allowedDeptKey, isDeptScoped, deptActivityCodes, fixedActivityCode, filters.dateRange, lastDoc, loading, enqueueSnackbar, loadActivityNames]);
 
   useEffect(() => {
+    setLastDoc(null);
     loadData(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowedDeptKey, filters.dateRange.start, filters.dateRange.end]); 
+  }, [allowedDeptKey, deptActivityCodes, fixedActivityCode, filters.dateRange.start, filters.dateRange.end]); 
 
   const filteredRecords = useMemo(() => {
     let list = records;
@@ -402,27 +500,56 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
     if (!canExport) return;
     setIsExporting(true);
     try {
-        const constraints: QueryConstraint[] = [];
-        if (isDeptScoped) constraints.push(where('department', '==', allowedDeptKey));
-        if (filters.dateRange.start) constraints.push(where('timestamp', '>=', new Date(filters.dateRange.start).toISOString()));
-        if (filters.dateRange.end) {
-             const e = new Date(filters.dateRange.end); e.setHours(23, 59, 59, 999);
-             constraints.push(where('timestamp', '<=', e.toISOString()));
+        // ส่งออกข้อมูลตามตัวกรองที่ผู้ดูแลเลือกไว้ (รองรับทั้ง fixedActivityCode, activity, faculty, search, dateRange)
+        let exportRows: ActivityRecord[] = filteredRecords;
+
+        // กรณีข้อมูลมีมากกว่าที่โหลดมาและไม่ได้กรองข้อความ ให้ดึงเพิ่มแบบจำกัด 5,000 แถว
+        if (hasMore && !filters.search.trim()) {
+          const constraints: QueryConstraint[] = [];
+          const targetCode = fixedActivityCode || (filters.activities.length === 1 ? filters.activities[0] : undefined);
+          if (targetCode) {
+            constraints.push(where('activityCode', '==', targetCode));
+          } else if (isDeptScoped && deptActivityCodes && deptActivityCodes.length > 0 && deptActivityCodes.length <= 30) {
+            constraints.push(where('activityCode', 'in', deptActivityCodes));
+          }
+          if (filters.dateRange.start) {
+            const s = new Date(filters.dateRange.start);
+            if (!Number.isNaN(s.getTime())) constraints.push(where('timestamp', '>=', Timestamp.fromDate(s)));
+          }
+          if (filters.dateRange.end) {
+            const e = new Date(filters.dateRange.end);
+            if (!Number.isNaN(e.getTime())) constraints.push(where('timestamp', '<=', Timestamp.fromDate(e)));
+          }
+          constraints.push(orderBy('timestamp', 'desc'));
+          constraints.push(limit(5000));
+
+          try {
+            const snap = await getDocs(query(collection(db, 'activityRecords'), ...constraints));
+            exportRows = snap.docs.map((d) => ({
+              id: d.id,
+              ...d.data(),
+              timestamp: d.data().timestamp?.toDate ? d.data().timestamp.toDate() : new Date(d.data().timestamp || Date.now()),
+            } as ActivityRecord));
+            if (isDeptScoped && deptActivityCodes && deptActivityCodes.length > 30) {
+              const set = new Set(deptActivityCodes);
+              exportRows = exportRows.filter((r) => set.has(r.activityCode));
+            }
+            if (filters.faculties.length) {
+              exportRows = exportRows.filter((r) => filters.faculties.includes(String(r.faculty || 'ไม่ระบุ')));
+            }
+          } catch {
+            // fallback ใช้ filteredRecords ที่มีในหน้าจอ
+          }
         }
-        constraints.push(orderBy('timestamp', 'desc'));
-        
-        const q = query(collection(db, 'activityRecords'), ...constraints);
-        const snap = await getDocs(q);
-        const allData = snap.docs.map(d => ({...d.data(), timestamp: d.data().timestamp?.toDate() } as ActivityRecord));
         
         const headers = ['วันที่', 'เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'คณะ/สถานศึกษา', 'สาขา/ระดับ', 'ชื่อกิจกรรม', 'รหัสกิจกรรม'];
-        const rows = allData.map(r => [
+        const rows = exportRows.map(r => [
             r.timestamp.toLocaleDateString('th-TH'),
             r.timestamp.toLocaleTimeString('th-TH'),
             r.studentId, r.firstName, r.lastName,
             r.faculty || '', getDepartmentLabel(r.department as any),
             activityNameByCode[r.activityCode] || r.activityCode, r.activityCode
-        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+        ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
         
         const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -433,7 +560,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
         a.click();
         URL.revokeObjectURL(url);
         
-        enqueueSnackbar(`ส่งออกข้อมูล ${allData.length} รายการสำเร็จ`, { variant: 'success' });
+        enqueueSnackbar(`ส่งออกข้อมูล ${exportRows.length} รายการสำเร็จ`, { variant: 'success' });
         setExportOpen(false);
     } catch(e:any) {
         enqueueSnackbar('ส่งออกล้มเหลว: ' + e.message, { variant: 'error' });
@@ -465,8 +592,10 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
         </div>
       )}
 
+      {!embedded && (
       <PageHeader 
-        title="จัดการข้อมูลการเข้าร่วม"
+        title="รายชื่อผู้ลงทะเบียน & เช็กอิน"
+        subtitle="ตรวจสอบประวัติการเข้าร่วม ค้นหา กรองตามช่วงเวลา ตรวจจับความผิดปกติ และส่งออก CSV"
         icon={<Activity className="h-6 w-6" />}
         actions={
           <Badge variant={isDeptScoped ? 'secondary' : 'default'} className="border-0">
@@ -474,6 +603,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
           </Badge>
         }
       />
+      )}
 
         {/* Filters */}
         <Card className="border-0 shadow-sm">
@@ -482,7 +612,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="ค้นหารายการ..."
+                  placeholder="ค้นหารหัส ชื่อ หรือกิจกรรม..."
                   value={filters.search}
                   onChange={(e) => setFilters(v => ({ ...v, search: e.target.value }))}
                   className="pl-9"
@@ -490,31 +620,27 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
               </div>
 
               <div className="relative flex items-center">
-                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 6 } }}>
-                  <DatePicker 
-                    showTime
-                    placeholder="วันที่และเวลาเริ่มต้น"
-                    className="w-full h-10"
-                    format="DD/MM/YYYY HH:mm"
-                    onChange={(date, dateString) => {
-                      setFilters(v => ({ ...v, dateRange: { ...v.dateRange, start: date ? date.toISOString() : '' } }));
-                    }}
-                  />
-                </ConfigProvider>
+                <Input
+                  type="datetime-local"
+                  aria-label="วันที่และเวลาเริ่มต้น"
+                  value={filters.dateRange.start}
+                  onChange={(e) =>
+                    setFilters((v) => ({ ...v, dateRange: { ...v.dateRange, start: e.target.value } }))
+                  }
+                  className="w-full h-10"
+                />
               </div>
 
               <div className="relative flex items-center">
-                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 6 } }}>
-                  <DatePicker 
-                    showTime
-                    placeholder="วันที่และเวลาสิ้นสุด"
-                    className="w-full h-10"
-                    format="DD/MM/YYYY HH:mm"
-                    onChange={(date, dateString) => {
-                      setFilters(v => ({ ...v, dateRange: { ...v.dateRange, end: date ? date.toISOString() : '' } }));
-                    }}
-                  />
-                </ConfigProvider>
+                <Input
+                  type="datetime-local"
+                  aria-label="วันที่และเวลาสิ้นสุด"
+                  value={filters.dateRange.end}
+                  onChange={(e) =>
+                    setFilters((v) => ({ ...v, dateRange: { ...v.dateRange, end: e.target.value } }))
+                  }
+                  className="w-full h-10"
+                />
               </div>
 
               <div className="flex gap-2">
@@ -528,7 +654,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                 )}
               </div>
 
-              {/* Advanced filters (simplified to selects for now, you can enhance with a multi-select component if needed) */}
+              {!fixedActivityCode && (
               <select
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 value={filters.activities.length === 0 ? '' : filters.activities[0]}
@@ -542,6 +668,7 @@ const AdminAttendancePanel: React.FC<Props> = ({ currentAdmin }) => {
                   <option key={a} value={a}>{activityNameByCode[a] || a}</option>
                 ))}
               </select>
+              )}
 
               <select
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"

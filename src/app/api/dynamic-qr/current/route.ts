@@ -4,6 +4,7 @@ import { getAdminDb } from '@/lib/firebaseAdmin';
 import { currentDynamicQrToken, getDynamicQrSecret } from '@/lib/dynamicQrToken';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 type ActivityQrDoc = {
   id: string;
@@ -58,16 +59,19 @@ export async function GET(req: NextRequest) {
     const secret = getDynamicQrSecret();
     const payload = currentDynamicQrToken(secret, activityCode);
 
-    return NextResponse.json({
-      activityCode,
-      customCode: activity.customCode || null,
-      token: payload.token,
-      windowSeconds: payload.windowSeconds,
-      expiresIn: payload.expiresIn,
-    });
+    return NextResponse.json(
+      {
+        activityCode,
+        customCode: activity.customCode || null,
+        token: payload.token,
+        windowSeconds: payload.windowSeconds,
+        expiresIn: payload.expiresIn,
+      },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (e: any) {
     const msg = e?.message || 'failed';
-    const status = String(msg).includes('Authentication') ? 401 : 500;
+    const status = e?.status || (String(msg).includes('Authentication') ? 401 : 500);
     return NextResponse.json({ error: msg }, { status });
   }
 }

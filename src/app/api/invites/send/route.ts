@@ -13,47 +13,57 @@ type Body = {
   role: string;
   department: string;
   permissions?: string[];
-  invitedByUid: string;
+  invitedByUid?: string;
   invitedByEmail?: string;
-  expiresInHours?: number; // default 7 วัน
+  expiresInHours?: number;
 };
 
-// เปิดใช้เพื่อข้ามการส่งอีเมลตอนดีบัก: SKIP_EMAIL=1
 const SKIP_EMAIL = process.env.SKIP_EMAIL === '1';
 
 function buildAcceptUrl(req: NextRequest, token: string) {
-  // ใช้ค่า origin จาก ENV ถ้ามี (รองรับ deploy) ตกมาใช้ของ request ตอน dev
   const origin = process.env.NEXT_PUBLIC_SITE_URL || req.nextUrl.origin;
   return `${origin}/api/invites/accept?token=${encodeURIComponent(token)}`;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const adminUser = await verifyAdminToken(req);
-    const adminDb = getAdminDb(); // ✅ lazy init ใช้ตอน runtime
+    const adminUser = await verifyAdminToken(req, { requiredPermission: 'manage_admins' });
+    const adminDb = getAdminDb();
 
-    // ---- อ่านและตรวจ body ----
     const body = (await req.json()) as Body;
 
     const email = body?.email?.trim().toLowerCase();
     const role = body?.role?.trim();
     const department = body?.department?.trim();
-    const invitedByUid = body?.invitedByUid?.trim();
     const permissions = Array.isArray(body?.permissions) ? body.permissions : [];
 
-    if (!email || !role || !department || !invitedByUid) {
+    if (!email || !role || !department) {
       return NextResponse.json(
-        { ok: false, error: 'Missing fields: email, role, department, invitedByUid are required' },
+        { ok: false, error: 'Missing fields: email, role, department are required' },
         { status: 400 }
       );
     }
 
-    // ---- เตรียม token & วันหมดอายุ ----
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresMs = (body.expiresInHours ?? 24 * 7) * 60 * 60 * 1000; // 7 วันเป็นค่าเริ่มต้น
-    const expiresAt = Timestamp.fromDate(new Date(Date.now() + expiresMs));
+    // ป้องกัน non-super_admin เชิญ super_admin หรือเชิญข้ามสังกัด
+    if (adminUser.role !== 'super_admin') {
+      if (role === 'super_admin') {
+        return NextResponse.json(
+          { ok: false, error: 'Only super_admin can invite super_admin' },
+          { status: 403 }
+        );
+      }
+      if (department !== adminUser.department) {
+        return NextResponse.json(
+          { ok: false, error: 'Cannot invite admin outside your department' },
+          { status: 403 }
+        );
+      }
+    }
 
-    // ---- บันทึกเอกสารคำเชิญ ----
+    const token = crypto.randomBytes(32).toString('hex');
+    const hours = Math.max(1, Math.min(24 * 30, Number(body.expiresInHours ?? 24 * 7) || 24 * 7));
+    const expiresAt = Timestamp.fromDate(new Date(Date.now() + hours * 60 * 60 * 1000));
+
     const docRef = await adminDb.collection('adminInvites').add({
       email,
       role,
@@ -61,42 +71,38 @@ export async function POST(req: NextRequest) {
       permissions,
       token,
       status: 'pending',
-      invitedByUid,
-      invitedByEmail: body.invitedByEmail || null,
+      invitedByUid: adminUser.uid,
+      invitedByEmail: adminUser.email || body.invitedByEmail || null,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       expiresAt,
     });
 
-    // ---- สร้างลิงก์ยืนยัน ----
     const acceptUrl = buildAcceptUrl(req, token);
-
-    // ---- เนื้อหาอีเมล ----
     const subject = 'คำเชิญเป็นผู้ดูแลระบบ (Admin Invitation)';
     const html = `
       <p>คุณได้รับคำเชิญให้เป็นแอดมิน</p>
       <p><b>บทบาท:</b> ${role}<br/>
          <b>สังกัด:</b> ${department}</p>
-      <p>กดยืนยันสิทธิ์ได้ที่ลิงก์นี้ (หมดอายุภายใน ${(body.expiresInHours ?? 24 * 7)} ชั่วโมง):</p>
+      <p>กดยืนยันสิทธิ์ได้ที่ลิงก์นี้ (หมดอายุภายใน ${hours} ชั่วโมง):</p>
       <p><a href="${acceptUrl}" target="_blank" rel="noopener">ยืนยันคำเชิญ</a></p>
       <hr/>
       <p>หากคุณไม่ได้ร้องขอ สามารถละเว้นอีเมลฉบับนี้ได้</p>
     `;
 
-    // ---- ส่งอีเมล (หรือข้ามเมื่อดีบัก) ----
     if (!SKIP_EMAIL) {
       await sendMail({ to: email, subject, html });
     } else {
-      console.log('[invites/send] SKIP_EMAIL=1 → ไม่ได้ส่งอีเมลจริง', { to: email, acceptUrl });
+      console.log('[invites/send] SKIP_EMAIL=1', { to: email, acceptUrl });
     }
 
     return NextResponse.json({ ok: true, id: docRef.id });
   } catch (e: any) {
-    const detail = e?.response?.data || e?.errors || e?.stack || null;
-    console.error('[invites/send] ERROR:', e?.message || e, detail);
+    console.error('[invites/send] ERROR:', e?.message || e);
+    const status = e?.status || 500;
     return NextResponse.json(
-      { ok: false, error: e?.message || 'Send invite failed', detail },
-      { status: 500 }
+      { ok: false, error: e?.message || 'Send invite failed' },
+      { status }
     );
   }
 }

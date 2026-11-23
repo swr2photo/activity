@@ -71,10 +71,6 @@ import {
 
 
 import dayjs, { Dayjs } from 'dayjs';
-import { DatePicker, ConfigProvider, ColorPicker } from 'antd';
-import type { AggregationColor } from 'antd/es/color-picker/color';
-import type { ColorValueType } from 'antd/es/color-picker/interface';
-import thTH from 'antd/locale/th_TH';
 
 import {
   getAllActivities,
@@ -253,26 +249,34 @@ const GRADIENT_PRESETS: { color: string; percent: number }[][] = [
   ],
 ];
 
-function parseColorPickerValue(value?: string): ColorValueType {
-  const raw = (value || '').trim();
-  if (!raw) return '#0ea5e9';
-
-  // Ant Design gradient CSS เช่น linear-gradient(90deg, rgb(a) 0%, ...)
-  if (/gradient\(/i.test(raw)) return raw;
-
-  if (/^#[0-9A-Fa-f]{3,8}$/.test(raw)) return toHexColor(raw);
-  if (/^rgba?\(/i.test(raw) || /^hsla?\(/i.test(raw)) return raw;
-
-  return toHexColor(raw);
-}
-
-function colorToCss(color: AggregationColor, cssFromEvent?: string): string {
-  if (cssFromEvent && cssFromEvent.trim()) return cssFromEvent.trim();
-  try {
-    return color.toCssString();
-  } catch {
-    return color.isGradient?.() ? color.toCssString() : color.toHexString().toLowerCase();
-  }
+function DayjsDateTimeInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  value?: Dayjs | null;
+  onChange: (v: Dayjs | null) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const formatted =
+    value && dayjs.isDayjs(value) && value.isValid()
+      ? value.format('YYYY-MM-DDTHH:mm')
+      : '';
+  return (
+    <Input
+      type="datetime-local"
+      aria-label={placeholder}
+      title={placeholder}
+      value={formatted}
+      onChange={(e) => {
+        const raw = e.target.value;
+        onChange(raw ? dayjs(raw) : null);
+      }}
+      className={cn('w-full', className)}
+    />
+  );
 }
 
 function ColorPickerField({
@@ -286,65 +290,26 @@ function ColorPickerField({
   value?: string;
   onChange: (v: string) => void;
   placeholder?: string;
-  /** เปิดโหมดไล่สี (gradient) ของ Ant Design ColorPicker */
   allowCssGradient?: boolean;
 }) {
   const raw = (value || '').trim();
-  const pickerValue = parseColorPickerValue(raw);
-  const previewBg = raw || (typeof pickerValue === 'string' ? pickerValue : '#0ea5e9');
-
-  const presets = [
-    ...COLOR_PRESET_GROUPS,
-    ...(allowCssGradient
-      ? [
-          {
-            label: 'ไล่สีแนะนำ',
-            colors: GRADIENT_PRESETS,
-            defaultOpen: true,
-          },
-        ]
-      : []),
-  ];
+  const hexValue = toHexColor(raw);
+  const previewBg = raw || hexValue;
 
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
       <div className="flex flex-wrap items-center gap-2">
-        <ConfigProvider
-          theme={{
-            token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 8 },
-          }}
-        >
-          <ColorPicker
-            value={pickerValue}
-            mode={allowCssGradient ? ['single', 'gradient'] : 'single'}
-            defaultFormat="hex"
-            showText={(c) => (
-              <span className="font-mono text-xs max-w-[9rem] truncate">
-                {c.isGradient() ? 'ไล่สี' : c.toHexString().toUpperCase()}
-              </span>
-            )}
-            size="large"
-            disabledAlpha={!allowCssGradient}
-            presets={presets as any}
-            getPopupContainer={(trigger) =>
-              (trigger.closest('[role="dialog"]') as HTMLElement) ||
-              trigger.parentElement ||
-              document.body
-            }
-            styles={{
-              popup: {
-                root: { zIndex: 80 },
-              },
-            }}
-            onChange={(color, css) => {
-              onChange(colorToCss(color, css));
-            }}
-            onChangeComplete={(color) => {
-              onChange(colorToCss(color));
-            }}
+        <label className="relative flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-input bg-background px-2.5 text-xs font-mono shadow-sm hover:bg-muted/40">
+          <input
+            type="color"
+            value={hexValue}
+            onChange={(e) => onChange(e.target.value.toLowerCase())}
+            className="h-6 w-6 cursor-pointer rounded border-0 bg-transparent p-0"
+            aria-label={label}
           />
-        </ConfigProvider>
+          <span>{/gradient\(/i.test(raw) ? 'ไล่สี' : hexValue.toUpperCase()}</span>
+        </label>
 
         <Input
           className="min-w-[10rem] flex-1 font-mono text-sm"
@@ -352,7 +317,7 @@ function ColorPickerField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={
             placeholder ||
-            (allowCssGradient ? '#0ea5e9 หรือเลือกโหมดไล่สี' : '#0ea5e9')
+            (allowCssGradient ? '#0ea5e9 หรือ linear-gradient(...)' : '#0ea5e9')
           }
         />
 
@@ -1181,6 +1146,70 @@ const GooglePlaceAutocomplete: React.FC<{
   );
 };
 
+/* ---------- Small card preview (ระดับโมดูล กัน unmount/remount ทุก render) ---------- */
+const QrPreviewCard: React.FC<{
+  title: string;
+  code: string;
+  qr?: string;
+  dept: string;
+  when: string;
+  place?: string;
+  scanEnabled: boolean;
+  bannerUrl?: string;
+  bannerColor?: string;
+}> = React.memo(function QrPreviewCard({
+  title,
+  code,
+  qr,
+  dept,
+  when,
+  place,
+  scanEnabled,
+  bannerUrl,
+  bannerColor,
+}) {
+  const hasImg = Boolean(bannerUrl);
+  const style: React.CSSProperties = hasImg
+    ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    : bannerColor
+    ? { background: bannerColor }
+    : { background: 'linear-gradient(135deg,#4f46e5,#06b6d4)' };
+
+  return (
+    <div className="w-full overflow-hidden bg-transparent">
+      <div className="h-[72px] sm:h-24" style={style} />
+      <div className="p-3 sm:p-4">
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="text-xs font-semibold text-muted-foreground">{dept}</span>
+          <p className="text-base sm:text-[1.1rem] font-extrabold text-center leading-tight px-1 break-words">
+            {title}
+          </p>
+          <span className="text-xs text-muted-foreground text-center px-1">{when}</span>
+          {place && (
+            <span className="text-xs text-muted-foreground text-center flex items-center gap-1">
+              <PlaceIcon className="h-3 w-3" />
+              {place}
+            </span>
+          )}
+          <div className="mt-2 p-1.5 sm:p-2 rounded-lg border border-dashed border-border relative w-[min(200px,70vw)] aspect-square">
+            {qr ? (
+              <img src={qr} alt="QR" className="w-full h-full block" />
+            ) : (
+              <div className="w-full h-full bg-muted rounded" />
+            )}
+            {!scanEnabled && (
+              <div className="absolute inset-0 rounded-lg grid place-items-center p-2 bg-white/[.65] dark:bg-black/[.55]">
+                <Badge variant="warning">ปิดการสแกนชั่วคราว</Badge>
+              </div>
+            )}
+          </div>
+          <Badge variant="secondary" className="font-mono max-w-full">{code}</Badge>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => {
   const confirm = useConfirm();
   const { enqueueSnackbar } = useSnackbar();
@@ -1192,8 +1221,12 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // view mode: การ์ด / ตาราง
+  // view mode: การ์ด / ตาราง + ค้นหา กรองสถานะ และแบ่งหน้า
   const [view, setView] = useState<'cards' | 'table'>('cards');
+  const [listSearch, setListSearch] = useState('');
+  const [listStatusFilter, setListStatusFilter] = useState<'all' | 'published' | 'draft' | 'ended'>('all');
+  const [listPage, setListPage] = useState(1);
+  const ACTIVITIES_PER_PAGE = 12;
 
   // create
   const [openCreate, setOpenCreate] = useState(false);
@@ -1647,15 +1680,14 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       const code = form.activityCode.trim().toUpperCase();
       const willPublish = mode === 'publish';
 
-      // กันซ้ำ
+      // กันซ้ำรหัสกิจกรรมทั้งระบบ (ไม่จำกัดแค่สังกัด และแก้กรณี super_admin department==='all')
       const qDup = query(
         collection(db, 'activityQRCodes'),
         where('activityCode', '==', code),
-        where('department', '==', currentAdmin.department),
         limit(1)
       );
       const dupSnap = await getDocs(qDup);
-      if (!dupSnap.empty) return setErrMsg('รหัสกิจกรรมนี้มีอยู่แล้วในสังกัดของคุณ');
+      if (!dupSnap.empty) return setErrMsg('รหัสกิจกรรมนี้มีอยู่แล้วในระบบ กรุณาใช้รหัสอื่น');
 
       const lat = typeof form.latitude === 'number' ? form.latitude : undefined;
       const lng = typeof form.longitude === 'number' ? form.longitude : undefined;
@@ -1836,19 +1868,25 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
       setEditActivityId(a.id);
       setQrDocId(null);
 
-      const qQr = query(
-        collection(db, 'activityQRCodes'),
-        where('activityCode', '==', a.activityCode),
-        where('department', '==', currentAdmin.department),
-        limit(1)
-      );
-      const snap = await getDocs(qQr);
+      // ใช้ doc ID ตรงๆ ก่อน (แก้บั๊ก Super Admin ที่ currentAdmin.department === 'all' แล้วหาไม่เจอ)
       let qr: any = null;
       let qrId: string | null = null;
-      if (!snap.empty) {
-        const d = snap.docs[0];
-        qrId = d.id;
-        qr = d.data();
+      const directSnap = await getDoc(doc(db, 'activityQRCodes', a.id));
+      if (directSnap.exists()) {
+        qrId = directSnap.id;
+        qr = directSnap.data();
+      } else {
+        const qQr = query(
+          collection(db, 'activityQRCodes'),
+          where('activityCode', '==', a.activityCode),
+          limit(1)
+        );
+        const snap = await getDocs(qQr);
+        if (!snap.empty) {
+          const d = snap.docs[0];
+          qrId = d.id;
+          qr = d.data();
+        }
       }
       setQrDocId(qrId);
 
@@ -2307,44 +2345,42 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     });
     if (!confirmed) return;
     try {
-      const qQr = query(
-        collection(db, 'activityQRCodes'),
-        where('activityCode', '==', a.activityCode),
-        where('department', '==', currentAdmin.department),
-        limit(1)
-      );
-      const snap = await getDocs(qQr);
+      // อ้างอิง doc ID ตรงๆ ก่อน (แก้บั๊ก Super Admin ลบกิจกรรมของหน่วยงานอื่นไม่ติด)
+      let targetSnap = await getDoc(doc(db, 'activityQRCodes', a.id));
+      if (!targetSnap.exists()) {
+        const qQr = query(
+          collection(db, 'activityQRCodes'),
+          where('activityCode', '==', a.activityCode),
+          limit(1)
+        );
+        const snap = await getDocs(qQr);
+        if (!snap.empty) targetSnap = snap.docs[0] as any;
+      }
 
-      try {
-        if (!snap.empty) {
-          const qd = snap.docs[0];
-          await updateDoc(qd.ref, {
+      if (targetSnap.exists()) {
+        const qdata = targetSnap.data() as any;
+        try {
+          await updateDoc(targetSnap.ref, {
             isActive: false,
             scanEnabled: false,
             forceRefresh: true,
             updatedAt: serverTimestamp(),
           });
-        }
-      } catch {}
-
-      try {
-        await updateDoc(doc(db, 'activities', a.id), { isActive: false, updatedAt: serverTimestamp() });
-      } catch {}
-      try {
-        await deleteDoc(doc(db, 'activities', a.id));
-      } catch {}
-
-      if (!snap.empty) {
-        const qd = snap.docs[0];
-        const qdata = qd.data() as any;
+        } catch {}
         try {
           if (qdata?.bannerUrl) await deleteBannerIfOwned(qdata.bannerUrl);
         } catch {}
-        try {
-          await deleteDoc(qd.ref);
-        } catch {}
+        await deleteDoc(targetSnap.ref);
       }
-      await load();
+
+      // best-effort ลบเอกสาร legacy ใน activities ตาม activityCode
+      try {
+        const legacySnap = await getDocs(
+          query(collection(db, 'activities'), where('activityCode', '==', a.activityCode), limit(5))
+        );
+        await Promise.all(legacySnap.docs.map((d) => deleteDoc(d.ref)));
+      } catch {}
+
       enqueueSnackbar('ลบกิจกรรมสำเร็จ', { variant: 'success' });
     } catch (e) {
       enqueueSnackbar('ลบ/ปิดกิจกรรมไม่สำเร็จ (ตรวจสอบสิทธิ์และ rules)', { variant: 'error' });
@@ -2389,60 +2425,6 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
     }
   };
 
-  /* ---------- Small card preview ---------- */
-  const QrPreviewCard: React.FC<{
-    title: string;
-    code: string;
-    qr?: string;
-    dept: string;
-    when: string;
-    place?: string;
-    scanEnabled: boolean;
-    bannerUrl?: string;
-    bannerColor?: string;
-  }> = ({ title, code, qr, dept, when, place, scanEnabled, bannerUrl, bannerColor }) => {
-    const hasImg = Boolean(bannerUrl);
-    const style: React.CSSProperties = hasImg
-      ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-      : bannerColor
-      ? { background: bannerColor }
-      : { background: 'linear-gradient(135deg,#4f46e5,#06b6d4)' };
-
-    return (
-      <div className="w-full overflow-hidden bg-transparent">
-        <div className="h-[72px] sm:h-24" style={style} />
-        <div className="p-3 sm:p-4">
-          <div className="flex flex-col items-center gap-1.5">
-            <span className="text-xs font-semibold text-muted-foreground">{dept}</span>
-            <p className="text-base sm:text-[1.1rem] font-extrabold text-center leading-tight px-1 break-words">
-              {title}
-            </p>
-            <span className="text-xs text-muted-foreground text-center px-1">{when}</span>
-            {place && (
-              <span className="text-xs text-muted-foreground text-center flex items-center gap-1">
-                <PlaceIcon className="h-3 w-3" />
-                {place}
-              </span>
-            )}
-            <div className="mt-2 p-1.5 sm:p-2 rounded-lg border border-dashed border-border relative w-[min(200px,70vw)] aspect-square">
-              {qr ? (
-                <img src={qr} alt="QR" className="w-full h-full block" />
-              ) : (
-                <div className="w-full h-full bg-muted rounded" />
-              )}
-              {!scanEnabled && (
-                <div className="absolute inset-0 rounded-lg grid place-items-center p-2 bg-white/[.65] dark:bg-black/[.55]">
-                  <Badge variant="warning">ปิดการสแกนชั่วคราว</Badge>
-                </div>
-              )}
-            </div>
-            <Badge variant="secondary" className="font-mono max-w-full">{code}</Badge>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const MainActivityFilesSection = () => {
     return (
       <div className="col-span-12">
@@ -2482,38 +2464,28 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                     />
                   </div>
                   <div className="md:col-span-3">
-                    <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                      <DatePicker
-                        showTime
-                        placeholder="เริ่ม"
-                        style={{ width: '100%', height: '40px' }}
-                        format="DD/MM/YYYY HH:mm"
-                        value={s.startDateTime}
-                        onChange={(val: any) => {
-                          const newSessions = [...form.sessions];
-                          newSessions[i].startDateTime = val;
-                          updateForm('sessions', newSessions as any);
-                        }}
-                        getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                      />
-                    </ConfigProvider>
+                    <DayjsDateTimeInput
+                      placeholder="เริ่ม"
+                      className="h-10"
+                      value={s.startDateTime}
+                      onChange={(val) => {
+                        const newSessions = [...form.sessions];
+                        newSessions[i].startDateTime = val;
+                        updateForm('sessions', newSessions as any);
+                      }}
+                    />
                   </div>
                   <div className="md:col-span-3">
-                    <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                      <DatePicker
-                        showTime
-                        placeholder="สิ้นสุด"
-                        style={{ width: '100%', height: '40px' }}
-                        format="DD/MM/YYYY HH:mm"
-                        value={s.endDateTime}
-                        onChange={(val: any) => {
-                          const newSessions = [...form.sessions];
-                          newSessions[i].endDateTime = val;
-                          updateForm('sessions', newSessions as any);
-                        }}
-                        getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                      />
-                    </ConfigProvider>
+                    <DayjsDateTimeInput
+                      placeholder="สิ้นสุด"
+                      className="h-10"
+                      value={s.endDateTime}
+                      onChange={(val) => {
+                        const newSessions = [...form.sessions];
+                        newSessions[i].endDateTime = val;
+                        updateForm('sessions', newSessions as any);
+                      }}
+                    />
                   </div>
                   <div className="md:col-span-2 flex justify-end">
                     <Button
@@ -2599,35 +2571,27 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               กำหนดวันและเวลาที่ผู้ใช้สามารถเข้าทำแบบประเมินได้โดยตรง
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                  <DatePicker
-                    showTime
-                    placeholder="วันเวลาที่เปิด"
-                    style={{ width: '100%', height: '48px' }}
-                    format="DD/MM/YYYY HH:mm"
-                    value={form.surveyConfig.openAt}
-                    onChange={(value: any) =>
-                      updateForm('surveyConfig', { ...form.surveyConfig, openAt: value } as any)
-                    }
-                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                  />
-                </ConfigProvider>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">วันเวลาที่เปิด</Label>
+                <DayjsDateTimeInput
+                  placeholder="วันเวลาที่เปิด"
+                  className="h-11"
+                  value={form.surveyConfig.openAt}
+                  onChange={(value) =>
+                    updateForm('surveyConfig', { ...form.surveyConfig, openAt: value } as any)
+                  }
+                />
               </div>
-              <div>
-                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                  <DatePicker
-                    showTime
-                    placeholder="วันเวลาที่ปิด"
-                    style={{ width: '100%', height: '48px' }}
-                    format="DD/MM/YYYY HH:mm"
-                    value={form.surveyConfig.closeAt}
-                    onChange={(value: any) =>
-                      updateForm('surveyConfig', { ...form.surveyConfig, closeAt: value } as any)
-                    }
-                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                  />
-                </ConfigProvider>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">วันเวลาที่ปิด</Label>
+                <DayjsDateTimeInput
+                  placeholder="วันเวลาที่ปิด"
+                  className="h-11"
+                  value={form.surveyConfig.closeAt}
+                  onChange={(value) =>
+                    updateForm('surveyConfig', { ...form.surveyConfig, closeAt: value } as any)
+                  }
+                />
               </div>
             </div>
             {form.surveyConfig.openAt &&
@@ -3108,9 +3072,71 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
         </Card>
       </div>
 
-      {/* List */}
+      {/* Search, Status Filter & List */}
+      {(() => {
+        const q = listSearch.trim().toLowerCase();
+        const nowTs = Date.now();
+        const filteredActivities = activities.filter((a) => {
+          if (q) {
+            const hay = `${a.activityName || ''} ${a.activityCode || ''} ${(a as any).location || ''}`.toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
+          const endMs = a.endDateTime ? new Date(a.endDateTime as any).getTime() : 0;
+          const isEnded = Boolean(a.isActive && endMs && endMs < nowTs);
+          if (listStatusFilter === 'draft') return !a.isActive;
+          if (listStatusFilter === 'ended') return isEnded;
+          if (listStatusFilter === 'published') return Boolean(a.isActive && !isEnded);
+          return true;
+        });
+        const totalActivityPages = Math.max(1, Math.ceil(filteredActivities.length / ACTIVITIES_PER_PAGE));
+        const safePage = Math.min(listPage, totalActivityPages);
+        const pagedActivities = filteredActivities.slice(
+          (safePage - 1) * ACTIVITIES_PER_PAGE,
+          safePage * ACTIVITIES_PER_PAGE
+        );
+
+        return (
       <Card className="border-border rounded-2xl overflow-hidden">
-        <CardContent className="p-3 sm:p-4 md:p-6">
+        <CardContent className="p-3 sm:p-4 md:p-6 space-y-4">
+          {/* แถบค้นหา + ตัวกรองสถานะ */}
+          {activities.length > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <Input
+                value={listSearch}
+                onChange={(e) => {
+                  setListSearch(e.target.value);
+                  setListPage(1);
+                }}
+                placeholder="ค้นหาชื่อกิจกรรม รหัส หรือสถานที่..."
+                className="sm:max-w-sm"
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    { id: 'all', label: `ทั้งหมด (${activities.length})` },
+                    { id: 'published', label: 'เผยแพร่แล้ว' },
+                    { id: 'draft', label: 'ฉบับร่าง' },
+                    { id: 'ended', label: 'สิ้นสุดแล้ว' },
+                  ] as const
+                ).map((tab) => (
+                  <Button
+                    key={tab.id}
+                    type="button"
+                    size="sm"
+                    variant={listStatusFilter === tab.id ? 'default' : 'outline'}
+                    onClick={() => {
+                      setListStatusFilter(tab.id);
+                      setListPage(1);
+                    }}
+                    className="h-8 rounded-lg text-xs"
+                  >
+                    {tab.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="text-center py-12 flex justify-center">
               <Spinner size="lg" />
@@ -3123,9 +3149,14 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                 <AddIcon className="h-4 w-4" /> สร้างกิจกรรมใหม่
               </Button>
             </div>
+          ) : filteredActivities.length === 0 ? (
+            <div className="text-center py-10 text-sm text-muted-foreground">
+              ไม่พบกิจกรรมตามเงื่อนไขที่ค้นหา
+            </div>
           ) : view === 'cards' ? (
+            <TooltipProvider delayDuration={300}>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
-              {activities.map((a) => {
+              {pagedActivities.map((a) => {
                 const st = statusOf(a);
                 const when = `${fmt(a.startDateTime)} - ${fmt(a.endDateTime)}`;
                 const bannerColor = (a as any).bannerColor as string | undefined;
@@ -3171,8 +3202,7 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                         </Button>
                       )}
 
-                      {/* ปุ่มจัดการ — ห่อได้บนมือถือ ไม่ล้นจอ */}
-                      <TooltipProvider>
+                      {/* ปุ่มจัดการ — ใช้ TooltipProvider ร่วมด้านบน ลด DOM context */}
                         <div className="flex flex-wrap justify-center gap-1.5">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -3235,16 +3265,16 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
                             <TooltipContent>ลบ</TooltipContent>
                           </Tooltip>
                         </div>
-                      </TooltipProvider>
                     </div>
                   </div>
                 );
               })}
             </div>
+            </TooltipProvider>
           ) : (
             <div className="min-w-0 -mx-1.5 sm:mx-0">
               <ActivityTable
-                activities={activities}
+                activities={pagedActivities}
                 onToggleStatus={handleToggle}
                 onReopenEnded={handleReopenEnded}
                 onEdit={openEditDialog}
@@ -3257,8 +3287,40 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               />
             </div>
           )}
+
+          {filteredActivities.length > ACTIVITIES_PER_PAGE && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+              <span>
+                แสดง {(safePage - 1) * ACTIVITIES_PER_PAGE + 1}–
+                {Math.min(safePage * ACTIVITIES_PER_PAGE, filteredActivities.length)} จาก {filteredActivities.length} กิจกรรม
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={safePage <= 1}
+                  onClick={() => setListPage((p) => Math.max(1, p - 1))}
+                >
+                  ก่อนหน้า
+                </Button>
+                <span className="font-semibold text-foreground">
+                  หน้า {safePage} / {totalActivityPages}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={safePage >= totalActivityPages}
+                  onClick={() => setListPage((p) => Math.min(totalActivityPages, p + 1))}
+                >
+                  ถัดไป
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
+        );
+      })()}
 
       {/* ====== เมนูดาวน์โหลด ====== */}
       <DropdownMenu open={Boolean(dlMenu.anchorEl)} onOpenChange={(o) => { if (!o) closeDownloadMenu(); }}>
@@ -3629,32 +3691,24 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               </div>
 
               {/* เวลา */}
-              <div className="col-span-12 md:col-span-6">
-                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                  <DatePicker
-                    showTime
-                    placeholder="วันที่และเวลาเริ่มต้น"
-                    style={{ width: '100%', height: '56px' }}
-                    format="DD/MM/YYYY HH:mm"
-                    value={form.startDateTime}
-                    onChange={(value: any) => updateForm('startDateTime', value as any)}
-                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                  />
-                </ConfigProvider>
+              <div className="col-span-12 md:col-span-6 space-y-1">
+                <Label className="text-xs text-muted-foreground">วันที่และเวลาเริ่มต้น</Label>
+                <DayjsDateTimeInput
+                  placeholder="วันที่และเวลาเริ่มต้น"
+                  className="h-11"
+                  value={form.startDateTime}
+                  onChange={(value) => updateForm('startDateTime', value as any)}
+                />
               </div>
 
-              <div className="col-span-12 md:col-span-6">
-                <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                  <DatePicker
-                    showTime
-                    placeholder="วันที่และเวลาสิ้นสุด"
-                    style={{ width: '100%', height: '56px' }}
-                    format="DD/MM/YYYY HH:mm"
-                    value={form.endDateTime}
-                    onChange={(value: any) => updateForm('endDateTime', value as any)}
-                    getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                  />
-                </ConfigProvider>
+              <div className="col-span-12 md:col-span-6 space-y-1">
+                <Label className="text-xs text-muted-foreground">วันที่และเวลาสิ้นสุด</Label>
+                <DayjsDateTimeInput
+                  placeholder="วันที่และเวลาสิ้นสุด"
+                  className="h-11"
+                  value={form.endDateTime}
+                  onChange={(value) => updateForm('endDateTime', value as any)}
+                />
               </div>
 
               {/* options */}
@@ -4187,31 +4241,23 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
                 {editSection === 'schedule' && (
                   <div className="grid grid-cols-12 gap-4">
-                    <div className="col-span-12 md:col-span-6">
-                      <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                        <DatePicker
-                          showTime
-                          placeholder="วันที่และเวลาเริ่มต้น"
-                          style={{ width: '100%', height: '56px' }}
-                          format="DD/MM/YYYY HH:mm"
-                          value={form.startDateTime}
-                          onChange={(value: any) => updateForm('startDateTime', value as any)}
-                          getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                        />
-                      </ConfigProvider>
+                    <div className="col-span-12 md:col-span-6 space-y-1">
+                      <Label className="text-xs text-muted-foreground">วันที่และเวลาเริ่มต้น</Label>
+                      <DayjsDateTimeInput
+                        placeholder="วันที่และเวลาเริ่มต้น"
+                        className="h-11"
+                        value={form.startDateTime}
+                        onChange={(value) => updateForm('startDateTime', value as any)}
+                      />
                     </div>
-                    <div className="col-span-12 md:col-span-6">
-                      <ConfigProvider locale={thTH} theme={{ token: { fontFamily: 'inherit', colorPrimary: '#0f172a', borderRadius: 4 } }}>
-                        <DatePicker
-                          showTime
-                          placeholder="วันที่และเวลาสิ้นสุด"
-                          style={{ width: '100%', height: '56px' }}
-                          format="DD/MM/YYYY HH:mm"
-                          value={form.endDateTime}
-                          onChange={(value: any) => updateForm('endDateTime', value as any)}
-                          getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-                        />
-                      </ConfigProvider>
+                    <div className="col-span-12 md:col-span-6 space-y-1">
+                      <Label className="text-xs text-muted-foreground">วันที่และเวลาสิ้นสุด</Label>
+                      <DayjsDateTimeInput
+                        placeholder="วันที่และเวลาสิ้นสุด"
+                        className="h-11"
+                        value={form.endDateTime}
+                        onChange={(value) => updateForm('endDateTime', value as any)}
+                      />
                     </div>
                     <div className="col-span-12 md:col-span-6 flex flex-col gap-1.5">
                       <Label>จำนวนสูงสุด (เว้นว่าง = ไม่จำกัด)</Label>

@@ -27,6 +27,7 @@ type ActivityCardProps = {
   canOpen: boolean;
   bannerAspect?: string;
   department?: string;
+  priority?: boolean;
 };
 
 const formatDateTime = (d: any) => {
@@ -70,8 +71,9 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
   canOpen,
   bannerAspect = 'cover',
   department,
+  priority = false,
 }) => {
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(priority);
 
   const startText = formatDateTime(startDateTime);
   const endText = formatDateTime(endDateTime);
@@ -107,6 +109,7 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
                 src={bannerUrl}
                 alt={activityName}
                 fill
+                priority={priority}
                 sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                 style={{ objectFit: bannerAspect as any }}
                 onLoad={() => setImageLoaded(true)}

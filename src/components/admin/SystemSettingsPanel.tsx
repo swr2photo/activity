@@ -43,6 +43,7 @@ const parseWhitelist = (v: string) =>
 
 export default function SystemSettingsPanel({ currentAdmin }: Props) {
   const [settings, setSettings] = useState<SystemSettings>(defaults);
+  const [whitelistDraft, setWhitelistDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'destructive'; text: string } | null>(null);
@@ -50,15 +51,11 @@ export default function SystemSettingsPanel({ currentAdmin }: Props) {
   useEffect(() => {
     const unsub = subscribeSystemSettings((s) => {
       setSettings((prev) => ({ ...prev, ...s }));
+      setWhitelistDraft(toCSV(s.maintenanceWhitelist || []));
       setLoading(false);
     });
     return () => unsub();
   }, []);
-
-  const whitelistText = useMemo(
-    () => toCSV(settings.maintenanceWhitelist || []),
-    [settings.maintenanceWhitelist]
-  );
 
   const handleSave = async () => {
     if (Number(settings.bannerStandardWidth) < 100 || Number(settings.bannerStandardHeight) < 100) {
@@ -68,12 +65,11 @@ export default function SystemSettingsPanel({ currentAdmin }: Props) {
 
     try {
       setSaving(true);
+      const parsedWhitelist = parseWhitelist(whitelistDraft);
       const patch: Partial<SystemSettings> = {
         maintenanceEnabled: !!settings.maintenanceEnabled,
         maintenanceMessage: settings.maintenanceMessage || 'ระบบกำลังปิดปรับปรุงชั่วคราว',
-        maintenanceWhitelist: Array.isArray(settings.maintenanceWhitelist)
-          ? settings.maintenanceWhitelist
-          : [],
+        maintenanceWhitelist: parsedWhitelist,
         bannerStandardWidth: Number(settings.bannerStandardWidth || 1600),
         bannerStandardHeight: Number(settings.bannerStandardHeight || 600),
         bannerFit: settings.bannerFit === 'contain' ? 'contain' : 'cover',
@@ -167,11 +163,12 @@ export default function SystemSettingsPanel({ currentAdmin }: Props) {
                   <Label>Whitelist (Email หรือ UID)</Label>
                   <Textarea
                     placeholder="admin@psu.ac.th, 6410110xxx"
-                    value={whitelistText}
-                    onChange={(e) =>
+                    value={whitelistDraft}
+                    onChange={(e) => setWhitelistDraft(e.target.value)}
+                    onBlur={() =>
                       setSettings((s) => ({
                         ...s,
-                        maintenanceWhitelist: parseWhitelist(e.target.value),
+                        maintenanceWhitelist: parseWhitelist(whitelistDraft),
                       }))
                     }
                     rows={2}

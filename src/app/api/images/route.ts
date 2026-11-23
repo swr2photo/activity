@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Readable } from 'stream';
 import { getAdminBucket } from '@/lib/firebaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// อนุญาตเฉพาะ path ที่กำหนดเท่านั้น กันการดึงไฟล์อื่นใน bucket
 const ALLOWED_PREFIXES = ['desc-images/'];
 
 export async function GET(request: NextRequest) {
@@ -27,22 +27,23 @@ export async function GET(request: NextRequest) {
     const bucket = getAdminBucket();
     const file = bucket.file(normalized);
 
-    const [exists] = await file.exists();
-    if (!exists) {
-      return NextResponse.json({ error: 'File not found' }, { status: 404 });
-    }
-
+    // ลด 1 RPC (ไม่ต้องเรียก file.exists() แยก) และ stream ตรงแทนโหลดเข้า RAM
     const [metadata] = await file.getMetadata();
-    const [buffer] = await file.download();
+    const nodeStream = file.createReadStream();
+    const webStream = Readable.toWeb(nodeStream) as ReadableStream;
 
-    return new NextResponse(new Uint8Array(buffer), {
+    return new NextResponse(webStream, {
       status: 200,
       headers: {
         'Content-Type': (metadata.contentType as string) || 'image/jpeg',
+        ...(metadata.size ? { 'Content-Length': String(metadata.size) } : {}),
         'Cache-Control': 'public, max-age=86400, s-maxage=86400, immutable',
       },
     });
   } catch (err: any) {
+    if (err?.code === 404) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 });
+    }
     console.error('[api/images] error:', err);
     return NextResponse.json({ error: 'Failed to load image' }, { status: 500 });
   }

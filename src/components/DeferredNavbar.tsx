@@ -19,6 +19,8 @@ function NavbarPlaceholder() {
         aria-hidden="true"
         className="fixed inset-x-0 bottom-0 z-50 h-[74px] rounded-t-[1.35rem] border-t border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-card-solid)_88%,transparent)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[20px] lg:hidden"
       />
+      {/* สำรองพื้นที่ความสูงเดียวกับ Navbar จริง ป้องกัน CLS 68px บน Desktop */}
+      <div aria-hidden="true" className="hidden h-[4.25rem] shrink-0 lg:block" />
     </>
   );
 }

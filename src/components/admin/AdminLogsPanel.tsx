@@ -82,20 +82,14 @@ export default function AdminLogsPanel({ currentAdmin }: Props) {
   const isSuper = useMemo(() => requireSuperAdmin(currentAdmin), [currentAdmin]);
   const accessError = isSuper ? '' : 'สิทธิ์ไม่เพียงพอ: เฉพาะผู้ดูแลสูงสุด (Super Admin) เท่านั้น';
 
-  useEffect(() => {
-    if (isSuper) {
-      logAdminEvent('ADMIN_LOGS_OPEN', {}, { uid: currentAdmin.uid, email: currentAdmin.email }).catch(console.warn);
-    }
-  }, [isSuper, currentAdmin]);
-
+  // ใช้ onSnapshot ตัวเดียว (ไม่ยิง getAdminLogs ซ้ำ และไม่เขียน ADMIN_LOGS_OPEN/SEARCH วนลูปตัวเอง)
   useEffect(() => {
     if (!isSuper) { setLoading(false); return; }
     setLoading(true);
-    getAdminLogs(100)
-      .then(setLogs)
-      .catch(() => setError('โหลดข้อมูลเบื้องต้นไม่สำเร็จ'))
-      .finally(() => setLoading(false));
-    const unsub = subscribeAdminLogs((rows) => { setLogs(rows); setLoading(false); }, 200);
+    const unsub = subscribeAdminLogs((rows) => {
+      setLogs(rows);
+      setLoading(false);
+    }, 100);
     return () => unsub();
   }, [isSuper]);
 
@@ -103,15 +97,9 @@ export default function AdminLogsPanel({ currentAdmin }: Props) {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
       setTerm(q.trim().toLowerCase());
-      if (q.trim().length > 2) {
-        if (logSearchTimer.current) clearTimeout(logSearchTimer.current);
-        logSearchTimer.current = setTimeout(() => {
-          logAdminEvent('ADMIN_LOGS_SEARCH', { query: q }, { uid: currentAdmin.uid, email: currentAdmin.email }).catch(() => {});
-        }, 2000);
-      }
-    }, 300);
+    }, 250);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
-  }, [q, currentAdmin]);
+  }, [q]);
 
   const filtered = useMemo(() => {
     if (!term) return logs;

@@ -1,9 +1,11 @@
 // src/lib/firebase.ts
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  initializeFirestore, 
+import { initializeApp, getApps } from 'firebase/app';
+import {
+  getFirestore,
+  initializeFirestore,
   memoryLocalCache,
   connectFirestoreEmulator,
+  type Firestore,
 } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator, type Auth } from 'firebase/auth';
 
@@ -16,14 +18,20 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
 };
 
-// Singleton pattern for Next.js
-export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// Singleton pattern for Next.js (เช็กชื่อ '[DEFAULT]' ตรงๆ ป้องกันชนกับ 'admin-app')
+export const app =
+  getApps().find((candidate) => candidate.name === '[DEFAULT]') ??
+  initializeApp(firebaseConfig);
 
-// ✅ 2. แก้ไข: เปลี่ยนมาใช้ memoryLocalCache() 
-// เพื่อแก้ปัญหา INTERNAL ASSERTION FAILED ระหว่างการพัฒนา
-export const db = initializeFirestore(app, {
-  localCache: memoryLocalCache()
-});
+function initSafeFirestore(): Firestore {
+  try {
+    return initializeFirestore(app, { localCache: memoryLocalCache() });
+  } catch {
+    return getFirestore(app);
+  }
+}
+
+export const db = initSafeFirestore();
 
 // Auth depends on browser APIs and validates the public API key immediately.
 // Keep server prerender/builds from eagerly creating it; client components use

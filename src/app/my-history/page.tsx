@@ -15,11 +15,19 @@ import { useAuth } from '../../lib/firebaseAuth';
 import { getSurveyWindowStatus, surveyStatusLabelTh } from '../../lib/surveyWindow';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
 import { optimizeAvatarUrl } from '@/utils/avatar';
+
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach((b) => {
+    bin += String.fromCharCode(b);
+  });
+  return btoa(bin);
+}
 
 type RegistrationRecord = {
   id: string;
@@ -120,7 +128,7 @@ function HistoryPageSkeleton() {
 }
 
 const MyHistoryPage: React.FC = () => {
-  const { user, userData, loading: authLoading, login: userLogin } = useAuth();
+  const { user, userData, loading: authLoading, login: userLogin, loginWithGoogle } = useAuth();
   const alertDialog = useAlertDialog();
 
   const [records, setRecords] = useState<RegistrationRecord[]>([]);
@@ -129,6 +137,7 @@ const MyHistoryPage: React.FC = () => {
   const deferredSearch = useDeferredValue(searchText);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+  const lastFetchKeyRef = React.useRef<string>('');
 
   const handleAuthDownload = async (fileUrl: string) => {
     try {
@@ -138,8 +147,8 @@ const MyHistoryPage: React.FC = () => {
         return;
       }
       const token = await currentUser.getIdToken();
-      const encodedUrl = btoa(fileUrl);
-      const res = await fetch(`/api/download?file=${encodedUrl}`, {
+      const encodedUrl = utf8ToBase64(fileUrl);
+      const res = await fetch(`/api/download?file=${encodeURIComponent(encodedUrl)}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -149,7 +158,16 @@ const MyHistoryPage: React.FC = () => {
       }
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
-      window.open(blobUrl, '_blank');
+      const popup = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      if (!popup) {
+        // Fallback กรณีมือถือ/Safari บล็อก popup หลัง async fetch
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = 'document';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
     } catch (e: any) {
       console.error('Download error:', e);
@@ -158,7 +176,8 @@ const MyHistoryPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.uid) {
+      lastFetchKeyRef.current = '';
       setLoading(false);
       setRecords([]);
       return;
@@ -168,6 +187,10 @@ const MyHistoryPage: React.FC = () => {
       setLoading(!userData);
       return;
     }
+
+    const fetchKey = `${user.uid}:${userData.studentId}`;
+    if (lastFetchKeyRef.current === fetchKey) return;
+    lastFetchKeyRef.current = fetchKey;
 
     let cancelled = false;
 
@@ -349,6 +372,7 @@ const MyHistoryPage: React.FC = () => {
         setRecords(enriched);
       } catch (e) {
         console.error('Error fetching history:', e);
+        lastFetchKeyRef.current = '';
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -360,7 +384,7 @@ const MyHistoryPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [user, userData, user?.uid]);
+  }, [user?.uid, userData?.studentId]);
 
   const surveyPendingCount = useMemo(
     () =>
@@ -430,34 +454,42 @@ const MyHistoryPage: React.FC = () => {
   if (!user) {
     return pageShell(
       <div className="flex flex-grow items-center justify-center px-4 py-20">
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
-          <div className="mx-auto max-w-[420px] rounded-3xl border border-[var(--page-border)] bg-[var(--page-card-solid)] p-8 text-center shadow-[var(--page-shadow)] sm:p-10">
-            <div
-              className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-[18px]"
-              style={{ background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)' }}
-            >
-              <HistoryIcon.History className="h-8 w-8 text-white" />
-            </div>
-            <h1 className="mb-2 text-xl font-extrabold tracking-tight sm:text-2xl">ประวัติการลงทะเบียน</h1>
-            <p className="mb-6 text-sm leading-relaxed text-[var(--page-text-secondary)]">
-              เข้าสู่ระบบด้วยบัญชีมหาวิทยาลัย เพื่อดูกิจกรรมที่เคยลงทะเบียน เอกสาร และแบบประเมินที่ค้างอยู่
-            </p>
+        <div className="w-full max-w-[420px] rounded-3xl border border-[var(--page-border)] bg-[var(--page-card-solid)] p-8 text-center shadow-[var(--page-shadow)] sm:p-10">
+          <div
+            className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-[18px]"
+            style={{ background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)' }}
+          >
+            <HistoryIcon.History className="h-8 w-8 text-white" />
+          </div>
+          <h1 className="mb-2 text-xl font-extrabold tracking-tight sm:text-2xl">ประวัติการลงทะเบียน</h1>
+          <p className="mb-6 text-sm leading-relaxed text-[var(--page-text-secondary)]">
+            เข้าสู่ระบบเพื่อดูกิจกรรมที่เคยลงทะเบียน เอกสาร และแบบประเมินที่ค้างอยู่
+          </p>
+          <div className="flex flex-col gap-3">
             <Button
               size="lg"
               className="w-full rounded-[14px] bg-[#0a6bcf] py-3 font-bold shadow-[0_8px_20px_rgba(10,107,207,0.28)] hover:bg-[#0858ad]"
               onClick={userLogin}
             >
               <HistoryIcon.Login />
-              เข้าสู่ระบบ
+              เข้าสู่ระบบด้วย PSU Microsoft
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full rounded-[14px] border-[var(--page-border)] py-3 font-bold"
+              onClick={loginWithGoogle}
+            >
+              เข้าสู่ระบบด้วย Google (บุคคลภายนอก)
             </Button>
           </div>
-        </motion.div>
+        </div>
       </div>
     );
   }
 
   return pageShell(
-    <div className="flex-grow pb-12 pt-2 lg:pb-8 lg:pt-0">
+    <div className="flex-grow pb-24 pt-2 lg:pb-8 lg:pt-0">
       <div className="sticky top-0 z-20 border-b border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-bg)_88%,transparent)] pb-3 pt-3 backdrop-blur-[16px] backdrop-saturate-160 lg:top-16 lg:pt-2.5">
         <div className="mx-auto max-w-3xl px-4">
           <div className="mb-3 flex items-center justify-between gap-2">
@@ -591,8 +623,7 @@ const MyHistoryPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-3">
-                  <AnimatePresence initial={false}>
-                    {group.items.map((record, idx) => {
+                    {group.items.map((record) => {
                       const fileCount = countFiles(record);
                       const surveyOpen =
                         record.surveyStatus === 'open' || record.surveyStatus === 'forced_open';
@@ -606,14 +637,16 @@ const MyHistoryPage: React.FC = () => {
                       );
                       const expanded = Boolean(expandedCards[record.id]);
                       const hasDetails = fileCount > 0 || (record.sessions && record.sessions.length > 0);
+                      const safeBannerUrl =
+                        record.bannerUrl &&
+                        !record.bannerUrl.startsWith('data:') &&
+                        (record.bannerUrl.includes('firebasestorage.googleapis.com') ||
+                          record.bannerUrl.includes('lh3.googleusercontent.com'))
+                          ? record.bannerUrl
+                          : undefined;
 
                       return (
-                        <motion.div
-                          key={record.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.28, delay: Math.min(idx * 0.03, 0.18) }}
-                        >
+                        <div key={record.id}>
                           <div
                             className={cn(
                               'overflow-hidden rounded-2xl bg-[var(--page-card-solid)] transition-[border-color,box-shadow]',
@@ -626,9 +659,9 @@ const MyHistoryPage: React.FC = () => {
                             <div className="p-4 sm:p-4">
                               <div className="flex items-start gap-3">
                                 <div className="shrink-0">
-                                  {record.bannerUrl ? (
+                                  {safeBannerUrl ? (
                                     <div className="relative h-[52px] w-[52px] overflow-hidden rounded-xl sm:h-[60px] sm:w-[60px]">
-                                      <Image src={record.bannerUrl} alt="" fill sizes="60px" style={{ objectFit: 'cover' }} />
+                                      <Image src={safeBannerUrl} alt="" fill sizes="60px" style={{ objectFit: 'cover' }} />
                                     </div>
                                   ) : (
                                     <div
@@ -785,10 +818,9 @@ const MyHistoryPage: React.FC = () => {
                               </div>
                             )}
                           </div>
-                        </motion.div>
+                        </div>
                       );
                     })}
-                  </AnimatePresence>
                 </div>
               </div>
             ))}

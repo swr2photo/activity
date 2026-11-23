@@ -27,7 +27,7 @@ const Footer: React.FC = () => {
 
   return (
     <footer
-      className="mt-auto border-t border-border/40 bg-background/80 pt-6 pb-12 backdrop-blur-[20px] backdrop-saturate-180 sm:pb-4"
+      className="mt-auto border-t border-border/40 bg-background/80 pt-6 pb-24 backdrop-blur-[20px] backdrop-saturate-180 lg:pb-6"
     >
       <div className="mx-auto w-full max-w-6xl px-4">
         <div className="flex flex-col justify-between gap-8 md:flex-row md:items-start">

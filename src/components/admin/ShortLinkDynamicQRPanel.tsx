@@ -1,7 +1,7 @@
 // components/admin/ShortLinkDynamicQRPanel.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Link2, MonitorPlay, QrCode, RefreshCw, Trash2, Plus, BarChart2, Settings2, MapPin, Smartphone, Monitor, Cpu, Globe, Activity as ActivityIcon, TrendingUp, BarChart3, Sparkles, ImageOff, Copy, Search, Download, Eye, ExternalLink, Check, Pencil, Megaphone, Upload, X } from 'lucide-react';
 
 import {
@@ -11,7 +11,7 @@ import {
 } from '../../lib/adminFirebase';
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 import { PageHeader } from './shared/PageHeader';
-import { doc, updateDoc, serverTimestamp, collection, getDocs, query, where, onSnapshot, addDoc, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, collection, getDocs, query, where, onSnapshot, addDoc, deleteDoc, limit } from 'firebase/firestore';
 import { adminDb as db } from '../../lib/firebaseAdminClient';
 import { adminStorage as storage } from '../../lib/firebaseAdminStorage';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -257,20 +257,33 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
     }
   }, []);
 
-  // Generate / cache QR
-  const getQr = useCallback(async (code: string) => {
-    if (qrCache[code]) return qrCache[code];
-    const url = makeShortUrl(code);
-    const dataUrl = await generateQrPng(url, 600);
-    setQrCache((prev) => ({ ...prev, [code]: dataUrl }));
-    return dataUrl;
-  }, [qrCache]);
+  // Generate / cache QR (ป้องกัน O(N^2) storm ด้วย ref + in-flight guard)
+  const qrCacheRef = useRef<Record<string, string>>({});
+  const inFlightQrRef = useRef<Set<string>>(new Set());
 
-  // Download QR
+  const getQr = useCallback(async (code: string, size = 240) => {
+    const cacheKey = size >= 500 ? `${code}@hd` : code;
+    if (qrCacheRef.current[cacheKey]) return qrCacheRef.current[cacheKey];
+    if (size < 500 && inFlightQrRef.current.has(cacheKey)) return '';
+    inFlightQrRef.current.add(cacheKey);
+    try {
+      const url = makeShortUrl(code);
+      const dataUrl = await generateQrPng(url, size);
+      qrCacheRef.current[cacheKey] = dataUrl;
+      if (size < 500) {
+        setQrCache((prev) => (prev[code] ? prev : { ...prev, [code]: dataUrl }));
+      }
+      return dataUrl;
+    } finally {
+      inFlightQrRef.current.delete(cacheKey);
+    }
+  }, []);
+
+  // Download QR (ความละเอียดสูง 600px เฉพาะตอนกดดาวน์โหลด)
   const handleDownloadQr = useCallback(async (a: Activity) => {
     try {
       const codeToShow = a.customCode || a.activityCode;
-      const dataUrl = await getQr(codeToShow);
+      const dataUrl = await getQr(codeToShow, 600);
       downloadDataUrl(dataUrl, `QR-${codeToShow}.png`);
       setSnack({ message: `ดาวน์โหลด QR สำเร็จ: ${a.activityName}`, type: 'success' });
     } catch {
@@ -690,7 +703,8 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
     try {
       const q = query(
         collection(db, 'shortLinkVisits'),
-        where('linkId', '==', id)
+        where('linkId', '==', id),
+        limit(500)
       );
       const snap = await getDocs(q);
       const list = snap.docs.map((d) => d.data());
@@ -721,23 +735,26 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
     );
   }, [customLinks, search]);
 
-  // Pre-generate QR thumbnails for visible items
+  // Pre-generate QR thumbnails แบบจำกัดจำนวน ไม่ผูกกับ qrCache เพื่อไม่ให้เกิด O(N^2) loop
   useEffect(() => {
-    if (activeTab === 0) {
-      filtered.forEach((a) => {
-        const codeToShow = a.customCode || a.activityCode;
-        if (!qrCache[codeToShow]) {
-          getQr(codeToShow);
-        }
-      });
-    } else {
-      filteredCustomLinks.forEach((l) => {
-        if (!qrCache[l.customCode]) {
-          getQr(l.customCode);
-        }
-      });
-    }
-  }, [filtered, filteredCustomLinks, qrCache, getQr, activeTab]);
+    let cancelled = false;
+    const codes = (
+      activeTab === 0
+        ? filtered.slice(0, 24).map((a) => a.customCode || a.activityCode)
+        : filteredCustomLinks.slice(0, 24).map((l) => l.customCode)
+    ).filter((c) => c && !qrCacheRef.current[c] && !inFlightQrRef.current.has(c));
+
+    if (codes.length === 0) return;
+    (async () => {
+      for (let i = 0; i < codes.length; i += 4) {
+        if (cancelled) return;
+        await Promise.all(codes.slice(i, i + 4).map((c) => getQr(c, 240)));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [filtered, filteredCustomLinks, getQr, activeTab]);
 
   return (
     <TooltipProvider>
@@ -1743,7 +1760,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                             <div key={name} className="space-y-1">
                               <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                                 <span className="truncate pr-2">{name}</span>
-                                <span className="font-mono text-slate-500 text-[11px]">{count} ครั้ง ({pct})</span>
+                                <span className="font-mono text-slate-500 text-[11px]">{count} ครั้ง ({pct}%)</span>
                               </div>
                               <div className="w-full bg-slate-200/60 rounded-full h-2 overflow-hidden">
                                 <div className="bg-gradient-to-r from-rose-400 to-rose-600 h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
@@ -1773,7 +1790,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                                   {isMobile ? <Smartphone className="h-3.5 w-3.5 text-purple-500" /> : <Monitor className="h-3.5 w-3.5 text-indigo-500" />}
                                   {name}
                                 </span>
-                                <span className="font-mono text-slate-500 text-[11px]">{count} ครั้ง ({pct})</span>
+                                <span className="font-mono text-slate-500 text-[11px]">{count} ครั้ง ({pct}%)</span>
                               </div>
                               <div className="w-full bg-slate-200/60 rounded-full h-2 overflow-hidden">
                                 <div className="bg-gradient-to-r from-purple-500 to-indigo-600 h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
@@ -1799,7 +1816,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                             <div key={name} className="space-y-1">
                               <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                                 <span className="truncate">{name}</span>
-                                <span className="font-mono text-slate-500 text-[11px]">{count} ครั้ง ({pct})</span>
+                                <span className="font-mono text-slate-500 text-[11px]">{count} ครั้ง ({pct}%)</span>
                               </div>
                               <div className="w-full bg-slate-200/60 rounded-full h-2 overflow-hidden">
                                 <div className="bg-gradient-to-r from-blue-400 to-indigo-600 h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
@@ -1825,7 +1842,7 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
                             <div key={name} className="space-y-1">
                               <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                                 <span className="truncate">{name}</span>
-                                <span className="font-mono text-slate-500 text-[11px]">{count} ครั้ง ({pct})</span>
+                                <span className="font-mono text-slate-500 text-[11px]">{count} ครั้ง ({pct}%)</span>
                               </div>
                               <div className="w-full bg-slate-200/60 rounded-full h-2 overflow-hidden">
                                 <div className="bg-gradient-to-r from-amber-400 to-orange-500 h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />

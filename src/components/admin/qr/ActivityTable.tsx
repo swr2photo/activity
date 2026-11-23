@@ -21,34 +21,38 @@ interface ActivityTableProps {
   currentDept: string;
 }
 
-export function ActivityTable({
-  activities,
-  onToggleStatus,
-  onReopenEnded,
-  onEdit,
-  onDelete,
-  onDownload,
+const statusOf = (a: Activity) => {
+  const now = new Date();
+  if (!a.isActive) return { label: 'ฉบับร่าง', variant: 'warning' as const };
+  if (a.startDateTime && now < a.startDateTime) return { label: 'รอเปิด', variant: 'warning' as const };
+  if (a.endDateTime && now > a.endDateTime) return { label: 'สิ้นสุดแล้ว', variant: 'default' as const };
+  return { label: 'เผยแพร่แล้ว', variant: 'success' as const };
+};
+
+const fmtDate = (v: any) => {
+  if (!v) return '-';
+  const d = typeof v.toDate === 'function' ? v.toDate() : v;
+  return dayjs(d).isValid() ? dayjs(d).format('DD MMM YYYY HH:mm') : '-';
+};
+
+const ActivityActionButtons = React.memo(function ActivityActionButtons({
+  a,
+  canManage,
   onViewParticipants,
   onViewRegistration,
-  isSuperAdmin,
-  currentDept
-}: ActivityTableProps) {
-  
-  const statusOf = (a: Activity) => {
-    const now = new Date();
-    if (!a.isActive) return { label: 'ฉบับร่าง', variant: 'warning' as const };
-    if (a.startDateTime && now < a.startDateTime) return { label: 'รอเปิด', variant: 'warning' as const };
-    if (a.endDateTime && now > a.endDateTime) return { label: 'สิ้นสุดแล้ว', variant: 'default' as const };
-    return { label: 'เผยแพร่แล้ว', variant: 'success' as const };
-  };
-
-  const fmt = (v: any) => {
-    if (!v) return '-';
-    const d = typeof v.toDate === 'function' ? v.toDate() : v;
-    return dayjs(d).isValid() ? dayjs(d).format('DD MMM YYYY HH:mm') : '-';
-  };
-
-  const ActionButtons = ({ a, canManage }: { a: Activity; canManage: boolean }) => (
+  onDownload,
+  onEdit,
+  onDelete,
+}: {
+  a: Activity;
+  canManage: boolean;
+  onViewParticipants: (activityCode: string) => void;
+  onViewRegistration: (activityCode: string) => void;
+  onDownload: (e: React.MouseEvent<HTMLElement>, activity: Activity) => void;
+  onEdit: (activity: Activity) => void;
+  onDelete: (activity: Activity) => void;
+}) {
+  return (
     <div className="flex flex-wrap items-center justify-end gap-1">
       <Button
         variant="ghost"
@@ -112,6 +116,21 @@ export function ActivityTable({
       )}
     </div>
   );
+});
+
+export const ActivityTable = React.memo(function ActivityTable({
+  activities,
+  onToggleStatus,
+  onReopenEnded,
+  onEdit,
+  onDelete,
+  onDownload,
+  onViewParticipants,
+  onViewRegistration,
+  isSuperAdmin,
+  currentDept
+}: ActivityTableProps) {
+  const fmt = fmtDate;
 
   return (
     <>
@@ -170,7 +189,15 @@ export function ActivityTable({
                   </div>
                 </div>
 
-                <ActionButtons a={a} canManage={canManage} />
+                <ActivityActionButtons
+                  a={a}
+                  canManage={canManage}
+                  onViewParticipants={onViewParticipants}
+                  onViewRegistration={onViewRegistration}
+                  onDownload={onDownload}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                />
               </div>
             );
           })
@@ -262,7 +289,15 @@ export function ActivityTable({
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <ActionButtons a={a} canManage={canManage} />
+                        <ActivityActionButtons
+                  a={a}
+                  canManage={canManage}
+                  onViewParticipants={onViewParticipants}
+                  onViewRegistration={onViewRegistration}
+                  onDownload={onDownload}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                />
                       </TableCell>
                     </TableRow>
                   );
@@ -274,4 +309,4 @@ export function ActivityTable({
       </div>
     </>
   );
-}
+});

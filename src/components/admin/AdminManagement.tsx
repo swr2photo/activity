@@ -20,6 +20,7 @@ import {
 
 import {
   getAdminsByDepartment,
+  createAdminUser,
   updateAdminUser,
   deleteAdminUser,
   getAllUsers,
@@ -273,7 +274,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
           profileImage: selectedUser.photoURL || '',
         };
 
-        await updateAdminUser(payload.uid, payload);
+        await createAdminUser(payload);
         await safeLog('ADMIN_CREATE', { targetUid: payload.uid, role: payload.role, department: payload.department });
         enqueueSnackbar('เพิ่มแอดมินเรียบร้อย', { variant: 'success' });
       }
@@ -435,7 +436,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
     if (!SITE_ORIGIN) { enqueueSnackbar('ไม่สามารถสร้างลิงก์ได้ (ไม่พบ site origin)', { variant: 'warning' }); return; }
     if (!isSuper && inv.department !== currentAdmin.department) return;
     try {
-      const link = `${SITE_ORIGIN}/admin/invite?token=${inv.token}`;
+      const link = `${SITE_ORIGIN}/api/invites/accept?token=${encodeURIComponent(inv.token)}`;
       await navigator.clipboard.writeText(link);
       enqueueSnackbar('คัดลอกลิงก์แล้ว', { variant: 'success' });
     } catch {

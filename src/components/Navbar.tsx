@@ -233,10 +233,12 @@ const Navbar: React.FC = () => {
   };
 
   useEffect(() => {
+    // หน้า /register จัดการ ProfileEditDialog เอง — ป้องกันเปิดซ้อน 2 Modal
+    if (pathname?.startsWith('/register')) return;
     if (user && userData && !isProfileComplete(userData)) {
       setProfileDialogOpen(true);
     }
-  }, [user, userData]);
+  }, [user, userData, pathname]);
 
   const getAvatarSrc = () =>
     optimizeAvatarUrl(user?.photoURL || userData?.photoURL, isTabletOrMobile ? 64 : 96);
@@ -695,7 +697,7 @@ const Navbar: React.FC = () => {
           onSave={handleSaveProfile}
         />
       </header>
-      {!isTabletOrMobile && <div aria-hidden className="h-[4.25rem] shrink-0" />}
+      <div aria-hidden className="hidden h-[4.25rem] shrink-0 lg:block" />
     </>
   );
 };

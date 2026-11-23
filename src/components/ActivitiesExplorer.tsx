@@ -1,7 +1,7 @@
 // components/ActivitiesExplorer.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { ActivityListItem } from "@/lib/activitiesList";
@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { glassCardLargeClass } from "@/lib/uiTheme";
 import { getDepartmentLabel } from "@/types/admin";
-import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -99,24 +98,6 @@ const isSoon = (a: ActivityListItem, hours = 24) => {
   return diffMs > 0 && diffMs <= hours * 60 * 60 * 1000;
 };
 
-// Animation Variants
-const containerVariants = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.1 },
-  },
-};
-
-const itemVariants: any = {
-  hidden: { opacity: 0, y: 20 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: { type: "spring", stiffness: 300, damping: 24 },
-  },
-};
-
 const readCachedActivities = (): ActivityListItem[] | null => {
   const hit = readRefreshCache<ActivityListItem[]>(RefreshCacheKey.homeActivities);
   return hit?.data?.length ? hit.data : null;
@@ -150,6 +131,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
   );
   const [error, setError] = useState("");
   const [qText, setQText] = useState("");
+  const deferredQText = useDeferredValue(qText);
 
   const [statuses, setStatuses] = useState<string[]>(() =>
     searchParams.get("status") === "active" ? ["active"] : []
@@ -235,17 +217,21 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
   }, [activities]);
 
   const filteredAndSorted = useMemo(() => {
-    const t = qText.trim().toLowerCase();
-    let result = activities.filter((a) => {
+    const t = deferredQText.trim().toLowerCase();
+    const withStatus = activities.map((a) => ({
+      activity: a,
+      status: getStatus(a),
+      soon: isSoon(a, 24),
+    }));
+    const filtered = withStatus.filter(({ activity: a, status: sObj, soon }) => {
       const matchSearch =
         !t ||
         a.activityCode.toLowerCase().includes(t) ||
         a.activityName.toLowerCase().includes(t) ||
         (a.location || "").toLowerCase().includes(t);
 
-      const sObj = getStatus(a);
       let sStr = sObj.key as string;
-      if (sStr === "upcoming" && isSoon(a, 24)) sStr = "soon";
+      if (sStr === "upcoming" && soon) sStr = "soon";
 
       const matchStatus = statuses.length === 0 || statuses.includes(sStr);
       const matchDepartment =
@@ -256,10 +242,8 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
     });
     const rank = (s: StatusKey) =>
       s === "active" ? 0 : s === "upcoming" ? 1 : s === "full" ? 2 : 3;
-    return result.sort(
-      (a, b) => rank(getStatus(a).key) - rank(getStatus(b).key)
-    );
-  }, [activities, qText, statuses, departmentFilters]);
+    return filtered.sort((a, b) => rank(a.status.key) - rank(b.status.key));
+  }, [activities, deferredQText, statuses, departmentFilters]);
 
   // sync ?status= จาก URL (เช่น /activities?status=active)
   useEffect(() => {
@@ -289,7 +273,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
 
   const activeFilterCount = statuses.length + departmentFilters.length;
 
-  const FilterSidebarContent = (
+  const renderFilterSidebar = (idPrefix: string) => (
     <div className="p-2 md:p-4">
       {/* Status */}
       <p className="mb-3 text-sm font-bold text-[var(--page-text)]">สถานะ</p>
@@ -297,7 +281,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
         {STATUS_OPTIONS.map((stat) => (
           <div key={stat.value} className="flex items-center gap-2">
             <Checkbox
-              id={`stat-${stat.value}`}
+              id={`${idPrefix}-stat-${stat.value}`}
               checked={statuses.includes(stat.value)}
               onCheckedChange={(checked) => {
                 if (checked) setStatuses((prev) => [...prev, stat.value]);
@@ -307,7 +291,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
               className="border-[var(--page-border)] data-[state=checked]:border-[#34c759] data-[state=checked]:bg-[#34c759]"
             />
             <Label
-              htmlFor={`stat-${stat.value}`}
+              htmlFor={`${idPrefix}-stat-${stat.value}`}
               className="cursor-pointer text-sm font-medium text-[var(--page-text)] opacity-85"
             >
               {stat.label}
@@ -326,7 +310,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
             {availableDepartments.map((dep) => (
               <div key={dep} className="flex items-center gap-2">
                 <Checkbox
-                  id={`dep-${dep}`}
+                  id={`${idPrefix}-dep-${dep}`}
                   checked={departmentFilters.includes(dep)}
                   onCheckedChange={(checked) => {
                     if (checked)
@@ -339,7 +323,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
                   className="border-[var(--page-border)] data-[state=checked]:border-[#0071e3] data-[state=checked]:bg-[#0071e3]"
                 />
                 <Label
-                  htmlFor={`dep-${dep}`}
+                  htmlFor={`${idPrefix}-dep-${dep}`}
                   className="cursor-pointer text-sm font-semibold text-[var(--page-text)] opacity-90"
                 >
                   {getDepartmentLabel(dep)}
@@ -390,18 +374,9 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
         />
 
         <div className="relative mx-auto w-full max-w-3xl px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-          >
+          <div>
             {/* Badge */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6, delay: 0.15 }}
-              className="mb-7 inline-flex items-center gap-2 rounded-full border border-white/18 bg-white/10 px-4 py-2 backdrop-blur-md"
-            >
+            <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-white/18 bg-white/10 px-4 py-2 backdrop-blur-md">
               <span className="h-2 w-2 rounded-full bg-[#34c759] shadow-[0_0_12px_rgba(52,199,89,0.9)] animate-[heroPulse_2s_ease-in-out_infinite]" />
               <span className="text-[0.8rem] font-bold tracking-wider text-white/90">
                 {loading
@@ -410,7 +385,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
                     ? `เปิดรับสมัครแล้ว ${counts.active} กิจกรรม`
                     : "ยังไม่มีกิจกรรมที่เปิดรับสมัคร"}
               </span>
-            </motion.div>
+            </div>
 
             <h1
               className="mb-6 font-extrabold leading-[1.05] tracking-tight text-transparent"
@@ -438,35 +413,36 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
               สะดวก รวดเร็ว และแม่นยำ
             </p>
 
-            {/* CTA */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.35 }}
-              className="flex items-center justify-center"
-            >
+            {/* CTA: เลื่อนลงดูรายการกิจกรรมได้ทันทีไม่ต้องโหลดหน้าใหม่ */}
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <Button
-                asChild
+                type="button"
+                onClick={() => {
+                  document
+                    .getElementById("activities")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
                 className="rounded-full bg-white px-9 py-6 text-base font-bold text-black shadow-[0_12px_32px_rgba(255,255,255,0.22)] transition-all hover:-translate-y-0.5 hover:bg-[#f5f5f7] hover:shadow-[0_16px_40px_rgba(255,255,255,0.3)]"
               >
-                <Link href="/activities">สำรวจกิจกรรมทั้งหมด</Link>
+                สำรวจกิจกรรมทั้งหมด
               </Button>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         </div>
 
         {/* Scroll indicator */}
-        <motion.button
+        <button
           type="button"
           aria-label="ไปยังรายการกิจกรรม"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1, duration: 0.8 }}
-          onClick={() => router.push("/activities")}
+          onClick={() =>
+            document
+              .getElementById("activities")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }
           className="absolute bottom-[110px] left-1/2 hidden h-[42px] w-[26px] -translate-x-1/2 cursor-pointer justify-center rounded-[14px] border-2 border-white/35 pt-[7px] md:flex"
         >
           <span className="h-[9px] w-1 rounded bg-white/75 animate-[heroScroll_1.8s_ease-in-out_infinite]" />
-        </motion.button>
+        </button>
       </div>
       )}
 
@@ -508,42 +484,55 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
           <div className="grid grid-cols-12 gap-4 md:gap-8">
             {/* Left Sidebar (Desktop) */}
             <div className="col-span-12 hidden md:col-span-3 md:block lg:col-span-3 xl:col-span-3">
-              <motion.div
-                initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.2 }}
+              <Card
+                className={cn(
+                  glassCardLargeClass,
+                  "sticky top-[100px] p-2 shadow-[var(--page-shadow)]"
+                )}
               >
-                <Card
-                  className={cn(
-                    glassCardLargeClass,
-                    "sticky top-[100px] p-2 shadow-[var(--page-shadow)]"
-                  )}
-                >
-                  {FilterSidebarContent}
-                </Card>
-              </motion.div>
+                {renderFilterSidebar("desktop")}
+              </Card>
             </div>
 
             {/* Right Content */}
             <div className="col-span-12 md:col-span-9 lg:col-span-9">
-              {/* Floating Search Bar */}
-              <motion.div
-                initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  duration: 0.6,
-                  delay: 0.2,
-                  type: "spring",
-                  stiffness: 200,
-                }}
+              {/* Floating Search Bar + Quick Filter Pills */}
+              <Card
+                className={cn(
+                  glassCardLargeClass,
+                  "p-4 shadow-[var(--page-shadow)] md:p-6"
+                )}
               >
-                <Card
-                  className={cn(
-                    glassCardLargeClass,
-                    "p-4 shadow-[var(--page-shadow)] md:p-6"
-                  )}
-                >
-                  <div className="flex flex-col items-center gap-4 md:flex-row">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  {[
+                    { key: "all", label: `ทั้งหมด (${counts.all})` },
+                    { key: "active", label: `เปิดรับตอนนี้ (${counts.active})` },
+                    { key: "soon", label: `เร็วๆ นี้ (${counts.soon})` },
+                  ].map((pill) => {
+                    const isSelected =
+                      pill.key === "all"
+                        ? statuses.length === 0
+                        : statuses.length === 1 && statuses[0] === pill.key;
+                    return (
+                      <button
+                        key={pill.key}
+                        type="button"
+                        onClick={() =>
+                          setStatuses(pill.key === "all" ? [] : [pill.key])
+                        }
+                        className={cn(
+                          "rounded-full border px-3.5 py-1.5 text-xs font-bold transition-colors",
+                          isSelected
+                            ? "border-[#0071e3] bg-[#0071e3] text-white"
+                            : "border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] hover:border-[#0071e3]/50"
+                        )}
+                      >
+                        {pill.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-col items-center gap-4 md:flex-row">
                     <div className="relative w-full flex-1">
                       <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--page-text-secondary)]" />
                       <Input
@@ -588,7 +577,6 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
                     </div>
                   </div>
                 </Card>
-              </motion.div>
 
               {/* Activity Cards List */}
               <div className="mt-12">
@@ -616,7 +604,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
                     </AlertDescription>
                   </Alert>
                 ) : filteredAndSorted.length === 0 ? (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <div>
                     <div className="py-28 text-center">
                       <Info className="mx-auto mb-6 h-[90px] w-[90px] text-[var(--page-border)]" />
                       <h2 className="mb-2 text-xl font-bold text-[var(--page-text)]">
@@ -637,30 +625,20 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
                         ล้างตัวกรอง
                       </Button>
                     </div>
-                  </motion.div>
+                  </div>
                 ) : (
-                  <motion.div
-                    variants={containerVariants}
-                    initial="hidden"
-                    animate="show"
-                  >
+                  <div>
                     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                      <AnimatePresence mode="popLayout">
-                        {pagedActivities.map((a) => (
-                          <motion.div
-                            key={a.id}
-                            variants={itemVariants}
-                            layoutId={a.id}
-                            className="h-full"
-                          >
-                            <ActivityCard
-                              {...a}
-                              status={getStatus(a)}
-                              canOpen={getStatus(a).key === "active"}
-                            />
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
+                      {pagedActivities.map(({ activity: a, status }, idx) => (
+                        <div key={a.id} className="h-full">
+                          <ActivityCard
+                            {...a}
+                            status={status}
+                            canOpen={status.key === "active"}
+                            priority={currentPage === 1 && idx < 3}
+                          />
+                        </div>
+                      ))}
                     </div>
 
                     {filteredAndSorted.length > PAGE_SIZE && (
@@ -705,7 +683,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
                         </Pagination>
                       </div>
                     )}
-                  </motion.div>
+                  </div>
                 )}
               </div>
             </div>
@@ -735,7 +713,7 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
               </div>
               <Separator className="mb-4" />
               <div className="max-h-[calc(100dvh-180px)] overflow-y-auto">
-                {FilterSidebarContent}
+                {renderFilterSidebar("mobile")}
               </div>
               <div className="mt-8 pb-8">
                 <Button

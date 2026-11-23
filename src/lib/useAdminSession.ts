@@ -15,6 +15,8 @@ export type UseAdminSessionOpts = {
   minutes: number;           // อายุเซสชัน (นาที), เช่น 30
   enabled: boolean;          // true เมื่อผู้ใช้ล็อกอินแล้ว
   onExpire?: () => void;     // เรียกเมื่อหมดเวลา
+  /** เปิดเฉพาะเมื่อต้องการแสดงตัวเลขนับถอยหลังทุกวินาที (ค่าเริ่มต้น false เพื่อไม่ให้ทั้งแอป re-render ทุก 1 วินาที) */
+  trackRemaining?: boolean;
 };
 
 export type UseAdminSessionReturn = {
@@ -64,12 +66,14 @@ export function startSession(_unusedUid: string | number, minutes?: number) {
 
 /* ------------- main hook ------------- */
 export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSessionReturn {
-  const { minutes, enabled, onExpire } = opts;
+  const { minutes, enabled, onExpire, trackRemaining = false } = opts;
 
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
 
   const tickId = useRef<number | null>(null);
   const expireId = useRef<number | null>(null);
+  const onExpireRef = useRef(onExpire);
+  onExpireRef.current = onExpire;
 
   const clearTimers = () => {
     if (tickId.current != null) {
@@ -86,21 +90,22 @@ export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSess
     clearTimers();
     const now = Date.now();
     const left = Math.max(0, sess.expiresAt - now);
-    setRemainingMs(left);
+    if (trackRemaining) setRemainingMs(left);
 
-    // อัปเดตหน้าปัดทุก 1 วินาที
+    // ตรวจหมดเวลาในเบื้องหลังโดยไม่สั่ง setState ทุกวินาทีเมื่อไม่ได้แสดงตัวนับ
+    const pollMs = trackRemaining ? 1000 : 30_000;
     tickId.current = window.setInterval(() => {
       const s = getSession();
       const now2 = Date.now();
       const left2 = s ? Math.max(0, s.expiresAt - now2) : 0;
-      setRemainingMs(s ? left2 : 0);
+      if (trackRemaining) setRemainingMs(s ? left2 : 0);
       if (!s || left2 <= 0) {
         clearTimers();
         endSession();
-        setRemainingMs(0);
-        onExpire?.();
+        if (trackRemaining) setRemainingMs(0);
+        onExpireRef.current?.();
       }
-    }, 1000);
+    }, pollMs);
 
     // ตั้งเวลาหมดอายุเพื่อเรียก onExpire ตรงเวลา
     expireId.current = window.setTimeout(() => {
@@ -112,21 +117,27 @@ export default function useAdminSession(opts: UseAdminSessionOpts): UseAdminSess
       }
       clearTimers();
       endSession();
-      setRemainingMs(0);
-      onExpire?.();
+      if (trackRemaining) setRemainingMs(0);
+      onExpireRef.current?.();
     }, left);
   };
 
-  const renew = () => {
+  const renewRef = useRef<() => void>(() => {});
+  const endRef = useRef<() => void>(() => {});
+
+  renewRef.current = () => {
     const s = writeSession(minutes);
     schedule(s);
   };
 
-  const end = () => {
+  endRef.current = () => {
     clearTimers();
     endSession();
-    setRemainingMs(null);
+    if (trackRemaining) setRemainingMs(null);
   };
+
+  const renew = useMemo(() => () => renewRef.current(), []);
+  const end = useMemo(() => () => endRef.current(), []);
 
   // เริ่ม/หยุดตาม enabled
   useEffect(() => {

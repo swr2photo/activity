@@ -159,23 +159,20 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   const [alreadyAdmin, setAlreadyAdmin] = useState(false);
   const [promoteBusy, setPromoteBusy] = useState(false);
   const [promoteErr, setPromoteErr] = useState('');
+  const [page, setPage] = useState(1);
+  const USERS_PER_PAGE = 25;
 
+  // โหลดรายชื่อผู้ใช้ครั้งเดียว (แก้บั๊กเรียก getAllUsers() ซ้อน 2 รอบพร้อมกัน!)
   const load = async () => {
     setLoading(true);
     setLoadError('');
     try {
-      if (currentAdmin.department === 'all') {
-        const [a, p] = await Promise.all([getAllUsers(), getPendingUsers()]);
-        setAllUsers(a);
-        setPendingUsers(p);
-      } else {
-        const [a, p] = await Promise.all([
-          getUsersByDepartment(currentAdmin.department as AdminDepartment),
-          getPendingUsersByDepartment(currentAdmin.department as AdminDepartment),
-        ]);
-        setAllUsers(a);
-        setPendingUsers(p);
-      }
+      const list =
+        currentAdmin.department === 'all'
+          ? await getAllUsers()
+          : await getUsersByDepartment(currentAdmin.department as AdminDepartment);
+      setAllUsers(list);
+      setPendingUsers(list.filter((u) => !u.isVerified));
     } catch (e: any) {
       console.error(e);
       setLoadError(e?.message || 'โหลดรายชื่อผู้ใช้ไม่สำเร็จ');
@@ -188,6 +185,10 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAdmin.department]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, tab]);
 
   const activeUsers = useMemo(() => allUsers.filter((u) => u.isActive !== false), [allUsers]);
   const suspendedUsers = useMemo(() => allUsers.filter((u) => !u.isActive), [allUsers]);
@@ -516,8 +517,9 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                'ไม่มีผู้ใช้ที่รออนุมัติ'}
             </div>
           ) : (
+            <TooltipProvider delayDuration={300}>
             <div className="space-y-3">
-              {filtered.map((u) => (
+              {filtered.slice((page - 1) * USERS_PER_PAGE, page * USERS_PER_PAGE).map((u) => (
                 <div key={u.uid} className="flex flex-col gap-3 p-3 sm:p-4 rounded-xl border bg-card hover:shadow-sm transition-shadow">
                   <div className="flex items-start gap-3 min-w-0">
                   <Avatar className="h-10 w-10 shrink-0">
@@ -539,7 +541,6 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                   </div>
 
                   <div className="flex flex-wrap gap-1 justify-end border-t border-border/60 pt-2">
-                    <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button variant="ghost" size="icon" onClick={async () => {
@@ -552,10 +553,8 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                         </TooltipTrigger>
                         <TooltipContent>ดูรายละเอียด</TooltipContent>
                       </Tooltip>
-                    </TooltipProvider>
 
                     {canManage && !u.isVerified && (
-                      <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon" disabled={busyUid === u.uid} onClick={async () => {
@@ -568,11 +567,9 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                           </TooltipTrigger>
                           <TooltipContent>อนุมัติ</TooltipContent>
                         </Tooltip>
-                      </TooltipProvider>
                     )}
 
                     {canManage && (u.isActive ? (
-                      <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon" disabled={busyUid === u.uid} onClick={() => doSuspend(u)}>
@@ -581,9 +578,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                           </TooltipTrigger>
                           <TooltipContent>ระงับการใช้งาน</TooltipContent>
                         </Tooltip>
-                      </TooltipProvider>
                     ) : (
-                      <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon" disabled={busyUid === u.uid} onClick={() => doActivate(u)}>
@@ -592,11 +587,9 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                           </TooltipTrigger>
                           <TooltipContent>คืนสถานะการใช้งาน</TooltipContent>
                         </Tooltip>
-                      </TooltipProvider>
                     ))}
 
                     {canPromote && (
-                      <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon" onClick={() => openPromote(u)}>
@@ -605,12 +598,40 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                           </TooltipTrigger>
                           <TooltipContent>ตั้งเป็นแอดมิน</TooltipContent>
                         </Tooltip>
-                      </TooltipProvider>
                     )}
                   </div>
                 </div>
               ))}
             </div>
+            {filtered.length > USERS_PER_PAGE && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+                <span>
+                  แสดง {(page - 1) * USERS_PER_PAGE + 1}–{Math.min(page * USERS_PER_PAGE, filtered.length)} จาก {filtered.length} คน
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    ก่อนหน้า
+                  </Button>
+                  <span className="font-semibold text-foreground">
+                    หน้า {page} / {Math.ceil(filtered.length / USERS_PER_PAGE)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page >= Math.ceil(filtered.length / USERS_PER_PAGE)}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    ถัดไป
+                  </Button>
+                </div>
+              </div>
+            )}
+            </TooltipProvider>
           )}
         </CardContent>
       </Card>

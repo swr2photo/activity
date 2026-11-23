@@ -21,31 +21,69 @@ function parseServiceAccount(raw?: string): SA {
   return { project_id: parsed.project_id, client_email: parsed.client_email, private_key };
 }
 
+function parseFirebaseConfigEnv(): { projectId?: string; storageBucket?: string } {
+  const raw = process.env.FIREBASE_CONFIG;
+  if (!raw || !raw.trim().startsWith('{')) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
 function ensureApp() {
   if (admin.apps.length) return admin.app();
 
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON;
-  const sa = parseServiceAccount(raw);
+  const fbCfg = parseFirebaseConfigEnv();
 
-  const projectId =
-    process.env.FIREBASE_PROJECT_ID ||
-    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
-    sa.project_id;
+  if (raw && raw.trim()) {
+    const sa = parseServiceAccount(raw);
+    const projectId =
+      process.env.FIREBASE_PROJECT_ID ||
+      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+      sa.project_id ||
+      fbCfg.projectId;
 
-  if (!projectId) {
-    throw new Error('Project Id is missing.');
+    if (!projectId) {
+      throw new Error('Project Id is missing.');
+    }
+
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail: sa.client_email,
+        privateKey: sa.private_key,
+      }),
+      projectId,
+    });
+
+    return admin.app();
   }
 
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail: sa.client_email,
-      privateKey: sa.private_key,
-    }),
-    projectId,
-  });
+  // Fallback สำหรับ Firebase App Hosting / Cloud Run / GCP ADC เมื่อไม่ได้ตั้งค่า FIREBASE_SERVICE_ACCOUNT_KEY_JSON
+  if (
+    process.env.K_SERVICE ||
+    process.env.FIREBASE_CONFIG ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    process.env.GOOGLE_CLOUD_PROJECT
+  ) {
+    const projectId =
+      process.env.FIREBASE_PROJECT_ID ||
+      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+      process.env.GOOGLE_CLOUD_PROJECT ||
+      fbCfg.projectId ||
+      'webapp-78231';
 
-  return admin.app();
+    admin.initializeApp({
+      credential: admin.credential.applicationDefault(),
+      projectId,
+    });
+
+    return admin.app();
+  }
+
+  throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY_JSON is missing');
 }
 
 // Export functions to ensure initialization happens at runtime
@@ -56,9 +94,11 @@ export function getAdminAuth() {
   return ensureApp().auth();
 }
 export function getAdminBucket() {
+  const fbCfg = parseFirebaseConfigEnv();
   const bucketName = (
     process.env.FIREBASE_STORAGE_BUCKET ||
     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
+    fbCfg.storageBucket ||
     ''
   ).replace(/^gs:\/\//, '');
   if (!bucketName) {

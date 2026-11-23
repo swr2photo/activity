@@ -80,54 +80,33 @@ interface NavEntry {
 
 const SECTION_PERM_REQUIRED: Record<string, AdminPermission | undefined> = {
   dashboard: undefined,
-  'activity-list': 'manage_activities',
-  'qr-generator': 'manage_activities',
+  activities: undefined, // ตรวจสิทธิ์ภายใน ActivitiesHubPanel (รองรับทั้ง manage_activities และ view_reports)
   'short-links': 'manage_activities',
-  activities: 'manage_activities',
   users: 'manage_users',
-  reports: 'view_reports',
-  'registration-history': 'view_reports',
-  'survey-results': 'view_reports',
-  'admin-management': 'manage_admins',
-  settings: 'system_settings',
+  'team-settings': undefined, // ตรวจสิทธิ์ตามแท็บใน TeamSettingsHub
   profile: undefined,
 };
 
-/** คงที่ระดับโมดูล — ไม่สร้างใหม่ทุกรอบ render */
+/** 5 เมนูหลักเรียบง่าย เข้าใจทันที (ไม่มีเมนูย่อยที่เข้าไม่ถึงตอนย่อแถบซ้าย) */
 const MENU_ITEMS: NavEntry[] = [
-  { id: 'dashboard', label: 'แดชบอร์ด', icon: <LayoutDashboard className="h-5 w-5" /> },
+  { id: 'dashboard', label: 'ภาพรวม', icon: <LayoutDashboard className="h-5 w-5" /> },
   {
     id: 'activities',
-    label: 'จัดการกิจกรรม',
+    label: 'กิจกรรม',
     icon: <CalendarDays className="h-5 w-5" />,
+  },
+  {
+    id: 'short-links',
+    label: 'ลิงก์ย่อ & Dynamic QR',
+    icon: <Link2 className="h-5 w-5" />,
     permission: 'manage_activities',
-    children: [
-      { id: 'activity-list', label: 'รายการกิจกรรม', icon: <CalendarDays className="h-4 w-4" /> },
-      { id: 'qr-generator', label: 'สร้าง QR Code', icon: <QrCode className="h-4 w-4" /> },
-      { id: 'short-links', label: 'ลิงก์ย่อ & Dynamic QR', icon: <Link2 className="h-4 w-4" /> },
-    ],
   },
-  { id: 'users', label: 'จัดการผู้ใช้', icon: <Users className="h-5 w-5" />, permission: 'manage_users' },
-  { id: 'reports', label: 'รายงาน', icon: <BarChart3 className="h-5 w-5" />, permission: 'view_reports' },
+  { id: 'users', label: 'ผู้ใช้งาน', icon: <Users className="h-5 w-5" />, permission: 'manage_users' },
   {
-    id: 'registration-history',
-    label: 'ประวัติลงทะเบียน',
-    icon: <ClipboardList className="h-5 w-5" />,
-    permission: 'view_reports',
+    id: 'team-settings',
+    label: 'ทีมแอดมิน & ตั้งค่า',
+    icon: <Settings className="h-5 w-5" />,
   },
-  {
-    id: 'survey-results',
-    label: 'ผลแบบประเมิน',
-    icon: <ClipboardCheck className="h-5 w-5" />,
-    permission: 'view_reports',
-  },
-  {
-    id: 'admin-management',
-    label: 'จัดการแอดมิน',
-    icon: <ShieldCheck className="h-5 w-5" />,
-    permission: 'manage_admins',
-  },
-  { id: 'settings', label: 'ตั้งค่าระบบ', icon: <Settings className="h-5 w-5" />, permission: 'system_settings' },
 ];
 
 type NavItemProps = {
@@ -251,6 +230,7 @@ function NavItem({
 
 type SidebarContentProps = {
   liveAdmin: AdminProfile;
+  menuItems: NavEntry[];
   sidebarCollapsed: boolean;
   isMobile: boolean;
   activeSection: string;
@@ -264,6 +244,7 @@ type SidebarContentProps = {
 
 function SidebarContent({
   liveAdmin,
+  menuItems,
   sidebarCollapsed,
   isMobile,
   activeSection,
@@ -309,7 +290,7 @@ function SidebarContent({
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-4">
         <TooltipProvider>
-          {MENU_ITEMS.map((item) => (
+          {menuItems.map((item) => (
             <NavItem
               key={item.id}
               item={item}
@@ -430,7 +411,29 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     );
   };
 
+  const canSeeTeamSettings =
+    liveAdmin.role === 'super_admin' ||
+    hasPerm('manage_admins') ||
+    hasPerm('system_settings');
+
+  const visibleMenuItems = useMemo(
+    () =>
+      MENU_ITEMS.filter((item) => {
+        if (item.id === 'team-settings') return canSeeTeamSettings;
+        if (item.id === 'activities') {
+          return (
+            liveAdmin.role === 'super_admin' ||
+            hasPerm('manage_activities') ||
+            hasPerm('view_reports')
+          );
+        }
+        return hasPerm(item.permission);
+      }),
+    [canSeeTeamSettings, hasPerm, liveAdmin.role]
+  );
+
   const handleNavigate = (id: string) => {
+    if (id === 'team-settings' && !canSeeTeamSettings) return;
     if (hasPerm(SECTION_PERM_REQUIRED[id])) {
       onSectionChange(id);
       if (isMobile) setMobileOpen(false);
@@ -457,6 +460,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
   const sidebarProps: SidebarContentProps = {
     liveAdmin,
+    menuItems: visibleMenuItems,
     sidebarCollapsed,
     isMobile,
     activeSection,
@@ -566,10 +570,12 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                 <UserCircle className="mr-2 h-4 w-4" />
                 โปรไฟล์
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleNavigate('settings')}>
-                <Settings className="mr-2 h-4 w-4" />
-                ตั้งค่า
-              </DropdownMenuItem>
+              {canSeeTeamSettings && (
+                <DropdownMenuItem onClick={() => handleNavigate('team-settings')}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  ทีมแอดมิน & ตั้งค่า
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => setLogoutDialog(true)}

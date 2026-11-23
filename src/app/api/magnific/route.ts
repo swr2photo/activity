@@ -10,12 +10,41 @@ const TASK_ENDPOINTS: Record<string, string> = {
   upscale: 'https://api.magnific.com/v1/ai/image-upscaler-precision-v2',
 };
 
+const ALLOWED_PROXY_HOSTS = [
+  'magnific.com',
+  'freepik.com',
+  'b-cdn.net',
+  'cloudfront.net',
+  'firebasestorage.googleapis.com',
+  'storage.googleapis.com',
+];
+
+function isAllowedProxyUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    // ป้องกัน SSRF ไปยัง IP ภายใน / localhost / metadata
+    if (
+      host === 'localhost' ||
+      /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
+      host.includes(':') ||
+      host.endsWith('.internal')
+    ) {
+      return false;
+    }
+    return ALLOWED_PROXY_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(request: NextRequest) {
   // Verify admin authorization
   try {
     await verifyAdminToken(request);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 401 });
+    return NextResponse.json({ error: error.message }, { status: error?.status || 401 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -85,22 +114,27 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Case 2: Proxy image to bypass CORS on the client side
+  // Case 2: Proxy image to bypass CORS on the client side (จำกัดโดเมนป้องกัน SSRF + stream)
   if (proxyUrl) {
+    if (!isAllowedProxyUrl(proxyUrl)) {
+      return NextResponse.json({ error: 'Unauthorized proxy image host' }, { status: 403 });
+    }
     try {
       const response = await fetch(proxyUrl);
-      if (!response.ok) {
-        return NextResponse.json({ error: 'Failed to fetch image from source' }, { status: response.status });
+      if (!response.ok || !response.body) {
+        return NextResponse.json({ error: 'Failed to fetch image from source' }, { status: response.status || 502 });
       }
 
-      const blob = await response.blob();
       const contentType = response.headers.get('Content-Type') || 'image/jpeg';
+      if (!contentType.startsWith('image/')) {
+        return NextResponse.json({ error: 'Invalid content type' }, { status: 415 });
+      }
 
-      return new NextResponse(blob, {
+      return new NextResponse(response.body, {
         status: 200,
         headers: {
           'Content-Type': contentType,
-          'Cache-Control': 'public, max-age=86400', // Cache for 24h
+          'Cache-Control': 'private, max-age=86400',
         },
       });
     } catch (err: any) {
@@ -129,9 +163,8 @@ export async function POST(request: NextRequest) {
     const { action, prompt, aspect_ratio, model } = body;
     const taskType = action === 'upscale' ? 'upscale' : 'mystic';
 
-    const webhookUrl = process.env.NEXT_PUBLIC_BASE_URL 
-      ? `${process.env.NEXT_PUBLIC_BASE_URL}/api/magnific/webhook` 
-      : undefined;
+    const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    const webhookUrl = baseUrl ? `${baseUrl}/api/magnific/webhook` : undefined;
 
     let requestPayload: Record<string, any>;
 

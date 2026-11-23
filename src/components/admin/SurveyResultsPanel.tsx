@@ -7,9 +7,9 @@ import {
   Users, MessageSquareText, Star, BarChart3, FileText,
   Trash2, RotateCcw, Clock,
 } from 'lucide-react';
-import { collection, deleteDoc, doc, getDoc, getDocs, query, where, writeBatch, Timestamp } from 'firebase/firestore';
+import { collection, deleteDoc, doc, documentId, getDocs, query, where, writeBatch, Timestamp } from 'firebase/firestore';
 import { adminDb as db } from '@/lib/firebaseAdminClient';
-import type { AdminProfile } from '@/types/admin';
+import { ROLE_PERMISSIONS, type AdminProfile } from '@/types/admin';
 import {
   Activity,
   SurveyQuestion,
@@ -74,6 +74,12 @@ const displayName = (p?: RespondentProfile) => {
 
 const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   const confirm = useConfirm();
+  const effectivePerms = Array.isArray(currentAdmin.permissions)
+    ? currentAdmin.permissions
+    : (ROLE_PERMISSIONS[currentAdmin.role] ?? []);
+  const canMutateSurvey =
+    currentAdmin.role === 'super_admin' || effectivePerms.includes('manage_activities');
+
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(true);
   const [selectedId, setSelectedId] = useState('');
@@ -135,63 +141,48 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     });
   }, [selectedActivity]);
 
-  /* ---------- โหลดคำตอบ + โปรไฟล์ผู้ตอบ + ยอดเช็คอิน ---------- */
+  /* ---------- โหลดคำตอบ + โปรไฟล์ผู้ตอบ + ยอดเช็คอิน (0 N+1 reads!) ---------- */
+  const selectedActivityCode = selectedActivity?.activityCode || '';
+
   const fetchResponses = useCallback(async () => {
-    if (!selectedActivity) return;
+    if (!selectedActivityCode) return;
     setLoading(true);
     setError('');
     setExpandedId(null);
     try {
-      const code = selectedActivity.activityCode;
-      const snap = await getDocs(
-        query(collection(db, 'surveyResponses'), where('activityCode', '==', code))
-      );
+      const code = selectedActivityCode;
+      // ดึง surveyResponses และ activityRecords พร้อมกันแบบขนาน
+      const [snap, recSnap] = await Promise.all([
+        getDocs(query(collection(db, 'surveyResponses'), where('activityCode', '==', code))),
+        getDocs(query(collection(db, 'activityRecords'), where('activityCode', '==', code))).catch(() => null),
+      ]);
+
+      const profileMap: Record<string, RespondentProfile> = {};
+
       const rows: SurveyResponse[] = snap.docs.map((d) => {
         const data: any = d.data();
+        const uid = String(data.userId || '');
+        if (uid && (data.studentId || data.firstName)) {
+          profileMap[uid] = {
+            studentId: data.studentId,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            department: data.department,
+            email: data.email,
+          };
+        }
         return {
           id: d.id,
           activityCode: data.activityCode || '',
-          userId: data.userId || '',
+          userId: uid,
           answers: data.answers || {},
           timestamp: toDateSafe(data.timestamp),
         };
       }).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setResponses(rows);
 
-      // โปรไฟล์ผู้ตอบ — batch getDocs ด้วย where('uid'/'__name__') ไม่ได้ตรงๆ
-      // ใช้ chunked Promise.all + จำกัด concurrency แทน getDoc ทีละตัวแบบไม่ควบคุม
-      const uids = Array.from(new Set(rows.map((r) => r.userId).filter(Boolean)));
-      const profileMap: Record<string, RespondentProfile> = {};
-      const chunkSize = 10;
-      for (let i = 0; i < uids.length; i += chunkSize) {
-        const chunk = uids.slice(i, i + chunkSize);
-        const entries = await Promise.all(
-          chunk.map(async (uid): Promise<[string, RespondentProfile]> => {
-            try {
-              let s = await getDoc(doc(db, 'universityUsers', uid));
-              if (!s.exists()) s = await getDoc(doc(db, 'users', uid));
-              const d: any = s.exists() ? s.data() : {};
-              return [uid, {
-                studentId: d.studentId,
-                firstName: d.firstName,
-                lastName: d.lastName,
-                department: d.department,
-                email: d.email,
-              }];
-            } catch {
-              return [uid, {}];
-            }
-          })
-        );
-        entries.forEach(([uid, p]) => { profileMap[uid] = p; });
-      }
-      setProfiles(profileMap);
-
-      // ยอดผู้ลงทะเบียน + รายชื่อที่ยังไม่ทำแบบประเมิน
-      try {
-        const recSnap = await getDocs(
-          query(collection(db, 'activityRecords'), where('activityCode', '==', code))
-        );
+      // ดึงโปรไฟล์และรายชื่อผู้ยังไม่ทำแบบประเมินจาก activityRecords ที่โหลดมาแล้ว (0 reads เพิ่ม!)
+      if (recSnap) {
         const responded = new Set(rows.map((r) => r.userId).filter(Boolean));
         const uniqueStudents = new Set<string>();
         const pending: PendingUser[] = [];
@@ -203,6 +194,15 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
           let uid = data.userId || data.uid || '';
           if (!uid && typeof d.id === 'string' && d.id.includes('_')) {
             uid = d.id.slice(code.length + 1);
+          }
+          if (uid && !profileMap[uid] && (data.studentId || data.firstName)) {
+            profileMap[uid] = {
+              studentId: data.studentId,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              department: data.department,
+              email: data.email,
+            };
           }
           if (!uid || seenUid.has(uid) || responded.has(uid)) continue;
           seenUid.add(uid);
@@ -217,17 +217,45 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         }
         setCheckinCount(uniqueStudents.size);
         setPendingUsers(pending);
-      } catch {
+      } else {
         setCheckinCount(null);
         setPendingUsers([]);
       }
+
+      // เฉพาะ uid ที่ยังไม่มีโปรไฟล์ทั้งใน surveyResponses และ activityRecords -> batch query ด้วย documentId() ทีละ 30
+      const missingUids = Array.from(new Set(rows.map((r) => r.userId).filter((uid) => uid && !profileMap[uid])));
+      if (missingUids.length > 0) {
+        const chunks: string[][] = [];
+        for (let i = 0; i < missingUids.length; i += 30) {
+          chunks.push(missingUids.slice(i, i + 30));
+        }
+        const batchSnaps = await Promise.all(
+          chunks.map((chunk) =>
+            getDocs(query(collection(db, 'universityUsers'), where(documentId(), 'in', chunk))).catch(() => null)
+          )
+        );
+        batchSnaps.forEach((bSnap) => {
+          bSnap?.forEach((uDoc) => {
+            const d: any = uDoc.data();
+            profileMap[uDoc.id] = {
+              studentId: d.studentId,
+              firstName: d.firstName,
+              lastName: d.lastName,
+              department: d.department,
+              email: d.email,
+            };
+          });
+        });
+      }
+
+      setProfiles(profileMap);
     } catch (e: any) {
       console.error(e);
       setError(e?.message || 'โหลดคำตอบแบบประเมินไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
-  }, [selectedActivity]);
+  }, [selectedActivityCode]);
 
   useEffect(() => {
     fetchResponses();
@@ -621,16 +649,18 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                 <Download className="h-4 w-4" />
                 ส่งออก CSV
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={resetAllResponses}
-                disabled={responses.length === 0 || loading || bulkBusy || !selectedActivity}
-                className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-              >
-                <RotateCcw className={cn('h-4 w-4', bulkBusy && 'animate-spin')} />
-                ลบทั้งหมด / ให้ทำใหม่
-              </Button>
+              {canMutateSurvey && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={resetAllResponses}
+                  disabled={responses.length === 0 || loading || bulkBusy || !selectedActivity}
+                  className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  <RotateCcw className={cn('h-4 w-4', bulkBusy && 'animate-spin')} />
+                  ลบทั้งหมด / ให้ทำใหม่
+                </Button>
+              )}
             </div>
           </div>
 
@@ -660,6 +690,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                     </p>
                   </div>
                 </div>
+                {canMutateSurvey && (
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="text-xs text-slate-600 flex items-center gap-1.5">
                     ขยาย/เปิดสิทธิ์
@@ -686,6 +717,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
                     ขยายทั้งกิจกรรม
                   </Button>
                 </div>
+                )}
               </div>
 
               {/* เปิดสิทธิ์รายบุคคล */}
