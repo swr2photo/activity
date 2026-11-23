@@ -142,7 +142,8 @@ export async function getPublicActivityByCode(
       currentParticipants: typeof data.currentParticipants === "number" ? data.currentParticipants : 0,
       requiresUniversityLogin: Boolean(data.requiresUniversityLogin),
       bannerUrl:
-        typeof data.bannerUrl === "string" && !data.bannerUrl.startsWith("data:")
+        typeof data.bannerUrl === "string" &&
+        (!data.bannerUrl.startsWith("data:") || data.bannerUrl.length < 450_000)
           ? data.bannerUrl
           : undefined,
       bannerColor: typeof data.bannerColor === "string" ? data.bannerColor : undefined,

@@ -15,6 +15,7 @@ import { updateAdminUser, logAdminEvent } from '../../lib/adminFirebase';
 import { PageHeader } from './shared/PageHeader';
 import { adminAuth as auth } from '../../lib/firebaseAdminClient';
 import { adminStorage as storage } from '../../lib/firebaseAdminStorage';
+import { compressImageFile } from '../../utils/cropImage';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -73,18 +74,35 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
       enqueueSnackbar('กรุณาเลือกไฟล์รูปภาพเท่านั้น (JPG, PNG)', { variant: 'error' });
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      enqueueSnackbar('ขนาดไฟล์เกิน 2MB กรุณาลดขนาดไฟล์', { variant: 'error' });
+    if (file.size > 12 * 1024 * 1024) {
+      enqueueSnackbar('ขนาดไฟล์เกิน 12MB กรุณาลดขนาดไฟล์', { variant: 'error' });
       return;
     }
     try {
       setUploading(true);
-      setUploadProgress(10);
-      const storagePath = `admin-profiles/${currentAdmin.uid}/${Date.now()}_${file.name}`;
-      const storageRef = ref(storage, storagePath);
-      const snapshot = await uploadBytes(storageRef, file);
-      setUploadProgress(70);
-      const downloadURL = await getDownloadURL(snapshot.ref);
+      setUploadProgress(15);
+      const { blob, dataUrl } = await compressImageFile(file, {
+        maxEdge: 256,
+        quality: 0.74,
+        mimeType: 'image/jpeg',
+      });
+      setUploadProgress(50);
+
+      let downloadURL = dataUrl;
+      try {
+        const storagePath = `admin-profiles/${currentAdmin.uid}/${Date.now()}.jpg`;
+        const storageRef = ref(storage, storagePath);
+        const snapshot = await uploadBytes(storageRef, blob, {
+          contentType: 'image/jpeg',
+          cacheControl: 'public,max-age=31536000',
+        });
+        setUploadProgress(80);
+        downloadURL = await getDownloadURL(snapshot.ref);
+      } catch (storageErr) {
+        console.warn('[AdminProfileEditor] Storage upload fallback to Data URL:', storageErr);
+        downloadURL = dataUrl;
+      }
+
       setPhotoURL(downloadURL);
       setUploadProgress(100);
       enqueueSnackbar('อัปโหลดรูปสำเร็จ', { variant: 'success' });
@@ -118,7 +136,9 @@ export default function AdminProfileEditor({ currentAdmin }: Props) {
       if (auth.currentUser && auth.currentUser.uid === currentAdmin.uid) {
         await updateProfile(auth.currentUser, {
           displayName: updates.displayName,
-          photoURL: updates.profileImage,
+          ...(updates.profileImage && !updates.profileImage.startsWith('data:')
+            ? { photoURL: updates.profileImage }
+            : {}),
         });
       }
       await logAdminEvent('ADMIN_PROFILE_UPDATED', { changes: Object.keys(updates) }, { uid: currentAdmin.uid, email: currentAdmin.email });

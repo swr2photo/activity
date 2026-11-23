@@ -115,6 +115,7 @@ import {
 import { adminDb as db, adminAuth as auth } from '../../lib/firebaseAdminClient';
 import { adminStorage as storage } from '../../lib/firebaseAdminStorage';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { blobToDataUrl, compressImageFile } from '../../utils/cropImage';
 
 import GeofenceMap from '../maps/GeofenceMap';
 import { useLoadScript } from '@react-google-maps/api';
@@ -649,12 +650,40 @@ const FileConfigSection: React.FC<{
 
     setUploadingId(fileId);
     try {
-      const ext = file.name.split('.').pop() || 'file';
-      const storagePath = `banners/${department}/file_${activityCode || 'temp'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
-      const r = ref(storage, storagePath);
-      await uploadBytes(r, file);
-      const downloadUrl = await getDownloadURL(r);
-      
+      let downloadUrl = '';
+      if (file.type.startsWith('image/')) {
+        const { blob, dataUrl } = await compressImageFile(file, {
+          maxEdge: 1200,
+          quality: 0.75,
+          mimeType: 'image/jpeg',
+        });
+        try {
+          const storagePath = `banners/${department}/file_${activityCode || 'temp'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.jpg`;
+          const r = ref(storage, storagePath);
+          await uploadBytes(r, blob, {
+            contentType: 'image/jpeg',
+            cacheControl: 'public,max-age=31536000',
+          });
+          downloadUrl = await getDownloadURL(r);
+        } catch {
+          downloadUrl = dataUrl;
+        }
+      } else {
+        try {
+          const ext = file.name.split('.').pop() || 'file';
+          const storagePath = `banners/${department}/file_${activityCode || 'temp'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+          const r = ref(storage, storagePath);
+          await uploadBytes(r, file);
+          downloadUrl = await getDownloadURL(r);
+        } catch (storageErr: any) {
+          if (file.size <= 450 * 1024) {
+            downloadUrl = await blobToDataUrl(file);
+          } else {
+            throw storageErr;
+          }
+        }
+      }
+
       const newFiles = [...files];
       newFiles[idx] = {
         ...newFiles[idx],
@@ -1478,13 +1507,25 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
   };
 
   // อัปโหลดรูปประกอบ (จาก Magnific AI) สำหรับแทรกใน rich description
-  // เก็บใน desc-images/ ซึ่ง rules ปิด read ตรง — เสิร์ฟผ่าน /api/images เท่านั้น
+  // เก็บใน desc-images/ ซึ่ง rules ปิด read ตรง — เสิร์ฟผ่าน /api/images (หรือ fallback Data URL เมื่อ Storage โควต้าเต็ม)
   const uploadDescriptionImage = async (file: File): Promise<string> => {
-    const ext = file.name.split('.').pop() || 'jpg';
-    const path = `desc-images/${currentAdmin.department}/desc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
-    const r = ref(storage, path);
-    await uploadBytes(r, file);
-    return `/api/images?path=${encodeURIComponent(path)}`;
+    const { blob, dataUrl } = await compressImageFile(file, {
+      maxEdge: 960,
+      quality: 0.72,
+      mimeType: 'image/jpeg',
+    });
+    try {
+      const path = `desc-images/${currentAdmin.department}/desc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.jpg`;
+      const r = ref(storage, path);
+      await uploadBytes(r, blob, {
+        contentType: 'image/jpeg',
+        cacheControl: 'public,max-age=31536000',
+      });
+      return `/api/images?path=${encodeURIComponent(path)}`;
+    } catch (storageErr) {
+      console.warn('[QRCodeAdminPanel] uploadDescriptionImage fallback to Data URL:', storageErr);
+      return dataUrl;
+    }
   };
 
 
@@ -1656,11 +1697,23 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
 
   const uploadBannerIfNeeded = async (dept: string, code: string, file?: File | null) => {
     if (!file) return form.bannerUrl;
-    const ext = file.name.split('.').pop() || 'jpg';
-    const path = `banners/${dept}/${code}_${Date.now()}.${ext}`;
-    const r = ref(storage, path);
-    await uploadBytes(r, file);
-    return await getDownloadURL(r);
+    const { blob, dataUrl } = await compressImageFile(file, {
+      maxEdge: 1200,
+      quality: 0.75,
+      mimeType: 'image/jpeg',
+    });
+    try {
+      const path = `banners/${dept}/${code}_${Date.now()}.jpg`;
+      const r = ref(storage, path);
+      await uploadBytes(r, blob, {
+        contentType: 'image/jpeg',
+        cacheControl: 'public,max-age=31536000',
+      });
+      return await getDownloadURL(r);
+    } catch (storageErr) {
+      console.warn('[QRCodeAdminPanel] uploadBannerIfNeeded fallback to Data URL:', storageErr);
+      return dataUrl;
+    }
   };
 
   const deleteBannerIfOwned = async (url?: string | null) => {

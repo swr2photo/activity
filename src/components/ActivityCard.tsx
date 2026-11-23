@@ -74,6 +74,7 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
   priority = false,
 }) => {
   const [imageLoaded, setImageLoaded] = useState(priority);
+  const [imageError, setImageError] = useState(false);
 
   const startText = formatDateTime(startDateTime);
   const endText = formatDateTime(endDateTime);
@@ -97,7 +98,7 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
         className="relative h-[140px] overflow-hidden md:h-[160px]"
         style={{ backgroundColor: bannerColor || 'hsl(var(--muted))' }}
       >
-        {bannerUrl ? (
+        {bannerUrl && !imageError ? (
           <>
             <div
               className={cn(
@@ -110,9 +111,11 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
                 alt={activityName}
                 fill
                 priority={priority}
+                unoptimized={bannerUrl.startsWith('data:')}
                 sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                 style={{ objectFit: bannerAspect as any }}
                 onLoad={() => setImageLoaded(true)}
+                onError={() => setImageError(true)}
               />
             </div>
             {!imageLoaded && (

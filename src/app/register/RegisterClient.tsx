@@ -295,7 +295,11 @@ export default function RegisterClient({
             maxParticipants: Number(data.maxParticipants || 0),
             currentParticipants: Number(data.currentParticipants || 0),
             requiresUniversityLogin: Boolean(data.requiresUniversityLogin),
-            bannerUrl: typeof data.bannerUrl === 'string' && !data.bannerUrl.startsWith('data:') ? data.bannerUrl : undefined,
+            bannerUrl:
+              typeof data.bannerUrl === 'string' &&
+              (!data.bannerUrl.startsWith('data:') || data.bannerUrl.length < 450_000)
+                ? data.bannerUrl
+                : undefined,
             bannerColor: data.bannerColor,
             bannerTintColor: data.bannerTintColor,
             bannerTintOpacity: data.bannerTintOpacity,

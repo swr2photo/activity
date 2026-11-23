@@ -51,7 +51,7 @@ import {
   isExternalUser,
 } from '../../lib/firebaseAuth';
 import dynamic from 'next/dynamic';
-import getCroppedImg, { compressImageFile } from '../../utils/cropImage';
+import getCroppedImg, { blobToDataUrl, compressImageFile } from '../../utils/cropImage';
 import {
   NAME_TITLE_OPTIONS,
   validateThaiName,
@@ -443,13 +443,20 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
         quality: 0.72,
         mimeType: 'image/jpeg',
       });
-      const storageRef = ref(storage, `profiles/${user.uid}_${Date.now()}.jpg`);
 
-      await uploadBytes(storageRef, croppedBlob, {
-        contentType: 'image/jpeg',
-        cacheControl: 'public,max-age=31536000',
-      });
-      const url = await getDownloadURL(storageRef);
+      let url = '';
+      try {
+        const storageRef = ref(storage, `profiles/${user.uid}_${Date.now()}.jpg`);
+        await uploadBytes(storageRef, croppedBlob, {
+          contentType: 'image/jpeg',
+          cacheControl: 'public,max-age=31536000',
+        });
+        url = await getDownloadURL(storageRef);
+      } catch (storageErr) {
+        // Fallback อัตโนมัติเมื่อ Firebase Storage โควต้าเต็มหรือ Billing ถูกปิด (storage/quota-exceeded)
+        console.warn('[ProfileEditDialog] Storage upload fallback to compressed Data URL:', storageErr);
+        url = await blobToDataUrl(croppedBlob);
+      }
 
       setFormData((prev) => ({ ...prev, photoURL: url }));
       setCropModalOpen(false);
@@ -826,13 +833,20 @@ const ProfileEditDialog: React.FC<ProfileEditDialogProps> = ({
                 <Label htmlFor="photoURL">URL รูปโปรไฟล์</Label>
                 <Input
                   id="photoURL"
-                  value={formData.photoURL}
+                  value={formData.photoURL.startsWith('data:') ? '' : formData.photoURL}
                   onChange={(e) => handleInputChange('photoURL', e.target.value)}
-                  placeholder="https://example.com/photo.jpg"
+                  placeholder={
+                    formData.photoURL.startsWith('data:')
+                      ? 'ใช้รูปโปรไฟล์ที่อัปโหลดแล้ว (หรือวางลิงก์ https://... เพื่อเปลี่ยน)'
+                      : 'https://example.com/photo.jpg'
+                  }
                   className={cn(validationErrors.photoURL && 'border-destructive')}
                 />
                 <p className={cn('text-xs', validationErrors.photoURL ? 'text-destructive' : 'text-muted-foreground')}>
-                  {validationErrors.photoURL || 'ลิงก์รูปภาพสำหรับโปรไฟล์ (ไม่บังคับ)'}
+                  {validationErrors.photoURL ||
+                    (formData.photoURL.startsWith('data:')
+                      ? 'อัปโหลดรูปโปรไฟล์เรียบร้อยแล้ว — กดปุ่ม "บันทึกข้อมูล" ด้านล่างเพื่อยืนยัน'
+                      : 'ลิงก์รูปภาพสำหรับโปรไฟล์ (ไม่บังคับ)')}
                 </p>
               </div>
             </div>

@@ -15,6 +15,7 @@ import { doc, updateDoc, serverTimestamp, collection, getDocs, query, where, onS
 import { adminDb as db } from '../../lib/firebaseAdminClient';
 import { adminStorage as storage } from '../../lib/firebaseAdminStorage';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { compressImageFile } from '../../utils/cropImage';
 import MagnificImageDialog from './MagnificImageDialog';
 import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
 
@@ -180,15 +181,28 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
   const [bgTargetActivity, setBgTargetActivity] = useState<Activity | null>(null);
   const [removingBgId, setRemovingBgId] = useState<string | null>(null);
 
-  // Upload the generated background to Storage, then save its URL on the activity doc
+  // Upload the generated background to Storage (with compressed Data URL fallback on quota error)
   const handleUseQrBackground = useCallback(async (file: File) => {
     if (!bgTargetActivity) return;
     const dept = bgTargetActivity.department || currentAdmin.department;
-    const ext = file.name.split('.').pop() || 'jpg';
-    const path = `banners/${dept}/qrbg_${bgTargetActivity.activityCode}_${Date.now()}.${ext}`;
-    const r = ref(storage, path);
-    await uploadBytes(r, file);
-    const url = await getDownloadURL(r);
+    const { blob, dataUrl } = await compressImageFile(file, {
+      maxEdge: 1200,
+      quality: 0.74,
+      mimeType: 'image/jpeg',
+    });
+    let url = dataUrl;
+    try {
+      const path = `banners/${dept}/qrbg_${bgTargetActivity.activityCode}_${Date.now()}.jpg`;
+      const r = ref(storage, path);
+      await uploadBytes(r, blob, {
+        contentType: 'image/jpeg',
+        cacheControl: 'public,max-age=31536000',
+      });
+      url = await getDownloadURL(r);
+    } catch (storageErr) {
+      console.warn('[ShortLinkDynamicQRPanel] QR background storage fallback to Data URL:', storageErr);
+      url = dataUrl;
+    }
 
     await updateDoc(doc(db, 'activityQRCodes', bgTargetActivity.id), {
       dynamicQrBgUrl: url,
@@ -620,19 +634,32 @@ export default function ShortLinkDynamicQRPanel({ currentAdmin }: Props) {
       setSnack({ message: 'กรุณาเลือกไฟล์รูปภาพเท่านั้น', type: 'error' });
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setSnack({ message: 'ขนาดรูปต้องไม่เกิน 5MB', type: 'error' });
+    if (file.size > 12 * 1024 * 1024) {
+      setSnack({ message: 'ขนาดรูปต้องไม่เกิน 12MB', type: 'error' });
       return;
     }
     setUploadingAdImage(true);
     try {
-      const dept = currentAdmin.department || 'all';
-      const code = (generalCodeInput || editingGeneralLink?.customCode || 'ad').trim().toUpperCase() || 'AD';
-      const ext = file.name.split('.').pop() || 'jpg';
-      const path = `shortlink-ads/${dept}/${code}_${Date.now()}.${ext}`;
-      const r = ref(storage, path);
-      await uploadBytes(r, file);
-      const url = await getDownloadURL(r);
+      const { blob, dataUrl } = await compressImageFile(file, {
+        maxEdge: 1200,
+        quality: 0.74,
+        mimeType: 'image/jpeg',
+      });
+      let url = dataUrl;
+      try {
+        const dept = currentAdmin.department || 'all';
+        const code = (generalCodeInput || editingGeneralLink?.customCode || 'ad').trim().toUpperCase() || 'AD';
+        const path = `shortlink-ads/${dept}/${code}_${Date.now()}.jpg`;
+        const r = ref(storage, path);
+        await uploadBytes(r, blob, {
+          contentType: 'image/jpeg',
+          cacheControl: 'public,max-age=31536000',
+        });
+        url = await getDownloadURL(r);
+      } catch (storageErr) {
+        console.warn('[ShortLinkDynamicQRPanel] Ad image storage fallback to Data URL:', storageErr);
+        url = dataUrl;
+      }
       setGeneralAdImageUrl(url);
       setSnack({ message: 'อัปโหลดรูปโฆษณาสำเร็จ', type: 'success' });
     } catch (e: any) {

@@ -83,7 +83,10 @@ export function toActivityListItem(
     maxParticipants: typeof data.maxParticipants === 'number' ? data.maxParticipants : 0,
     currentParticipants:
       typeof data.currentParticipants === 'number' ? data.currentParticipants : 0,
-    bannerUrl: bannerUrl && !bannerUrl.startsWith('data:') ? bannerUrl : undefined,
+    bannerUrl:
+      bannerUrl && (!bannerUrl.startsWith('data:') || bannerUrl.length < 450_000)
+        ? bannerUrl
+        : undefined,
     bannerColor: typeof data.bannerColor === 'string' ? data.bannerColor : undefined,
     bannerAspect: typeof data.bannerAspect === 'string' ? data.bannerAspect : 'cover',
     closeReason: typeof data.closeReason === 'string' ? data.closeReason : undefined,

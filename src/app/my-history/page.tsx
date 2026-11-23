@@ -639,8 +639,8 @@ const MyHistoryPage: React.FC = () => {
                       const hasDetails = fileCount > 0 || (record.sessions && record.sessions.length > 0);
                       const safeBannerUrl =
                         record.bannerUrl &&
-                        !record.bannerUrl.startsWith('data:') &&
-                        (record.bannerUrl.includes('firebasestorage.googleapis.com') ||
+                        ((record.bannerUrl.startsWith('data:image/') && record.bannerUrl.length < 450_000) ||
+                          record.bannerUrl.includes('firebasestorage.googleapis.com') ||
                           record.bannerUrl.includes('lh3.googleusercontent.com'))
                           ? record.bannerUrl
                           : undefined;
