@@ -616,10 +616,6 @@ export default function RegisterClient({
       setActionError('กรุณาอยู่ในรัศมีพื้นที่กิจกรรมและตรวจพิกัดให้ผ่านก่อนกดยืนยัน');
       return;
     }
-    if (activity.userCode && !userCodeInput.trim()) {
-      setActionError('กรุณากรอกรหัสยืนยันเข้าร่วมกิจกรรมที่ได้รับหน้างาน');
-      return;
-    }
 
     setSubmitting(true);
     try {
@@ -1154,24 +1150,7 @@ export default function RegisterClient({
                   </div>
                 )}
 
-                {/* 3) User Code (เฉพาะกิจกรรมที่ตั้งรหัสยืนยันหน้างาน) */}
-                {activity.userCode && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="user-code-input" className="flex items-center gap-1.5 text-xs font-bold">
-                      <KeyRound className="h-3.5 w-3.5 text-primary" />
-                      รหัสยืนยันเข้าร่วมกิจกรรม *
-                    </Label>
-                    <Input
-                      id="user-code-input"
-                      value={userCodeInput}
-                      onChange={(e) => setUserCodeInput(e.target.value)}
-                      placeholder="กรอกรหัสที่ได้รับจากผู้จัดงาน"
-                      className="h-11 rounded-xl font-mono text-base"
-                    />
-                  </div>
-                )}
-
-                {/* 4) 1-Tap Submit CTA */}
+                {/* 3) 1-Tap Submit CTA */}
                 <Button
                   type="button"
                   size="lg"

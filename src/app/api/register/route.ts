@@ -175,14 +175,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ตรวจรหัสยืนยันหน้างาน (ถ้าตั้งไว้)
+      // userCode เป็นรหัสภายในของกิจกรรม (สร้างอัตโนมัติจาก QRCodeAdminPanel) ไม่ใช่รหัสให้นักศึกษากรอกเอง
       const expectedUserCode = String(act.userCode || '').trim();
-      if (expectedUserCode) {
-        const supplied = String(body?.userCode || '').trim();
-        if (supplied.toLowerCase() !== expectedUserCode.toLowerCase()) {
-          throw new Error('INVALID_USER_CODE');
-        }
-      }
 
       // ตรวจวันเวลาเปิดรับ / รอบย่อย
       const now = new Date();
