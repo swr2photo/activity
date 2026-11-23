@@ -494,7 +494,11 @@ export const signInWithMicrosoft = async (): Promise<{
   provider.addScope('openid');
   provider.addScope('email');
   provider.addScope('profile');
-  provider.setCustomParameters({ prompt: 'select_account' });
+  provider.setCustomParameters({
+    tenant: 'psu.ac.th',
+    domain_hint: 'psu.ac.th',
+    prompt: 'select_account',
+  });
 
   const result = await signInWithPopupOrRedirect(provider);
   try {
