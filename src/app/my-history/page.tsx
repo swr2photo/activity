@@ -18,6 +18,7 @@ import Footer from '@/components/Footer';
 import AuroraBackground from '@/components/graphics/AuroraBackground';
 import ScienceOrbit from '@/components/graphics/ScienceOrbit';
 import EmptyIllustration from '@/components/graphics/EmptyIllustration';
+import { formatThai } from '@/lib/datetime';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
@@ -56,13 +57,13 @@ type RegistrationRecord = {
 type FilterKey = 'all' | 'survey' | 'files';
 
 const formatDate = (d: Date) =>
-  d.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+  formatThai(d, { year: 'numeric', month: 'long', day: 'numeric' });
 
 const formatTime = (d: Date) =>
-  d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  formatThai(d, { hour: '2-digit', minute: '2-digit' });
 
 const formatShortDate = (d: Date) =>
-  d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+  formatThai(d, { day: 'numeric', month: 'short', year: '2-digit' });
 
 function looksLikeRawActivityCode(value: string) {
   const s = (value || '').trim();

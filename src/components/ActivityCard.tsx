@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getDepartmentLabel } from '@/types/admin';
 import { cn } from '@/lib/utils';
+import { TH_LOCALE, thDateFormat } from '@/lib/datetime';
 
 type ActivityCardProps = {
   id: string;
@@ -36,16 +37,16 @@ const toDate = (d: any): Date | null => {
   return Number.isNaN(dd.getTime()) ? null : dd;
 };
 
-// สร้าง formatter ครั้งเดียว (Intl ถูกกว่า toLocaleString ที่สร้างใหม่ทุกครั้ง)
-const dateTimeFmt = new Intl.DateTimeFormat('th-TH', {
+// สร้าง formatter ครั้งเดียว + ล็อกเวลาไทย ให้ SSR (UTC) และ client ได้ข้อความตรงกัน
+const dateTimeFmt = thDateFormat({
   year: '2-digit',
   month: 'short',
   day: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
 });
-const dayFmt = new Intl.DateTimeFormat('th-TH', { day: 'numeric' });
-const monthFmt = new Intl.DateTimeFormat('th-TH', { month: 'short' });
+const dayFmt = thDateFormat({ day: 'numeric' });
+const monthFmt = thDateFormat({ month: 'short' });
 
 const formatDateTime = (d: Date | null) => (d ? dateTimeFmt.format(d) : '-');
 
@@ -240,7 +241,7 @@ const ActivityCard: React.FC<ActivityCardProps> = ({
                     percent >= 90 ? 'bg-rose-500/10 text-rose-600' : 'bg-muted text-foreground'
                   )}
                 >
-                  {cur.toLocaleString()} / {max.toLocaleString()}
+                  {cur.toLocaleString(TH_LOCALE)} / {max.toLocaleString(TH_LOCALE)}
                 </span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-muted">

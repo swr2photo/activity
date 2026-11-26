@@ -6,6 +6,7 @@ import { getAdminDb } from '../../../lib/firebaseAdmin';
 import * as admin from 'firebase-admin';
 import FullPageError from '../../../components/common/FullPageError';
 import AdInterstitial from '../../../components/shortlink/AdInterstitial';
+import { formatThai } from '../../../lib/datetime';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -137,7 +138,7 @@ function checkLinkAccess(docData: any): {
 
 function renderErrorPage(reason: 'disabled' | 'not-started' | 'expired', details?: any) {
   const timeStr = details
-    ? new Date(details).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })
+    ? formatThai(new Date(details), { dateStyle: 'medium', timeStyle: 'short' })
     : '';
 
   if (reason === 'disabled') {

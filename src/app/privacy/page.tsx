@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { pageLayoutClass, glassCardClass } from '@/lib/uiTheme';
 import { cn } from '@/lib/utils';
+import { formatThai } from '@/lib/datetime';
 
 const sections: { title: string; body: React.ReactNode }[] = [
   {
@@ -99,9 +100,10 @@ export default function PrivacyPage() {
         <h1 className="mb-1 text-3xl font-black tracking-tight text-[var(--page-text)] md:text-4xl">
           นโยบายความเป็นส่วนตัว
         </h1>
-        <p className="mb-6 text-sm text-[var(--page-text-secondary)]">
+        {/* หน้านี้ prerender ตอน build: วันที่ฝั่ง client ต่างจากตอน build ได้ จึงปิดคำเตือน hydration เฉพาะจุดนี้ */}
+        <p className="mb-6 text-sm text-[var(--page-text-secondary)]" suppressHydrationWarning>
           อัปเดตล่าสุด:{' '}
-          {new Date().toLocaleDateString('th-TH', {
+          {formatThai(new Date(), {
             year: 'numeric',
             month: 'long',
             day: 'numeric',

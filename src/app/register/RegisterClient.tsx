@@ -41,6 +41,7 @@ import {
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import AuroraBackground from '@/components/graphics/AuroraBackground';
+import { formatThai } from '@/lib/datetime';
 import ScienceOrbit from '@/components/graphics/ScienceOrbit';
 import FullPageError from '@/components/common/FullPageError';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -121,7 +122,7 @@ const toDateSafe = (d: any): Date | null => {
 const formatDateTime = (d: any) => {
   const dd = toDateSafe(d);
   if (!dd) return '-';
-  return dd.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+  return formatThai(dd, { dateStyle: 'medium', timeStyle: 'short' });
 };
 
 type StatusKind = 'active' | 'upcoming' | 'full' | 'ended' | 'inactive';
