@@ -120,9 +120,9 @@ export default function TeamSettingsHub({
               type="button"
               onClick={() => selectTab(t.id)}
               className={cn(
-                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all',
+                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-[background-color,color,box-shadow,scale] duration-300 active:scale-95',
                 isActive
-                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  ? 'bg-brand-gradient text-white shadow-[0_6px_16px_-6px_rgba(10,107,207,0.6)]'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )}
             >
@@ -134,19 +134,19 @@ export default function TeamSettingsHub({
       </div>
 
       {visited.has('admins') && canManageAdmins && (
-        <div className={activeTab === 'admins' ? 'block' : 'hidden'}>
+        <div className={activeTab === 'admins' ? 'block animate-section' : 'hidden'}>
           <AdminManagement currentAdmin={currentAdmin} />
         </div>
       )}
 
       {visited.has('settings') && canSystemSettings && (
-        <div className={activeTab === 'settings' ? 'block' : 'hidden'}>
+        <div className={activeTab === 'settings' ? 'block animate-section' : 'hidden'}>
           <SystemSettingsPanel currentAdmin={currentAdmin} />
         </div>
       )}
 
       {visited.has('logs') && canViewLogs && (
-        <div className={activeTab === 'logs' ? 'block' : 'hidden'}>
+        <div className={activeTab === 'logs' ? 'block animate-section' : 'hidden'}>
           <AdminLogsPanel currentAdmin={currentAdmin} />
         </div>
       )}

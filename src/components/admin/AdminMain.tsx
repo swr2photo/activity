@@ -9,43 +9,93 @@ import type { AdminProfile } from '../../types/admin';
 import type { ActivitiesHubTab } from './ActivitiesHubPanel';
 import type { TeamSettingsTab } from './TeamSettingsHub';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Spinner } from '@/components/ui/spinner';
+import { Skeleton } from '@/components/ui/skeleton';
+import ScienceOrbit from '@/components/graphics/ScienceOrbit';
 
 const PanelLoader = () => (
-  <div className="flex min-h-[320px] items-center justify-center">
-    <Spinner size="lg" />
+  <div className="space-y-5" aria-busy="true" aria-label="กำลังโหลด">
+    <div className="flex items-center gap-3">
+      <ScienceOrbit className="h-12 w-12" />
+      <div className="flex-1 space-y-2">
+        <Skeleton className="h-6 w-56 rounded-lg" />
+        <Skeleton className="h-4 w-80 max-w-full rounded-lg" />
+      </div>
+    </div>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <Skeleton className="h-28 rounded-2xl" />
+      <Skeleton className="h-28 rounded-2xl" />
+      <Skeleton className="h-28 rounded-2xl" />
+    </div>
+    <Skeleton className="h-72 rounded-2xl" />
   </div>
 );
 
 // Code-split ทุกหน้าแอดมินด้วย next/dynamic (ลดโหลด JS เริ่มต้นจาก >1.8 MB เหลือเฉพาะหน้าปัจจุบัน)
+const loadDashboard = () => import('./DepartmentDashboard');
+const loadActivitiesHub = () => import('./ActivitiesHubPanel');
+const loadShortLinks = () => import('./ShortLinkDynamicQRPanel');
+const loadUsers = () => import('./AdminUserManagement');
+const loadTeamSettings = () => import('./TeamSettingsHub');
+const loadProfile = () => import('./AdminProfileEditor');
+
 const DepartmentDashboard = dynamic(
-  () => import('./DepartmentDashboard').then((m) => m.DepartmentDashboard),
+  () => loadDashboard().then((m) => m.DepartmentDashboard),
   { ssr: false, loading: PanelLoader }
 );
-const ActivitiesHubPanel = dynamic(() => import('./ActivitiesHubPanel'), {
-  ssr: false,
-  loading: PanelLoader,
-});
-const ShortLinkDynamicQRPanel = dynamic(() => import('./ShortLinkDynamicQRPanel'), {
-  ssr: false,
-  loading: PanelLoader,
-});
-const AdminUserManagement = dynamic(() => import('./AdminUserManagement'), {
-  ssr: false,
-  loading: PanelLoader,
-});
-const TeamSettingsHub = dynamic(() => import('./TeamSettingsHub'), {
-  ssr: false,
-  loading: PanelLoader,
-});
-const AdminProfileEditor = dynamic(() => import('./AdminProfileEditor'), {
-  ssr: false,
-  loading: PanelLoader,
-});
+const ActivitiesHubPanel = dynamic(loadActivitiesHub, { ssr: false, loading: PanelLoader });
+const ShortLinkDynamicQRPanel = dynamic(loadShortLinks, { ssr: false, loading: PanelLoader });
+const AdminUserManagement = dynamic(loadUsers, { ssr: false, loading: PanelLoader });
+const TeamSettingsHub = dynamic(loadTeamSettings, { ssr: false, loading: PanelLoader });
+const AdminProfileEditor = dynamic(loadProfile, { ssr: false, loading: PanelLoader });
 
-const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="p-3 sm:p-5 lg:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-4 sm:space-y-6 overflow-x-hidden">
-    <div className="w-full min-w-0">{children}</div>
+/**
+ * โหลด chunk ของเมนูอื่นล่วงหน้าตอนเบราว์เซอร์ว่าง (หลังหน้าปัจจุบันพร้อมแล้ว)
+ * → กดสลับเมนูแล้วขึ้นทันที โดยไม่แย่งแบนด์วิดท์ตอนโหลดครั้งแรก
+ */
+function usePrefetchPanels() {
+  useEffect(() => {
+    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
+    if (nav.connection?.saveData) return;
+    const queue = [loadActivitiesHub, loadShortLinks, loadUsers, loadTeamSettings, loadProfile];
+    let cancelled = false;
+    const w = window as typeof window & {
+      requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const schedule = (fn: () => void) =>
+      w.requestIdleCallback ? w.requestIdleCallback(fn, { timeout: 4000 }) : window.setTimeout(fn, 1500);
+    let handle = 0;
+    const next = () => {
+      if (cancelled) return;
+      const load = queue.shift();
+      if (!load) return;
+      void load()
+        .catch(() => {})
+        .finally(() => {
+          handle = schedule(next);
+        });
+    };
+    const startTimer = window.setTimeout(() => {
+      handle = schedule(next);
+    }, 2500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(startTimer);
+      if (w.cancelIdleCallback) w.cancelIdleCallback(handle);
+      else window.clearTimeout(handle);
+    };
+  }, []);
+}
+
+const PageWrapper: React.FC<{ children: React.ReactNode; sectionKey: string }> = ({
+  children,
+  sectionKey,
+}) => (
+  <div className="p-3 sm:p-5 lg:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-4 sm:space-y-6 overflow-x-clip">
+    {/* key ตามเมนู → เนื้อหาเลื่อนขึ้นนุ่ม ๆ ทุกครั้งที่สลับหน้า */}
+    <div key={sectionKey} className="w-full min-w-0 animate-section">
+      {children}
+    </div>
   </div>
 );
 
@@ -109,6 +159,8 @@ export const AdminMain: React.FC<AdminMainProps> = React.memo(function AdminMain
     initial.activitiesTab ?? 'manage'
   );
   const [teamTab, setTeamTab] = useState<TeamSettingsTab>(initial.teamTab ?? 'admins');
+
+  usePrefetchPanels();
 
   useEffect(() => {
     if (initialSection) {
@@ -188,7 +240,7 @@ export const AdminMain: React.FC<AdminMainProps> = React.memo(function AdminMain
       onSectionChange={handleSectionChange}
       onLogout={onLogout}
     >
-      <PageWrapper>{renderContent()}</PageWrapper>
+      <PageWrapper sectionKey={activeSection}>{renderContent()}</PageWrapper>
     </AdminLayout>
   );
 });

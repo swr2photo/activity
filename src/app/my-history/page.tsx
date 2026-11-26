@@ -15,6 +15,9 @@ import { useAuth } from '../../lib/firebaseAuth';
 import { getSurveyWindowStatus, surveyStatusLabelTh } from '../../lib/surveyWindow';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import AuroraBackground from '@/components/graphics/AuroraBackground';
+import ScienceOrbit from '@/components/graphics/ScienceOrbit';
+import EmptyIllustration from '@/components/graphics/EmptyIllustration';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useAlertDialog } from '@/components/providers/ConfirmDialogProvider';
@@ -453,13 +456,14 @@ const MyHistoryPage: React.FC = () => {
 
   if (!user) {
     return pageShell(
-      <div className="flex flex-grow items-center justify-center px-4 py-20">
-        <div className="w-full max-w-[420px] rounded-3xl border border-[var(--page-border)] bg-[var(--page-card-solid)] p-8 text-center shadow-[var(--page-shadow)] sm:p-10">
-          <div
-            className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-[18px]"
-            style={{ background: 'linear-gradient(145deg, #0a6bcf 0%, #1aa35a 100%)' }}
-          >
-            <HistoryIcon.History className="h-8 w-8 text-white" />
+      <div className="relative isolate flex flex-grow items-center justify-center overflow-hidden px-4 py-20">
+        <AuroraBackground />
+        <div className="relative w-full max-w-[420px] animate-scale-in rounded-3xl border border-[var(--page-border)] bg-[var(--page-card-solid)] p-8 text-center shadow-[var(--page-shadow-lg)] sm:p-10">
+          <div className="relative mx-auto mb-6 flex h-24 w-24 items-center justify-center">
+            <ScienceOrbit className="absolute inset-0 h-full w-full opacity-70" />
+            <div className="relative flex h-14 w-14 animate-float items-center justify-center rounded-[18px] bg-brand-gradient shadow-[0_12px_28px_-10px_rgba(10,107,207,0.7)]">
+              <HistoryIcon.History className="h-7 w-7 text-white" />
+            </div>
           </div>
           <h1 className="mb-2 text-xl font-extrabold tracking-tight sm:text-2xl">ประวัติการลงทะเบียน</h1>
           <p className="mb-6 text-sm leading-relaxed text-[var(--page-text-secondary)]">
@@ -468,7 +472,7 @@ const MyHistoryPage: React.FC = () => {
           <div className="flex flex-col gap-3">
             <Button
               size="lg"
-              className="w-full rounded-[14px] bg-[#0a6bcf] py-3 font-bold shadow-[0_8px_20px_rgba(10,107,207,0.28)] hover:bg-[#0858ad]"
+              className="shine w-full rounded-[14px] bg-brand-gradient py-3 font-bold text-white shadow-[0_10px_24px_-10px_rgba(10,107,207,0.7)] hover:bg-transparent"
               onClick={userLogin}
             >
               <HistoryIcon.Login />
@@ -563,9 +567,9 @@ const MyHistoryPage: React.FC = () => {
                   type="button"
                   onClick={() => setFilter(f.key)}
                   className={cn(
-                    'h-8 shrink-0 rounded-[10px] border px-3 text-[0.8rem] font-bold transition-colors',
+                    'h-8 shrink-0 rounded-full border px-3.5 text-[0.8rem] font-bold transition-[background-color,border-color,color,box-shadow,scale] duration-300 active:scale-95',
                     active
-                      ? 'border-[#0a6bcf] bg-[#0a6bcf] text-white hover:bg-[#0858ad]'
+                      ? 'border-transparent bg-brand-gradient text-white shadow-[0_6px_16px_-6px_rgba(10,107,207,0.6)]'
                       : 'border-[var(--page-border)] bg-[var(--page-card-solid)] text-[var(--page-text)] hover:bg-[color-mix(in_srgb,var(--page-card)_80%,#0a6bcf)]'
                   )}
                 >
@@ -579,8 +583,11 @@ const MyHistoryPage: React.FC = () => {
 
       <div className="mx-auto mt-6 max-w-3xl px-4">
         {filteredRecords.length === 0 ? (
-          <div className="px-4 py-20 text-center">
-            <HistoryIcon.Info className="mx-auto mb-4 h-14 w-14 text-[var(--page-text-secondary)] opacity-45" />
+          <div className="animate-scale-in px-4 py-16 text-center">
+            <EmptyIllustration
+              kind={records.length === 0 ? 'calendar' : 'search'}
+              className="mx-auto mb-4 h-36 w-52 text-[var(--page-text)]"
+            />
             <h2 className="mb-2 text-lg font-extrabold">
               {records.length === 0
                 ? 'ยังไม่มีประวัติ'
@@ -596,7 +603,7 @@ const MyHistoryPage: React.FC = () => {
                 : 'ลองเปลี่ยนตัวกรองหรือคำค้นหา'}
             </p>
             {records.length === 0 ? (
-              <Button asChild className="rounded-xl bg-[#0a6bcf] px-8 font-bold hover:bg-[#0858ad]">
+              <Button asChild className="shine rounded-xl bg-brand-gradient px-8 font-bold text-white hover:bg-transparent">
                 <Link href="/">ดูกิจกรรมทั้งหมด</Link>
               </Button>
             ) : (
@@ -613,9 +620,9 @@ const MyHistoryPage: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="space-y-6">
-            {groupedByDate.map((group) => (
-              <div key={group.key}>
+          <div className="stagger space-y-6">
+            {groupedByDate.map((group, gi) => (
+              <div key={group.key} style={{ '--i': gi } as React.CSSProperties}>
                 <div className="mb-3 flex items-center gap-2 px-1">
                   <HistoryIcon.DayGroup className="text-[var(--page-text-secondary)]" size="md" />
                   <span className="text-xs font-extrabold text-[var(--page-text-secondary)]">{group.label}</span>
