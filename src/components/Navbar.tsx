@@ -376,14 +376,9 @@ const Navbar: React.FC = () => {
                   className="group flex min-w-0 shrink-0 items-center gap-3 no-underline"
                   aria-label="PSU REGISTER หน้าแรก"
                 >
-                  <div
-                    className="flex h-11 w-11 items-center justify-center rounded-xl text-primary-foreground shadow-sm transition-transform group-hover:scale-[1.03]"
-                    style={{
-                      background:
-                        'linear-gradient(145deg, #0a6bcf 0%, #0d4f8a 55%, #0b3d6b 100%)',
-                    }}
-                  >
-                    <FlaskConical className="h-5 w-5" />
+                  <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-[0_8px_20px_-8px_rgba(10,107,207,0.7)] transition-[rotate,scale] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[-8deg] group-hover:scale-105">
+                    <FlaskConical className="h-5 w-5 transition-transform duration-500 group-hover:animate-wiggle" />
+                    <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--page-card-solid)] bg-emerald-400" />
                   </div>
                   <div className="flex min-w-0 flex-col leading-none">
                     <span className="text-[1.05rem] font-black tracking-tight text-[var(--page-text)]">
@@ -418,10 +413,11 @@ const Navbar: React.FC = () => {
                           variant="ghost"
                           size="sm"
                           className={cn(
-                            'h-9 rounded-lg px-3.5 text-sm font-bold transition-colors',
+                            'relative h-9 rounded-lg px-3.5 text-sm font-bold active:scale-100',
+                            'after:absolute after:inset-x-3 after:bottom-1 after:h-[2px] after:origin-center after:rounded-full after:bg-brand-gradient after:transition-transform after:duration-300 after:ease-[cubic-bezier(0.16,1,0.3,1)]',
                             active
-                              ? 'bg-[var(--page-card-solid)] text-[var(--page-text)] shadow-sm'
-                              : 'text-muted-foreground hover:bg-transparent hover:text-[var(--page-text)]'
+                              ? 'bg-[var(--page-card-solid)] text-primary shadow-sm after:scale-x-100'
+                              : 'text-muted-foreground after:scale-x-0 hover:bg-transparent hover:text-[var(--page-text)] hover:after:scale-x-50'
                           )}
                         >
                           <Link href={link.path} aria-current={active ? 'page' : undefined}>
@@ -495,9 +491,10 @@ const Navbar: React.FC = () => {
                         )}
                       >
                         <span
+                          key={isActive ? 'on' : 'off'}
                           className={cn(
-                            'inline-flex rounded-lg p-1 transition-transform duration-200',
-                            isActive && 'bg-primary/10'
+                            'inline-flex rounded-xl px-3 py-1 transition-colors duration-300',
+                            isActive && 'animate-pop-in bg-primary/12'
                           )}
                         >
                           <Icon className={cn('h-5 w-5', isActive && 'text-primary')} />

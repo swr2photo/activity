@@ -40,6 +40,9 @@ import {
 
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import AuroraBackground from '@/components/graphics/AuroraBackground';
+import { formatThai } from '@/lib/datetime';
+import ScienceOrbit from '@/components/graphics/ScienceOrbit';
 import FullPageError from '@/components/common/FullPageError';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -119,7 +122,7 @@ const toDateSafe = (d: any): Date | null => {
 const formatDateTime = (d: any) => {
   const dd = toDateSafe(d);
   if (!dd) return '-';
-  return dd.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+  return formatThai(dd, { dateStyle: 'medium', timeStyle: 'short' });
 };
 
 type StatusKind = 'active' | 'upcoming' | 'full' | 'ended' | 'inactive';
@@ -692,9 +695,10 @@ export default function RegisterClient({
     return (
       <div className={cn(pageLayoutClass, 'flex min-h-screen flex-col')}>
         <Navbar />
-        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-3 px-4 py-16">
-          <Spinner size="lg" />
-          <p className="text-sm font-medium text-muted-foreground">กำลังโหลดข้อมูลกิจกรรม...</p>
+        <div className="relative isolate mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-3 overflow-hidden px-4 py-16">
+          <AuroraBackground grid={false} />
+          <ScienceOrbit className="h-28 w-28 animate-float" />
+          <p className="animate-blink text-sm font-semibold text-muted-foreground">กำลังโหลดข้อมูลกิจกรรม...</p>
         </div>
         <Footer />
       </div>
@@ -767,27 +771,48 @@ export default function RegisterClient({
             : 'ปิดรับชั่วคราว';
 
   return (
-    <div className={cn(pageLayoutClass, 'flex min-h-screen flex-col')}>
+    <div className={cn(pageLayoutClass, 'relative flex min-h-screen flex-col')}>
       <Navbar />
 
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-24 pt-4 md:pt-6 lg:pb-12">
+      {/* แสงออโรราด้านบนหน้า */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-[420px] overflow-hidden">
+        <AuroraBackground className="mask-fade-b" />
+      </div>
+
+      <main className="relative mx-auto w-full max-w-2xl flex-1 px-4 pb-24 pt-4 md:pt-6 lg:pb-12">
         {/* 1. Compact Banner + Essential Summary */}
-        <Card className={cn(glassCardClass, 'mb-4 overflow-hidden border-0 p-0 shadow-sm')}>
+        <Card className={cn(glassCardClass, 'mb-4 animate-fade-up overflow-hidden border-0 p-0 shadow-[var(--page-shadow-lg)]')}>
           <div
-            className="relative h-[150px] overflow-hidden sm:h-[190px]"
-            style={{ backgroundColor: activity.bannerColor || '#1e293b' }}
+            className="relative h-[160px] overflow-hidden sm:h-[200px]"
+            style={{
+              background: activity.bannerColor
+                ? `linear-gradient(135deg, ${activity.bannerColor}, color-mix(in srgb, ${activity.bannerColor} 50%, #050914))`
+                : 'linear-gradient(120deg, #0a6bcf, #06b6d4 60%, #10b981)',
+            }}
           >
-            {activity.bannerUrl && (
+            {activity.bannerUrl ? (
               <>
                 <Image
                   src={activity.bannerUrl}
                   alt={activity.activityName}
                   fill
                   priority
+                  fetchPriority="high"
+                  unoptimized={activity.bannerUrl.startsWith('data:')}
                   sizes="(max-width: 768px) 100vw, 672px"
+                  className="animate-[scale-in_1.2s_cubic-bezier(0.16,1,0.3,1)_both]"
                   style={{ objectFit: activity.bannerAspect === 'contain' ? 'contain' : 'cover' }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
+              </>
+            ) : (
+              <>
+                <div aria-hidden className="absolute inset-0 bg-dots text-white opacity-40" />
+                <ScienceOrbit
+                  tone="light"
+                  className="absolute -right-6 -top-8 h-44 w-44 animate-float opacity-80 sm:h-52 sm:w-52"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent" />
               </>
             )}
 
@@ -838,7 +863,7 @@ export default function RegisterClient({
         </Card>
 
         {/* 2. PRIMARY ACTION CARD — อยู่บนสุดทันที (Action-First 1–2 แตะ) */}
-        <Card className={cn(glassCardClass, 'mb-5 border border-primary/15 shadow-md')}>
+        <Card className={cn(glassCardClass, 'mb-5 animate-fade-up border border-primary/15 shadow-md [animation-delay:120ms]')}>
           <CardContent className="space-y-4 p-4 sm:p-6">
             {/* Step Progress Strip */}
             {statusInfo?.status === 'active' && !stepDone && (

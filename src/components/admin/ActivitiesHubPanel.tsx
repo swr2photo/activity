@@ -125,9 +125,9 @@ export default function ActivitiesHubPanel({
               type="button"
               onClick={() => selectTab(t.id)}
               className={cn(
-                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all',
+                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-[background-color,color,box-shadow,scale] duration-300 active:scale-95',
                 isActive
-                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  ? 'bg-brand-gradient text-white shadow-[0_6px_16px_-6px_rgba(10,107,207,0.6)]'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )}
             >
@@ -140,25 +140,25 @@ export default function ActivitiesHubPanel({
 
       {/* Keep-alive Panels (lazy-loaded เฉพาะแท็บที่ผู้ใช้กดจริง) */}
       {visited.has('manage') && canManage && (
-        <div className={activeTab === 'manage' ? 'block' : 'hidden'}>
+        <div className={activeTab === 'manage' ? 'block animate-section' : 'hidden'}>
           <QRCodeAdminPanel currentAdmin={currentAdmin} />
         </div>
       )}
 
       {visited.has('participants') && canViewReports && (
-        <div className={activeTab === 'participants' ? 'block' : 'hidden'}>
+        <div className={activeTab === 'participants' ? 'block animate-section' : 'hidden'}>
           <AdminAttendancePanel currentAdmin={currentAdmin} embedded />
         </div>
       )}
 
       {visited.has('links') && canManage && (
-        <div className={activeTab === 'links' ? 'block' : 'hidden'}>
+        <div className={activeTab === 'links' ? 'block animate-section' : 'hidden'}>
           <ShortLinkDynamicQRPanel currentAdmin={currentAdmin} />
         </div>
       )}
 
       {visited.has('surveys') && canViewReports && (
-        <div className={activeTab === 'surveys' ? 'block' : 'hidden'}>
+        <div className={activeTab === 'surveys' ? 'block animate-section' : 'hidden'}>
           <SurveyResultsPanel currentAdmin={currentAdmin} />
         </div>
       )}

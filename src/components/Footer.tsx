@@ -1,9 +1,6 @@
-'use client';
-
 import React from 'react';
 import Link from 'next/link';
-import { Mail, Phone } from 'lucide-react';
-import { Separator } from '@/components/ui/separator';
+import { FlaskConical, Mail, Phone } from 'lucide-react';
 
 const FacebookIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -17,34 +14,55 @@ const InstagramIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+// สี hover ผ่าน CSS variable — ไม่ต้องใช้ JS onMouseEnter/Leave
+const socialLinks = [
+  { label: 'Facebook PSU SCC', icon: FacebookIcon, url: 'https://www.facebook.com/psuscc', color: '#1877F2' },
+  { label: 'Instagram PSU SCC', icon: InstagramIcon, url: 'https://www.instagram.com/psuscc', color: '#E4405F' },
+  { label: 'ส่งอีเมลถึง PSU SCC', icon: Mail, url: 'mailto:psuscc@psu.ac.th', color: '#0a6bcf' },
+  { label: 'โทรหา PSU SCC', icon: Phone, url: 'tel:+66-81-2345678', color: '#10b981' },
+];
+
+/** Footer ไม่มี state/handler — ใช้ได้ทั้ง Server และ Client Component */
 const Footer: React.FC = () => {
-  const socialLinks = [
-    { label: 'Facebook PSU SCC', icon: FacebookIcon, url: 'https://www.facebook.com/psuscc', color: '#1877F2' },
-    { label: 'Instagram PSU SCC', icon: InstagramIcon, url: 'https://www.instagram.com/psuscc', color: '#E4405F' },
-    { label: 'ส่งอีเมลถึง PSU SCC', icon: Mail, url: 'mailto:psuscc@psu.ac.th', color: 'hsl(var(--primary))' },
-    { label: 'โทรหา PSU SCC', icon: Phone, url: 'tel:+66-81-2345678', color: 'hsl(var(--primary))' },
-  ];
-
   return (
-    <footer
-      className="mt-auto border-t border-border/40 bg-background/80 pt-6 pb-24 backdrop-blur-[20px] backdrop-saturate-180 lg:pb-6"
-    >
-      <div className="mx-auto w-full max-w-6xl px-4">
-        <div className="flex flex-col justify-between gap-8 md:flex-row md:items-start">
-          {/* Brand Section */}
-          <div className="flex flex-col items-center gap-1.5 md:items-start">
-            <h2 className="text-lg font-black tracking-tight text-foreground">
-              PSU REGISTER
-            </h2>
-            <p className="max-w-80 text-center text-sm leading-relaxed text-muted-foreground md:text-left">
-              ระบบลงทะเบียนกิจกรรมชุมนุม คณะวิทยาศาสตร์ <br />
-              มหาวิทยาลัยสงขลานครินทร์
-            </p>
-          </div>
+    <footer className="relative mt-auto overflow-hidden bg-[var(--page-bg)] pb-28 pt-0 lg:pb-8">
+      {/* คลื่นไล่สีด้านบน */}
+      <svg
+        aria-hidden
+        viewBox="0 0 1440 80"
+        preserveAspectRatio="none"
+        className="block h-10 w-full text-[var(--page-card-solid)] md:h-14"
+      >
+        <defs>
+          <linearGradient id="footer-wave" x1="0" x2="1">
+            <stop offset="0%" stopColor="var(--brand-1)" stopOpacity="0.25" />
+            <stop offset="50%" stopColor="var(--brand-2)" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="var(--brand-3)" stopOpacity="0.25" />
+          </linearGradient>
+        </defs>
+        <path d="M0 40 C 240 80 480 0 720 30 C 960 60 1200 10 1440 40 L1440 80 L0 80 Z" fill="url(#footer-wave)" />
+        <path d="M0 55 C 300 20 560 80 840 50 C 1080 25 1260 70 1440 50 L1440 80 L0 80 Z" fill="currentColor" />
+      </svg>
 
-          {/* Social & Contact Section */}
-          <div className="flex flex-col items-center gap-2 md:items-end">
-            <div className="flex gap-1">
+      <div className="relative bg-[var(--page-card-solid)] pb-2 pt-6">
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-dots text-[var(--page-text)] opacity-[0.35] mask-fade-b" />
+        <div className="relative mx-auto w-full max-w-6xl px-4">
+          <div className="flex flex-col justify-between gap-8 md:flex-row md:items-center">
+            {/* Brand Section */}
+            <div className="flex flex-col items-center gap-3 md:flex-row md:items-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-gradient text-white shadow-[0_10px_24px_-10px_rgba(10,107,207,0.7)]">
+                <FlaskConical className="h-6 w-6" />
+              </div>
+              <div className="text-center md:text-left">
+                <h2 className="text-lg font-black tracking-tight text-foreground">PSU REGISTER</h2>
+                <p className="max-w-80 text-sm leading-relaxed text-muted-foreground">
+                  ระบบลงทะเบียนกิจกรรม คณะวิทยาศาสตร์ มหาวิทยาลัยสงขลานครินทร์
+                </p>
+              </div>
+            </div>
+
+            {/* Social & Contact Section */}
+            <div className="flex justify-center gap-2">
               {socialLinks.map(({ label, icon: Icon, url, color }) => (
                 <a
                   key={url}
@@ -52,44 +70,38 @@ const Footer: React.FC = () => {
                   aria-label={label}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-border/20 text-muted-foreground transition-all duration-300 hover:-translate-y-0.5"
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = color;
-                    e.currentTarget.style.backgroundColor = `${color}1a`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = '';
-                    e.currentTarget.style.backgroundColor = '';
-                  }}
+                  style={{ '--c': color } as React.CSSProperties}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--page-border)] bg-[var(--page-bg)] text-muted-foreground transition-[color,background-color,border-color,translate] duration-300 hover:-translate-y-1 hover:border-[color-mix(in_srgb,var(--c)_40%,transparent)] hover:bg-[color-mix(in_srgb,var(--c)_12%,transparent)] hover:text-[var(--c)]"
                 >
                   <Icon className="h-4 w-4" />
                 </a>
               ))}
             </div>
           </div>
-        </div>
 
-        <Separator className="my-8 opacity-50" />
+          <div className="my-6 h-px bg-gradient-to-r from-transparent via-[var(--page-border)] to-transparent" />
 
-        {/* Bottom Bar */}
-        <div className="flex flex-col items-center justify-between gap-2 sm:flex-row">
-          <p className="order-2 text-xs text-muted-foreground/70 sm:order-1">
-            © {new Date().getFullYear()} Prince of Songkla University.
-          </p>
+          {/* Bottom Bar */}
+          <div className="flex flex-col items-center justify-between gap-2 sm:flex-row">
+            <p className="order-2 text-xs text-muted-foreground/80 sm:order-1">
+              © {new Date().getFullYear()} Prince of Songkla University.
+            </p>
 
-          <div className="order-1 flex gap-6 sm:order-2">
-            <Link
-              href="/privacy"
-              className="cursor-pointer text-xs text-muted-foreground/70 no-underline hover:text-primary"
-            >
-              ความเป็นส่วนตัว
-            </Link>
-            <Link
-              href="/admin"
-              className="cursor-pointer text-xs text-muted-foreground/70 no-underline hover:text-primary"
-            >
-              สำหรับแอดมิน
-            </Link>
+            <div className="order-1 flex gap-6 sm:order-2">
+              <Link
+                href="/privacy"
+                className="text-xs text-muted-foreground/80 no-underline transition-colors hover:text-primary"
+              >
+                ความเป็นส่วนตัว
+              </Link>
+              <Link
+                href="/admin"
+                prefetch={false}
+                className="text-xs text-muted-foreground/80 no-underline transition-colors hover:text-primary"
+              >
+                สำหรับแอดมิน
+              </Link>
+            </div>
           </div>
         </div>
       </div>
