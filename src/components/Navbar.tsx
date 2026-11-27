@@ -1,7 +1,7 @@
 // components/Navbar.tsx
 'use client';
 
-import React, { useEffect, useState, useCallback, startTransition } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, startTransition } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { usePathname } from 'next/navigation';
@@ -43,6 +43,8 @@ import ThemeToggle from './common/ThemeToggle';
 import { pageColors } from '@/lib/uiTheme';
 import { cn } from '@/lib/utils';
 import { optimizeAvatarUrl } from '@/utils/avatar';
+import type { IconMotion } from '@/components/icons/MotionIcon';
+import NotificationCenter from '@/components/notifications/NotificationCenter';
 
 const ProfileEditDialog = dynamic(() => import('./profile/ProfileEditDialog'), {
   ssr: false,
@@ -80,13 +82,39 @@ const GoogleLogo: React.FC<{ size?: number }> = ({ size = 22 }) => (
 );
 
 const glassNavBarClass = cn(
-  'fixed left-0 right-0 z-50',
   'backdrop-blur-[20px] backdrop-saturate-180',
-  'bg-[color-mix(in_srgb,var(--page-card-solid)_88%,transparent)]',
-  'dark:bg-[color-mix(in_srgb,var(--page-card-solid)_88%,transparent)]',
+  'bg-[color-mix(in_srgb,var(--page-card-solid)_86%,transparent)]',
   'border-[var(--page-border)]',
   'shadow-[var(--page-shadow)]'
 );
+
+/** สถานะการเลื่อนหน้า: scrolled = พ้นขอบบน, hidden = กำลังเลื่อนลง (ซ่อนแถบบนเพื่อให้พื้นที่อ่าน) */
+function useScrollState() {
+  const [scrolled, setScrolled] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let ticking = false;
+    const read = () => {
+      const y = window.scrollY;
+      setScrolled(y > 24);
+      if (Math.abs(y - lastY) > 8) {
+        setHidden(y > lastY && y > 320);
+        lastY = y;
+      }
+      ticking = false;
+    };
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(read);
+    };
+    read();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  return { scrolled, hidden };
+}
 
 /** เส้นแบ่งโซนเมนู */
 const NavZoneDivider = ({ className }: { className?: string }) => (
@@ -107,6 +135,10 @@ const Navbar: React.FC = () => {
     mq.addEventListener('change', update);
     return () => mq.removeEventListener('change', update);
   }, []);
+
+  const { scrolled, hidden } = useScrollState();
+  // หน้าแรก + ยังอยู่บนสุด → แถบโปร่งใสกลืนกับ hero สีเข้ม
+  const overHero = pathname === '/' && !scrolled && !isTabletOrMobile;
 
   const { currentAdmin, refetch } = useAdminAuth({
     defer: !pathname?.startsWith('/admin'),
@@ -172,13 +204,21 @@ const Navbar: React.FC = () => {
     }
   }, [user?.uid, refreshUserData]);
 
-  const navLinks = [
-    { label: 'หน้าแรก', path: '/', icon: Home, activeIcon: Home, match: (p: string) => p === '/' },
+  const navLinks: {
+    label: string;
+    path: string;
+    icon: typeof Home;
+    activeIcon: typeof Home;
+    motion: IconMotion;
+    match: (p: string) => boolean;
+  }[] = [
+    { label: 'หน้าแรก', path: '/', icon: Home, activeIcon: Home, motion: 'pop', match: (p: string) => p === '/' },
     {
       label: 'กิจกรรม',
       path: '/activities',
       icon: CalendarDays,
       activeIcon: CalendarDays,
+      motion: 'flip',
       match: (p: string) =>
         p === '/activities' || p.startsWith('/register') || p.startsWith('/r/'),
     },
@@ -189,6 +229,7 @@ const Navbar: React.FC = () => {
             path: '/my-history',
             icon: History,
             activeIcon: History,
+            motion: 'spin-back' as IconMotion,
             match: (p: string) => p.startsWith('/my-history'),
           },
         ]
@@ -200,11 +241,29 @@ const Navbar: React.FC = () => {
             path: '/admin',
             icon: Shield,
             activeIcon: Shield,
+            motion: 'pulse' as IconMotion,
             match: (p: string) => p.startsWith('/admin'),
           },
         ]
       : []),
   ];
+
+  // ตัวไฮไลต์เลื่อนตามเมนูที่เลือก (วัดตำแหน่งจริงของลิงก์)
+  const navRef = useRef<HTMLDivElement>(null);
+  const [indicator, setIndicator] = useState<{ x: number; w: number } | null>(null);
+  const activeIndex = navLinks.findIndex((l) => l.match(pathname || ''));
+  useLayoutEffect(() => {
+    const host = navRef.current;
+    if (!host) return;
+    const measure = () => {
+      const el = host.querySelector<HTMLElement>('[data-nav-active="true"]');
+      setIndicator(el ? { x: el.offsetLeft, w: el.offsetWidth } : null);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, [activeIndex, navLinks.length, isTabletOrMobile]);
 
   const handleConfirmLogout = async () => {
     setLogoutDialogOpen(false);
@@ -350,17 +409,23 @@ const Navbar: React.FC = () => {
     </DropdownMenu>
   ) : null;
 
+  const hideBar = hidden && !isTabletOrMobile && !menuOpen && !loginOpen;
+
   return (
     <>
       <header
         className={cn(
-          glassNavBarClass,
+          'fixed left-0 right-0 z-50 transition-[background-color,border-color,box-shadow,translate] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]',
           isTabletOrMobile
-            ? 'bottom-0 top-auto rounded-t-[1.35rem] border-t pb-[env(safe-area-inset-bottom)]'
-            : 'top-0 border-b'
+            ? cn(glassNavBarClass, 'bottom-0 top-auto rounded-t-[1.35rem] border-t pb-[env(safe-area-inset-bottom)]')
+            : cn(
+                'top-0 border-b',
+                overHero ? 'border-transparent bg-transparent text-white' : glassNavBarClass,
+                hideBar && '-translate-y-full'
+              )
         )}
       >
-        <div className="mx-auto max-w-5xl px-3 sm:px-4">
+        <div className="mx-auto max-w-6xl px-3 sm:px-4">
           <div
             className={cn(
               'flex items-center',
@@ -373,74 +438,88 @@ const Navbar: React.FC = () => {
                 {/* Zone A — Brand */}
                 <Link
                   href="/"
-                  className="group flex min-w-0 shrink-0 items-center gap-3 no-underline"
+                  className="motion-trigger group flex min-w-0 shrink-0 items-center gap-3 no-underline"
                   aria-label="PSU REGISTER หน้าแรก"
                 >
                   <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-[0_8px_20px_-8px_rgba(10,107,207,0.7)] transition-[rotate,scale] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[-8deg] group-hover:scale-105">
-                    <FlaskConical className="h-5 w-5 transition-transform duration-500 group-hover:animate-wiggle" />
-                    <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--page-card-solid)] bg-emerald-400" />
+                    <FlaskConical className="mi mi-wiggle h-5 w-5" />
                   </div>
                   <div className="flex min-w-0 flex-col leading-none">
-                    <span className="text-[1.05rem] font-black tracking-tight text-[var(--page-text)]">
+                    <span className={cn('text-[1.05rem] font-black tracking-tight transition-colors', overHero ? 'text-white' : 'text-[var(--page-text)]')}>
                       PSU REGISTER
                     </span>
-                    <span className="mt-1 text-[0.68rem] font-semibold tracking-wide text-muted-foreground">
+                    <span className={cn('mt-1 text-[0.68rem] font-semibold tracking-wide transition-colors', overHero ? 'text-white/55' : 'text-muted-foreground')}>
                       Faculty of Science
                     </span>
                   </div>
                 </Link>
 
-                <NavZoneDivider className="mx-2" />
-
-                {/* Zone B — Primary navigation */}
-                <nav
-                  aria-label="เมนูหลัก"
-                  className="flex min-w-0 flex-1 items-center"
-                >
+                {/* Zone B — Primary navigation (ไฮไลต์เลื่อนตามหน้าที่เลือก) */}
+                <nav aria-label="เมนูหลัก" className="flex min-w-0 flex-1 items-center justify-center">
                   <div
+                    ref={navRef}
                     className={cn(
-                      'inline-flex items-center gap-0.5 rounded-xl border p-1',
-                      'border-[var(--page-border)]',
-                      'bg-[color-mix(in_srgb,var(--page-bg)_70%,transparent)]'
+                      'relative inline-flex items-center gap-0.5 rounded-2xl border p-1 transition-colors duration-500',
+                      overHero
+                        ? 'border-white/12 bg-white/[0.06]'
+                        : 'border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-bg)_70%,transparent)]'
                     )}
                   >
+                    {indicator && (
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'absolute bottom-1 left-0 top-1 rounded-xl transition-[translate,width,background-color] duration-500 ease-[cubic-bezier(0.34,1.25,0.64,1)]',
+                          overHero ? 'bg-white/15' : 'bg-[var(--page-card-solid)] shadow-[0_1px_3px_rgba(15,23,42,0.08),0_6px_16px_-8px_rgba(10,107,207,0.45)]'
+                        )}
+                        style={{ width: indicator.w, translate: `${indicator.x}px 0` }}
+                      />
+                    )}
                     {navLinks.map((link) => {
                       const active = link.match(pathname || '');
+                      const Icon = link.icon;
                       return (
-                        <Button
+                        <Link
                           key={link.label}
-                          asChild
-                          variant="ghost"
-                          size="sm"
+                          href={link.path}
+                          aria-current={active ? 'page' : undefined}
+                          data-nav-active={active}
                           className={cn(
-                            'relative h-9 rounded-lg px-3.5 text-sm font-bold active:scale-100',
-                            'after:absolute after:inset-x-3 after:bottom-1 after:h-[2px] after:origin-center after:rounded-full after:bg-brand-gradient after:transition-transform after:duration-300 after:ease-[cubic-bezier(0.16,1,0.3,1)]',
+                            'motion-trigger relative z-[1] flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-sm font-bold no-underline transition-colors duration-300',
                             active
-                              ? 'bg-[var(--page-card-solid)] text-primary shadow-sm after:scale-x-100'
-                              : 'text-muted-foreground after:scale-x-0 hover:bg-transparent hover:text-[var(--page-text)] hover:after:scale-x-50'
+                              ? overHero
+                                ? 'text-white'
+                                : 'text-primary'
+                              : overHero
+                                ? 'text-white/60 hover:text-white'
+                                : 'text-muted-foreground hover:text-[var(--page-text)]'
                           )}
                         >
-                          <Link href={link.path} aria-current={active ? 'page' : undefined}>
-                            {link.label}
-                          </Link>
-                        </Button>
+                          <Icon className={cn('mi h-4 w-4', `mi-${link.motion}`)} />
+                          {link.label}
+                        </Link>
                       );
                     })}
                   </div>
                 </nav>
 
-                <NavZoneDivider />
-
                 {/* Zone C — Utilities / account */}
-                <div className="flex shrink-0 items-center gap-2">
+                <div
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5',
+                    overHero && 'text-white [&_.text-muted-foreground]:text-white/60'
+                  )}
+                >
                   <div
                     className={cn(
-                      'flex items-center gap-1 rounded-xl border px-1.5 py-1',
-                      'border-[var(--page-border)]',
-                      'bg-[color-mix(in_srgb,var(--page-bg)_70%,transparent)]'
+                      'flex items-center gap-0.5 rounded-2xl border p-1 transition-colors duration-500',
+                      overHero
+                        ? 'border-white/12 bg-white/[0.06]'
+                        : 'border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-bg)_70%,transparent)]'
                     )}
                   >
                     <ThemeToggle />
+                    <NotificationCenter className={cn('h-9 w-9', overHero && 'text-white/80 hover:bg-white/10 hover:text-white')} />
                   </div>
 
                   {authLoading ? (
@@ -455,9 +534,12 @@ const Navbar: React.FC = () => {
                     <Button
                       onClick={() => setLoginOpen(true)}
                       disabled={loginBusy}
-                      className="h-10 rounded-xl px-5 font-bold"
+                      className={cn(
+                        'motion-trigger h-10 rounded-xl px-5 font-bold',
+                        overHero && 'bg-white text-slate-900 shadow-none hover:bg-white/90'
+                      )}
                     >
-                      <LogIn className="h-4 w-4" />
+                      <LogIn className="mi mi-nudge h-4 w-4" />
                       เข้าสู่ระบบ
                     </Button>
                   )}
@@ -486,7 +568,7 @@ const Navbar: React.FC = () => {
                         href={link.path}
                         aria-current={isActive ? 'page' : undefined}
                         className={cn(
-                          'relative flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1 no-underline transition-colors',
+                          'motion-trigger relative flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1 no-underline transition-colors',
                           isActive ? 'text-primary' : 'text-muted-foreground'
                         )}
                       >
@@ -497,7 +579,7 @@ const Navbar: React.FC = () => {
                             isActive && 'animate-pop-in bg-primary/12'
                           )}
                         >
-                          <Icon className={cn('h-5 w-5', isActive && 'text-primary')} />
+                          <Icon className={cn('mi h-5 w-5', `mi-${link.motion}`, isActive && 'text-primary')} />
                         </span>
                         <span
                           className={cn(
@@ -521,10 +603,17 @@ const Navbar: React.FC = () => {
                   )}
                   aria-label="เครื่องมือและบัญชี"
                 >
-                  <div className="flex flex-col items-center gap-0.5 px-1.5">
+                  <div className="flex flex-col items-center gap-0.5 px-1">
                     <ThemeToggle />
                     <span className="text-[0.62rem] font-extrabold text-muted-foreground opacity-70">
                       ธีม
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-0.5 px-1">
+                    <NotificationCenter className="h-8 w-8" side="top" align="center" />
+                    <span className="text-[0.62rem] font-extrabold text-muted-foreground opacity-70">
+                      แจ้งเตือน
                     </span>
                   </div>
 
@@ -544,9 +633,9 @@ const Navbar: React.FC = () => {
                       type="button"
                       onClick={() => setLoginOpen(true)}
                       disabled={loginBusy}
-                      className="flex cursor-pointer flex-col items-center gap-0.5 px-1.5 text-muted-foreground disabled:opacity-50"
+                      className="motion-trigger flex cursor-pointer flex-col items-center gap-0.5 px-1.5 text-muted-foreground disabled:opacity-50"
                     >
-                      <LogIn className="h-5 w-5" />
+                      <LogIn className="mi mi-nudge h-5 w-5" />
                       <span className="text-[0.62rem] font-extrabold opacity-70">เข้าสู่ระบบ</span>
                     </button>
                   )}
@@ -694,7 +783,8 @@ const Navbar: React.FC = () => {
           onSave={handleSaveProfile}
         />
       </header>
-      <div aria-hidden className="hidden h-[4.25rem] shrink-0 lg:block" />
+      {/* เว้นที่ใต้แถบบน — หน้าแรกให้ hero ลอดใต้แถบโปร่งใสแทน */}
+      {pathname !== '/' && <div aria-hidden className="hidden h-[4.25rem] shrink-0 lg:block" />}
     </>
   );
 };

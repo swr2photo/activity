@@ -40,6 +40,23 @@ import AuroraBackground from '@/components/graphics/AuroraBackground';
 import ScienceOrbit from '@/components/graphics/ScienceOrbit';
 import EmptyIllustration from '@/components/graphics/EmptyIllustration';
 import { cn } from '@/lib/utils';
+import type { IconMotion } from '@/components/icons/MotionIcon';
+import { ClipboardList, QrCode } from 'lucide-react';
+
+const QUICK_ACTIONS: {
+  id: string;
+  label: string;
+  hint: string;
+  target: string;
+  icon: React.ElementType;
+  motion: IconMotion;
+  gradient: string;
+}[] = [
+  { id: 'create', label: 'จัดการกิจกรรม', hint: 'สร้าง / แก้ไข / เปิดปิดรับ', target: 'activities', icon: Plus, motion: 'spin', gradient: 'bg-gradient-to-br from-blue-500 to-cyan-500' },
+  { id: 'attend', label: 'ตรวจรายชื่อ', hint: 'ผู้ลงทะเบียนทุกกิจกรรม', target: 'activity-list', icon: ClipboardList, motion: 'wiggle', gradient: 'bg-gradient-to-br from-emerald-500 to-teal-500' },
+  { id: 'qr', label: 'ลิงก์ย่อ & QR', hint: 'Dynamic QR หน้างาน', target: 'short-links', icon: QrCode, motion: 'pulse', gradient: 'bg-gradient-to-br from-violet-500 to-fuchsia-500' },
+  { id: 'links', label: 'ผลแบบประเมิน', hint: 'สรุปความพึงพอใจ', target: 'survey-results', icon: BarChart3, motion: 'rise', gradient: 'bg-gradient-to-br from-amber-500 to-orange-500' },
+];
 
 interface DepartmentDashboardProps {
   currentAdmin: AdminProfile;
@@ -140,6 +157,7 @@ function KPICard({
   tone,
   index,
   hint,
+  motion = 'pop',
   onClick,
 }: {
   title: string;
@@ -149,6 +167,7 @@ function KPICard({
   tone: string;
   index: number;
   hint?: string;
+  motion?: IconMotion;
   onClick?: () => void;
 }) {
   const Comp = onClick ? 'button' : 'div';
@@ -158,18 +177,20 @@ function KPICard({
       onClick={onClick}
       style={{ '--i': index } as React.CSSProperties}
       className={cn(
-        'card-lift group relative h-full w-full overflow-hidden rounded-3xl border border-border bg-card p-5 text-left shadow-sm sm:p-6',
+        'motion-trigger card-lift group relative h-full w-full overflow-hidden rounded-3xl border border-border bg-card p-5 text-left shadow-sm sm:p-6',
         onClick && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
       )}
     >
-      <div className={cn('absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-[0.12] transition-transform duration-700 group-hover:scale-150', gradient)} />
+      {/* เส้นสีด้านบน + วงแสงมุมการ์ด */}
+      <span aria-hidden className={cn('absolute inset-x-0 top-0 h-1 opacity-80', gradient)} />
+      <div className={cn('absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-[0.12] blur-2xl transition-transform duration-700 group-hover:scale-150', gradient)} />
       <div className="relative z-10 flex h-full flex-col justify-between">
         <div className="mb-5 flex items-start justify-between">
           <div className={cn('flex h-12 w-12 items-center justify-center rounded-2xl shadow-lg transition-transform duration-500 group-hover:-rotate-6 group-hover:scale-110', gradient)}>
-            <Icon className="h-6 w-6 text-white" />
+            <Icon className={cn('mi h-6 w-6 text-white', `mi-${motion}`)} />
           </div>
           {onClick && (
-            <ArrowUpRight className="h-4 w-4 text-muted-foreground opacity-40 transition-[opacity,translate] duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:opacity-100" />
+            <ArrowUpRight className="mi mi-nudge h-4 w-4 text-muted-foreground opacity-40 transition-opacity duration-300 group-hover:opacity-100" />
           )}
         </div>
         <div>
@@ -392,6 +413,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({
           title="กิจกรรมทั้งหมด"
           value={data.totalActivities}
           icon={CalendarDays}
+          motion="flip"
           gradient="bg-gradient-to-br from-indigo-500 to-blue-600"
           tone="text-blue-500/60"
           onClick={onNavigate ? () => onNavigate('activities') : undefined}
@@ -401,6 +423,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({
           title="กิจกรรมที่เปิดรับอยู่"
           value={data.activeActivities}
           icon={Activity}
+          motion="pulse"
           gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
           tone="text-emerald-500/60"
           onClick={onNavigate ? () => onNavigate('activities') : undefined}
@@ -410,6 +433,7 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({
           title="บัญชีผู้ใช้ในระบบ"
           value={data.totalUsers}
           icon={Users}
+          motion="rise"
           gradient="bg-gradient-to-br from-violet-500 to-purple-600"
           tone="text-violet-500/60"
           onClick={onNavigate ? () => onNavigate('users') : undefined}
@@ -419,12 +443,45 @@ export const DepartmentDashboard: React.FC<DepartmentDashboardProps> = ({
           title="ลงทะเบียนวันนี้"
           value={data.todayRegistrations}
           icon={TrendingUp}
+          motion="nudge"
           gradient="bg-gradient-to-br from-amber-500 to-orange-600"
           tone="text-amber-500/60"
-          hint={`รวมผู้เข้าร่วมทุกกิจกรรม ${data.totalParticipants.toLocaleString()} คน`}
+          hint={`รวมผู้เข้าร่วมทุกกิจกรรม ${data.totalParticipants.toLocaleString('th-TH')} คน`}
           onClick={onNavigate ? () => onNavigate('activity-list') : undefined}
         />
       </div>
+
+      {/* ทางลัด — การ์ดคำสั่งที่ใช้บ่อย */}
+      {onNavigate && (
+        <section aria-label="ทางลัด" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-foreground">ทางลัด</h2>
+            <p className="hidden text-xs text-muted-foreground sm:block">
+              กด <kbd className="rounded border border-border bg-muted px-1 font-sans text-[10px] font-semibold">Ctrl K</kbd> เพื่อค้นหาเมนูได้ทุกที่
+            </p>
+          </div>
+          <div className="stagger grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {QUICK_ACTIONS.map((q, i) => (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => onNavigate(q.target)}
+                style={{ '--i': i + 4 } as React.CSSProperties}
+                className="motion-trigger card-lift group flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 text-left shadow-sm sm:p-4"
+              >
+                <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-md', q.gradient)}>
+                  <q.icon className={cn('mi h-5 w-5', `mi-${q.motion}`)} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold text-foreground">{q.label}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{q.hint}</span>
+                </span>
+                <ArrowUpRight className="mi mi-nudge hidden h-4 w-4 shrink-0 text-muted-foreground opacity-50 group-hover:opacity-100 sm:block" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

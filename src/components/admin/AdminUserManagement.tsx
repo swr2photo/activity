@@ -1,7 +1,7 @@
 // src/components/admin/AdminUserManagement.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import {
   Search, RefreshCw, Download, User as PersonIcon,
@@ -19,17 +19,48 @@ import {
 } from '../../types/admin';
 
 import {
-  getAllUsers,
-  getPendingUsers,
-  getUsersByDepartment,
-  getPendingUsersByDepartment,
   approveUser,
   suspendUser,
   activateUser,
   type UnivUser,
   createAdminUser,
   logAdminEvent,
+  getUsersChunk,
+  countAllUsers,
+  filterUsersForDepartment,
+  searchUsersIndexed,
+  type UserCursor,
 } from '../../lib/adminFirebase';
+import { notifyPromise } from '@/lib/notify';
+
+/** รวมรายชื่อโดยไม่ซ้ำ uid (ตัวใหม่ทับตัวเก่า) */
+const mergeUsers = (prev: UnivUser[], incoming: UnivUser[]): UnivUser[] => {
+  if (incoming.length === 0) return prev;
+  const map = new Map(prev.map((u) => [u.uid, u] as const));
+  incoming.forEach((u) => map.set(u.uid, u));
+  return Array.from(map.values());
+};
+
+/** ตัวกรองแท็บ + คำค้น (pure) — ใช้ทั้งตอนแสดงผลและตอนส่งออก */
+const applyUserFilters = (list: UnivUser[], tab: number, search: string): UnivUser[] => {
+  const byTab =
+    tab === 1 ? list.filter((u) => u.isActive !== false) :
+    tab === 2 ? list.filter((u) => !u.isActive) :
+    tab === 3 ? list.filter((u) => !u.isVerified) :
+    list;
+  const s = search.trim().toLowerCase();
+  if (!s) return byTab;
+  return byTab.filter(
+    (u) =>
+      (u.displayName || '').toLowerCase().includes(s) ||
+      (u.firstName || '').toLowerCase().includes(s) ||
+      (u.lastName || '').toLowerCase().includes(s) ||
+      (u.email || '').toLowerCase().includes(s) ||
+      (u.studentId || '').toLowerCase().includes(s) ||
+      (u.faculty || '').toLowerCase().includes(s) ||
+      String(u.department || '').toLowerCase().includes(s)
+  );
+};
 
 import { adminDb as db } from '../../lib/firebaseAdminClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -132,7 +163,6 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   const confirm = useConfirm();
   const { enqueueSnackbar } = useSnackbar();
   const [allUsers, setAllUsers] = useState<UnivUser[]>([]);
-  const [pendingUsers, setPendingUsers] = useState<UnivUser[]>([]);
   const [search, setSearch] = useState('');
   /** 0=ทั้งหมด 1=ใช้งานได้ 2=ถูกระงับ 3=รออนุมัติ (แสดงเมื่อมีเท่านั้น) */
   const [tab, setTab] = useState(0);
@@ -162,23 +192,110 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
   const [page, setPage] = useState(1);
   const USERS_PER_PAGE = 25;
 
-  // โหลดรายชื่อผู้ใช้ครั้งเดียว (แก้บั๊กเรียก getAllUsers() ซ้อน 2 รอบพร้อมกัน!)
+  // ── โหลดแบบแบ่งก้อน (cursor) แทนการดึงทั้งคอลเลกชัน ──
+  const dept = currentAdmin.department as AdminDepartment;
+  const cursorRef = useRef<UserCursor>(null);
+  const doneRef = useRef(false);
+  const loadedRef = useRef<UnivUser[]>([]);
+  const loadGenRef = useRef(0);
+  const [done, setDone] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [searchingIndex, setSearchingIndex] = useState(false);
+  const [totalInSystem, setTotalInSystem] = useState<number | null>(null);
+
+  const commitUsers = (next: UnivUser[]) => {
+    loadedRef.current = next;
+    setAllUsers(next);
+  };
+
+  // ต่อคิวการโหลดทุกครั้ง ไม่ให้สองคำขอใช้ cursor เดียวกันพร้อมกัน
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const fetchChunks = (minMatches: number, maxChunks: number, gen = loadGenRef.current): Promise<void> => {
+    const run = queueRef.current.then(() => fetchChunksNow(minMatches, maxChunks, gen));
+    queueRef.current = run.catch(() => {});
+    return run;
+  };
+
+  /** โหลดก้อนถัดไปจนได้ผู้ใช้ในสังกัดอย่างน้อย minMatches คน (หรือหมดคอลเลกชัน) */
+  const fetchChunksNow = async (minMatches: number, maxChunks: number, gen: number) => {
+    if (gen !== loadGenRef.current) return;
+    let added: UnivUser[] = [];
+    for (let i = 0; i < maxChunks && !doneRef.current; i++) {
+      if (gen !== loadGenRef.current) return;
+      const res = await getUsersChunk(cursorRef.current);
+      if (gen !== loadGenRef.current) return;
+      cursorRef.current = res.cursor;
+      added = added.concat(filterUsersForDepartment(res.users, dept));
+      if (res.done) {
+        doneRef.current = true;
+        setDone(true);
+      }
+      if (added.length >= minMatches) break;
+    }
+    if (gen !== loadGenRef.current) return;
+    commitUsers(mergeUsers(loadedRef.current, added));
+  };
+
   const load = async () => {
+    const gen = ++loadGenRef.current;
     setLoading(true);
     setLoadError('');
+    cursorRef.current = null;
+    doneRef.current = false;
+    setDone(false);
+    commitUsers([]);
     try {
-      const list =
-        currentAdmin.department === 'all'
-          ? await getAllUsers()
-          : await getUsersByDepartment(currentAdmin.department as AdminDepartment);
-      setAllUsers(list);
-      setPendingUsers(list.filter((u) => !u.isVerified));
+      await fetchChunks(USERS_PER_PAGE * 2, 6, gen);
+      if (gen !== loadGenRef.current) return;
+      countAllUsers()
+        .then((c) => {
+          if (gen === loadGenRef.current) setTotalInSystem(c);
+        })
+        .catch(() => {
+          if (gen === loadGenRef.current) setTotalInSystem(null);
+        });
     } catch (e: any) {
+      if (gen !== loadGenRef.current) return;
       console.error(e);
       setLoadError(e?.message || 'โหลดรายชื่อผู้ใช้ไม่สำเร็จ');
     } finally {
-      setLoading(false);
+      if (gen === loadGenRef.current) setLoading(false);
     }
+  };
+
+  const loadMore = async () => {
+    if (doneRef.current || loadingMore) return;
+    const gen = loadGenRef.current;
+    setLoadingMore(true);
+    try {
+      await fetchChunks(USERS_PER_PAGE * 2, 6, gen);
+    } catch (e: any) {
+      if (gen === loadGenRef.current) {
+        enqueueSnackbar(e?.message || 'โหลดรายชื่อเพิ่มไม่สำเร็จ', { variant: 'error' });
+      }
+    } finally {
+      if (gen === loadGenRef.current) setLoadingMore(false);
+    }
+  };
+
+  /** โหลดที่เหลือทั้งหมด (ใช้เมื่อจำเป็นจริง เช่น ส่งออก CSV) — คืนรายชื่อครบ */
+  const loadAll = async (): Promise<UnivUser[]> => {
+    const gen = loadGenRef.current;
+    setLoadingMore(true);
+    try {
+      while (!doneRef.current && gen === loadGenRef.current) {
+        await fetchChunks(Number.POSITIVE_INFINITY, 20, gen);
+      }
+    } finally {
+      if (gen === loadGenRef.current) setLoadingMore(false);
+    }
+    return loadedRef.current;
+  };
+
+  /** อัปเดตผู้ใช้คนเดียวในหน้าจอ (ไม่ต้องโหลดทั้งรายชื่อใหม่หลังอนุมัติ/ระงับ) */
+  const patchLocal = (uid: string, patch: Partial<UnivUser>) => {
+    commitUsers(loadedRef.current.map((u) => (u.uid === uid ? { ...u, ...patch } : u)));
+    setSel((s) => (s && s.uid === uid ? { ...s, ...patch } : s));
   };
 
   useEffect(() => {
@@ -190,32 +307,57 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     setPage(1);
   }, [search, tab]);
 
+  // ค้นหาผ่าน index (รหัส/อีเมล/ชื่อ) แม้ยังโหลดไม่ถึงคนนั้น — หน่วง 350ms ระหว่างพิมพ์
+  useEffect(() => {
+    const t = search.trim();
+    if (t.length < 2 || done) {
+      setSearchingIndex(false);
+      return;
+    }
+    let cancelled = false;
+    const gen = loadGenRef.current;
+    const timer = window.setTimeout(async () => {
+      setSearchingIndex(true);
+      try {
+        const found = filterUsersForDepartment(await searchUsersIndexed(t), dept);
+        if (!cancelled && gen === loadGenRef.current && found.length) {
+          commitUsers(mergeUsers(loadedRef.current, found));
+        }
+      } catch {
+      } finally {
+        if (!cancelled) setSearchingIndex(false);
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, done, dept]);
+
   const activeUsers = useMemo(() => allUsers.filter((u) => u.isActive !== false), [allUsers]);
   const suspendedUsers = useMemo(() => allUsers.filter((u) => !u.isActive), [allUsers]);
-
-  const source =
-    tab === 0 ? allUsers :
-    tab === 1 ? activeUsers :
-    tab === 2 ? suspendedUsers :
-    pendingUsers;
-  const filtered = useMemo(() => {
-    if (!search.trim()) return source;
-    const s = search.trim().toLowerCase();
-    return source.filter(
-      (u) =>
-        (u.displayName || '').toLowerCase().includes(s) ||
-        (u.firstName || '').toLowerCase().includes(s) ||
-        (u.lastName || '').toLowerCase().includes(s) ||
-        (u.email || '').toLowerCase().includes(s) ||
-        (u.studentId || '').toLowerCase().includes(s) ||
-        (u.faculty || '').toLowerCase().includes(s) ||
-        String(u.department || '').toLowerCase().includes(s)
-    );
-  }, [source, search]);
+  const pendingUsers = useMemo(() => allUsers.filter((u) => !u.isVerified), [allUsers]);
+  const filtered = useMemo(() => applyUserFilters(allUsers, tab, search), [allUsers, tab, search]);
+  const more = done ? '' : '+';
+  const totalPages = Math.max(1, Math.ceil(filtered.length / USERS_PER_PAGE));
+  const currentPage = Math.min(page, totalPages);
+  const goNext = async () => {
+    if (currentPage >= totalPages && !done) await loadMore();
+    setPage((p) => Math.min(p + 1, Math.max(1, Math.ceil(applyUserFilters(loadedRef.current, tab, search).length / USERS_PER_PAGE))));
+  };
 
   const exportCSV = async () => {
-    if (!canExport) return;
-    const rows = filtered.map((u) => [
+    if (!canExport || loadingMore) return;
+    const full = done
+      ? allUsers
+      : await notifyPromise(loadAll(), {
+          loading: 'กำลังโหลดรายชื่อทั้งหมดเพื่อส่งออก…',
+          success: (list) => `โหลดครบ ${list.length.toLocaleString('th-TH')} คน — กำลังสร้างไฟล์`,
+          error: 'โหลดรายชื่อไม่สำเร็จ',
+        });
+    const exportList = applyUserFilters(full, tab, search);
+    const rows = exportList.map((u) => [
       u.studentId || '',
       u.firstName || '',
       u.lastName || '',
@@ -246,7 +388,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
       'EXPORT_USERS',
       {
         tab: tab === 0 ? 'all' : tab === 1 ? 'active' : tab === 2 ? 'suspended' : 'pending',
-        filteredCount: filtered.length,
+        filteredCount: exportList.length,
         query: search,
         department: currentAdmin.department,
         revealedSensitive: showSensitive,
@@ -276,7 +418,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     try {
       await suspendUser(u.uid);
       await logAdminEvent('SUSPEND_USER', { targetUid: u.uid, studentId: u.studentId }, { uid: currentAdmin.uid, email: currentAdmin.email });
-      await load();
+      patchLocal(u.uid, { isActive: false });
       enqueueSnackbar('ระงับการใช้งานสำเร็จ', { variant: 'success' });
     } catch (e: any) {
       enqueueSnackbar(e?.message || 'ระงับการใช้งานไม่สำเร็จ', { variant: 'error' });
@@ -303,7 +445,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
     try {
       await activateUser(u.uid);
       await logAdminEvent('ACTIVATE_USER', { targetUid: u.uid, studentId: u.studentId }, { uid: currentAdmin.uid, email: currentAdmin.email });
-      await load();
+      patchLocal(u.uid, { isActive: true });
       enqueueSnackbar('คืนสถานะสำเร็จ', { variant: 'success' });
     } catch (e: any) {
       enqueueSnackbar(e?.message || 'คืนสถานะไม่สำเร็จ', { variant: 'error' });
@@ -430,7 +572,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
             <CardContent className="flex items-center gap-4 p-6">
               <div className={cn('p-3 rounded-full', s.iconBg)}>{s.icon}</div>
               <div>
-                <p className="text-2xl font-bold">{s.value.toLocaleString()}</p>
+                <p className="text-2xl font-bold tabular-nums">{s.value.toLocaleString('th-TH')}{more}</p>
                 <p className="text-sm text-muted-foreground">{s.label}</p>
               </div>
             </CardContent>
@@ -443,11 +585,14 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
           <div className="relative w-full md:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="ค้นหาผู้ใช้..."
+              placeholder="ค้นหาชื่อ รหัส หรืออีเมล..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
+              className="pl-9 pr-8"
             />
+            {searchingIndex && (
+              <RefreshCw className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            )}
           </div>
           <div className="flex-1" />
           <div className="flex gap-2 w-full md:w-auto">
@@ -460,7 +605,7 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
               รีเฟรช
             </Button>
             {canExport && (
-              <Button variant="outline" onClick={exportCSV} disabled={filtered.length === 0} className="flex-1 md:flex-none text-emerald-600">
+              <Button variant="outline" onClick={exportCSV} disabled={loadingMore || (filtered.length === 0 && done)} className="flex-1 md:flex-none text-emerald-600">
                 <Download className="h-4 w-4 mr-2" />
                 ส่งออก
               </Button>
@@ -469,15 +614,45 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
         </CardContent>
       </Card>
 
+      {/* สถานะการโหลดแบบแบ่งก้อน */}
+      {!loading && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-card/70 px-4 py-2.5 text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">
+            โหลดแล้ว {allUsers.length.toLocaleString('th-TH')} คน{dept !== 'all' ? ' ในสังกัด' : ''}
+          </span>
+          {totalInSystem !== null && <span>· ทั้งระบบ {totalInSystem.toLocaleString('th-TH')} คน</span>}
+          {done ? (
+            <span className="text-emerald-600 dark:text-emerald-400">· ครบแล้ว</span>
+          ) : (
+            <>
+              <span>· โหลดเพิ่มอัตโนมัติเมื่อเปิดหน้าถัดไป / ค้นหารหัสหรืออีเมลได้ทันที</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-7 text-xs"
+                disabled={loadingMore}
+                onClick={() => void notifyPromise(loadAll(), {
+                  loading: 'กำลังโหลดรายชื่อทั้งหมด…',
+                  success: (list) => `โหลดครบ ${list.length.toLocaleString('th-TH')} คนแล้ว`,
+                  error: 'โหลดรายชื่อไม่สำเร็จ',
+                }).catch(() => {})}
+              >
+                โหลดทั้งหมด
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
       <Card>
         <CardHeader className="p-0 border-b">
           <div className="flex flex-wrap gap-4 px-4 pt-4">
             {[
-              { id: 0, label: `ผู้ใช้ทั้งหมด (${allUsers.length})` },
-              { id: 1, label: `ใช้งานได้ (${activeUsers.length})` },
-              { id: 2, label: `ถูกระงับ (${suspendedUsers.length})`, badge: suspendedUsers.length > 0 ? suspendedUsers.length : 0, badgeClass: 'bg-rose-500' },
+              { id: 0, label: `ผู้ใช้ทั้งหมด (${allUsers.length}${more})` },
+              { id: 1, label: `ใช้งานได้ (${activeUsers.length}${more})` },
+              { id: 2, label: `ถูกระงับ (${suspendedUsers.length}${more})`, badge: suspendedUsers.length > 0 ? suspendedUsers.length : 0, badgeClass: 'bg-rose-500' },
               ...(pendingUsers.length > 0
-                ? [{ id: 3, label: `รออนุมัติ (${pendingUsers.length})`, badge: pendingUsers.length, badgeClass: 'bg-amber-500' }]
+                ? [{ id: 3, label: `รออนุมัติ (${pendingUsers.length}${more})`, badge: pendingUsers.length, badgeClass: 'bg-amber-500' }]
                 : []),
             ].map((t) => (
               <button
@@ -510,16 +685,40 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
               <RefreshCw className="h-6 w-6 animate-spin mr-2" /> กำลังโหลด...
             </div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-10 text-muted-foreground">
-              {tab === 0 ? 'ไม่มีผู้ใช้ในระบบ' :
-               tab === 1 ? 'ไม่มีผู้ใช้ที่ใช้งานได้' :
-               tab === 2 ? 'ไม่มีผู้ใช้ที่ถูกระงับ' :
-               'ไม่มีผู้ใช้ที่รออนุมัติ'}
+            <div className="text-center py-10 space-y-3 text-muted-foreground">
+              <p>
+                {!done
+                  ? `ยังไม่พบผู้ใช้ที่ตรงเงื่อนไขใน ${allUsers.length.toLocaleString('th-TH')} คนที่โหลดแล้ว`
+                  : tab === 0 ? 'ไม่มีผู้ใช้ในระบบ'
+                  : tab === 1 ? 'ไม่มีผู้ใช้ที่ใช้งานได้'
+                  : tab === 2 ? 'ไม่มีผู้ใช้ที่ถูกระงับ'
+                  : 'ไม่มีผู้ใช้ที่รออนุมัติ'}
+              </p>
+              {!done && (
+                <div className="flex items-center justify-center gap-2">
+                  <Button size="sm" variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
+                    {loadingMore && <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                    โหลดเพิ่ม
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={loadingMore}
+                    onClick={() => void notifyPromise(loadAll(), {
+                      loading: 'กำลังโหลดรายชื่อทั้งหมด…',
+                      success: (list) => `โหลดครบ ${list.length.toLocaleString('th-TH')} คนแล้ว`,
+                      error: 'โหลดรายชื่อไม่สำเร็จ',
+                    }).catch(() => {})}
+                  >
+                    โหลดทั้งหมด
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <TooltipProvider delayDuration={300}>
             <div className="space-y-3">
-              {filtered.slice((page - 1) * USERS_PER_PAGE, page * USERS_PER_PAGE).map((u) => (
+              {filtered.slice((currentPage - 1) * USERS_PER_PAGE, currentPage * USERS_PER_PAGE).map((u) => (
                 <div key={u.uid} className="flex flex-col gap-3 p-3 sm:p-4 rounded-xl border bg-card hover:shadow-sm transition-shadow">
                   <div className="flex items-start gap-3 min-w-0">
                   <Avatar className="h-10 w-10 shrink-0">
@@ -560,7 +759,8 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                             <Button variant="ghost" size="icon" disabled={busyUid === u.uid} onClick={async () => {
                               await approveUser(u.uid);
                               await logAdminEvent('APPROVE_USER', { targetUid: u.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
-                              await load();
+                              patchLocal(u.uid, { isVerified: true, isActive: true });
+                              enqueueSnackbar('อนุมัติผู้ใช้แล้ว', { variant: 'success' });
                             }}>
                               <CheckCircle className="h-4 w-4 text-emerald-500" />
                             </Button>
@@ -603,29 +803,30 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                 </div>
               ))}
             </div>
-            {filtered.length > USERS_PER_PAGE && (
+            {(filtered.length > USERS_PER_PAGE || !done) && (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
                 <span>
-                  แสดง {(page - 1) * USERS_PER_PAGE + 1}–{Math.min(page * USERS_PER_PAGE, filtered.length)} จาก {filtered.length} คน
+                  แสดง {(currentPage - 1) * USERS_PER_PAGE + 1}–{Math.min(currentPage * USERS_PER_PAGE, filtered.length)} จาก {filtered.length.toLocaleString('th-TH')}{more} คน
                 </span>
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage(Math.max(1, currentPage - 1))}
                   >
                     ก่อนหน้า
                   </Button>
                   <span className="font-semibold text-foreground">
-                    หน้า {page} / {Math.ceil(filtered.length / USERS_PER_PAGE)}
+                    หน้า {currentPage} / {totalPages}{more}
                   </span>
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={page >= Math.ceil(filtered.length / USERS_PER_PAGE)}
-                    onClick={() => setPage((p) => p + 1)}
+                    disabled={(currentPage >= totalPages && done) || loadingMore}
+                    onClick={() => void goNext()}
                   >
+                    {loadingMore ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
                     ถัดไป
                   </Button>
                 </div>
@@ -712,7 +913,8 @@ const AdminUserManagement: React.FC<Props> = ({ currentAdmin }) => {
                     await approveUser(sel.uid);
                     await logAdminEvent('APPROVE_USER', { targetUid: sel.uid }, { uid: currentAdmin.uid, email: currentAdmin.email });
                     setOpen(false);
-                    await load();
+                    patchLocal(sel.uid, { isVerified: true, isActive: true });
+                    enqueueSnackbar('อนุมัติผู้ใช้แล้ว', { variant: 'success' });
                   }}>
                     <CheckCircle className="h-4 w-4 mr-2" /> อนุมัติ
                   </Button>

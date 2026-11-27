@@ -9,12 +9,14 @@ import DeferredNavbar from "@/components/DeferredNavbar";
 import Footer from "@/components/Footer";
 import ActivityCard from "@/components/ActivityCard";
 import DeferredHeroVideo from "@/components/DeferredHeroVideo";
+import dynamic from "next/dynamic";
 import AuroraBackground from "@/components/graphics/AuroraBackground";
 import ScienceOrbit from "@/components/graphics/ScienceOrbit";
 import EmptyIllustration from "@/components/graphics/EmptyIllustration";
 import CountUp from "@/components/graphics/CountUp";
 import {
   ArrowDown,
+  FlaskConical,
   RefreshCw,
   Search,
   CalendarCheck,
@@ -51,11 +53,14 @@ import {
   getPaginationItems,
 } from "@/components/ui/pagination";
 
+// โหลดกราฟิก canvas แยก chunk หลังหน้าแรกพร้อม — ไม่บล็อก LCP ของข้อความ
+const PhysicsAtom = dynamic(() => import("@/components/graphics/PhysicsAtom"), { ssr: false });
+
 // --- Hero media ---
 // วิดีโอบanner ม.อ. — override ได้ด้วย NEXT_PUBLIC_HERO_VIDEO_URL / NEXT_PUBLIC_HERO_POSTER_URL
-const HERO_VIDEO =
-  process.env.NEXT_PUBLIC_HERO_VIDEO_URL ||
-  "https://www.psu.ac.th/img/vdo/PSU-4-06-02-2025.mp4";
+// ค่าเริ่มต้นไม่โหลดวิดีโอ (ประหยัดแบนด์วิดท์หลายสิบ MB และให้กราฟิกฟิสิกส์เป็นจุดเด่น)
+// ตั้ง NEXT_PUBLIC_HERO_VIDEO_URL เพื่อเปิดวิดีโอพื้นหลังกลับมา
+const HERO_VIDEO = process.env.NEXT_PUBLIC_HERO_VIDEO_URL || "";
 const HERO_POSTER =
   process.env.NEXT_PUBLIC_HERO_POSTER_URL || "/hero-poster.svg";
 
@@ -367,143 +372,92 @@ const HomePage: React.FC<ActivitiesExplorerProps> = ({ initialActivities }) => {
 
       {/* ===================== Hero — เฉพาะหน้าแรก ===================== */}
       {!isActivitiesPage && (
-      <section className="relative z-[1] isolate flex min-h-[68svh] flex-col justify-center overflow-hidden bg-[#050914] pb-20 pt-16 text-white md:min-h-[88svh] md:pb-28 md:pt-10">
-        <Link
-          href="/"
-          aria-label="PSU REGISTER หน้าแรก"
-          className="absolute left-4 top-4 z-10 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-black tracking-wide text-white backdrop-blur-md md:hidden"
-        >
-          <span className="h-2 w-2 rounded-full bg-brand-gradient" />
-          PSU REGISTER
-        </Link>
-
-        {/* Layer 1: Poster image */}
-        {HERO_POSTER ? (
-          <div
-            className="absolute inset-0 -z-[3] scale-105 bg-cover bg-center opacity-70"
-            style={{ backgroundImage: `url(${HERO_POSTER})` }}
-          />
-        ) : null}
-
-        {/* Layer 2: Video background — โหลดหลังเนื้อหาหลักและไม่โหลดบนมือถือ/Save-Data */}
-        <DeferredHeroVideo src={HERO_VIDEO} poster={HERO_POSTER} />
-
-        {/* Layer 3: Readability overlay + aurora light */}
+      <section className="relative z-[1] isolate overflow-hidden bg-[#050914] text-white">
+        {/* พื้นหลัง: แสงไล่เฉดนุ่ม ๆ (ไม่มีกริด/จุด) */}
         <div
-          className="absolute inset-0 -z-[1]"
+          aria-hidden
+          className="absolute inset-0 -z-[3]"
           style={{
             background: `
-              radial-gradient(ellipse 90% 70% at 50% 40%, rgba(5,9,20,0.35) 0%, rgba(5,9,20,0.78) 100%),
-              linear-gradient(to bottom, rgba(5,9,20,0.75) 0%, rgba(5,9,20,0.25) 30%, rgba(5,9,20,0.35) 65%, #050914 100%)
+              radial-gradient(55% 65% at 74% 46%, rgba(14,116,144,0.38) 0%, transparent 70%),
+              radial-gradient(45% 55% at 12% 18%, rgba(10,107,207,0.32) 0%, transparent 70%),
+              radial-gradient(40% 40% at 30% 95%, rgba(16,185,129,0.16) 0%, transparent 70%),
+              linear-gradient(180deg, #050914 0%, #07122a 55%, #050914 100%)
             `,
           }}
         />
-        <AuroraBackground variant="hero" className="-z-[1] opacity-80 mix-blend-screen" />
 
-        {/* Graphics: อะตอมลอย + วงแหวนประดับ (ซ่อนบนจอเล็กเพื่อความเร็ว) */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 -z-[1] hidden md:block">
-          <ScienceOrbit
-            tone="light"
-            className="absolute right-[6%] top-[14%] h-[210px] w-[210px] animate-float opacity-80 lg:h-[260px] lg:w-[260px]"
-          />
-          <ScienceOrbit
-            tone="light"
-            className="absolute bottom-[20%] left-[5%] h-[120px] w-[120px] animate-float-slow opacity-50 [animation-delay:-3s]"
-          />
-          <div className="absolute left-[12%] top-[18%] h-24 w-24 animate-spin-slow rounded-full border border-dashed border-white/20" />
-          <div className="absolute bottom-[28%] right-[16%] h-40 w-40 animate-spin-slower rounded-full border border-white/10" />
-        </div>
+        {/* วิดีโอพื้นหลัง (ไม่บังคับ) — เปิดได้ด้วย NEXT_PUBLIC_HERO_VIDEO_URL */}
+        {HERO_VIDEO ? (
+          <>
+            <DeferredHeroVideo src={HERO_VIDEO} poster={HERO_POSTER} />
+            <div aria-hidden className="absolute inset-0 -z-[1] bg-[#050914]/80" />
+          </>
+        ) : null}
 
-        <div className="relative mx-auto w-full max-w-4xl px-4 text-center">
-          {/* Badge */}
-          <div className="mb-7 inline-flex animate-fade-down items-center gap-2.5 rounded-full border border-white/15 bg-white/[0.08] px-4 py-2 backdrop-blur-md">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
-            </span>
-            <span className="text-[0.8rem] font-bold tracking-wide text-white/90">
-              {loading
-                ? "กำลังโหลดกิจกรรม..."
-                : counts.active > 0
-                  ? `เปิดรับสมัครแล้ว ${counts.active} กิจกรรม`
-                  : "ยังไม่มีกิจกรรมที่เปิดรับสมัคร"}
-            </span>
-          </div>
-
-          <h1
-            className="mb-6 font-extrabold leading-[1.08] tracking-tight"
-            style={{ fontSize: "clamp(2.7rem, 7.5vw, 5.25rem)" }}
-          >
-            <span className="block animate-fade-up text-white [animation-delay:80ms]">ค้นพบกิจกรรม</span>
-            <span className="block animate-fade-up [animation-delay:200ms]">
-              <span className="text-gradient-brand animate-gradient-x">ที่คุณชอบ</span>
-              <span className="text-white">.</span>
-            </span>
-          </h1>
-
-          <p className="mx-auto mb-10 max-w-[580px] animate-fade-up px-2 text-[1.05rem] font-medium text-white/75 [animation-delay:320ms] md:text-[1.25rem]">
-            ระบบลงทะเบียนกิจกรรมออนไลน์ คณะวิทยาศาสตร์ ม.อ.
-            <br className="hidden sm:block" /> สะดวก รวดเร็ว และแม่นยำ
-          </p>
-
-          {/* CTA: เลื่อนลงดูรายการกิจกรรมได้ทันทีไม่ต้องโหลดหน้าใหม่ */}
-          <div className="flex animate-fade-up flex-wrap items-center justify-center gap-3 [animation-delay:440ms]">
-            <Button
-              type="button"
-              onClick={scrollToActivities}
-              className="shine h-auto rounded-full bg-white px-9 py-4 text-base font-bold text-slate-900 shadow-[0_12px_32px_rgba(255,255,255,0.18)] hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_18px_44px_rgba(34,211,238,0.35)]"
-            >
-              สำรวจกิจกรรมทั้งหมด
-              <ArrowDown className="h-4 w-4" />
-            </Button>
-            <Button
-              asChild
-              variant="outline"
-              className="h-auto rounded-full border-white/25 bg-white/[0.06] px-7 py-4 text-base font-bold text-white backdrop-blur-md hover:border-white/50 hover:bg-white/15 hover:text-white"
-            >
-              <Link href="/my-history">ประวัติของฉัน</Link>
-            </Button>
-          </div>
-
-          {/* Stats */}
-          <dl className="mx-auto mt-12 grid max-w-xl animate-fade-up grid-cols-3 gap-2 [animation-delay:560ms] sm:gap-4">
-            {[
-              { label: "กิจกรรมทั้งหมด", value: counts.all, dot: "bg-sky-400" },
-              { label: "เปิดรับตอนนี้", value: counts.active, dot: "bg-emerald-400" },
-              { label: "เริ่มใน 24 ชม.", value: counts.soon, dot: "bg-amber-400" },
-            ].map((s) => (
-              <div
-                key={s.label}
-                className="rounded-2xl border border-white/10 bg-white/[0.05] px-2 py-3 backdrop-blur-md sm:px-4 sm:py-4"
-              >
-                <dt className="flex items-center justify-center gap-1.5 text-[0.7rem] font-semibold text-white/60 sm:text-xs">
-                  <span className={cn("h-1.5 w-1.5 rounded-full", s.dot)} />
-                  {s.label}
-                </dt>
-                <dd className="mt-1 text-2xl font-extrabold tabular-nums sm:text-3xl">
-                  {loading ? "–" : <CountUp value={s.value} />}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-
-        {/* Scroll indicator */}
-        <button
-          type="button"
-          aria-label="ไปยังรายการกิจกรรม"
-          onClick={scrollToActivities}
-          className="absolute bottom-[86px] left-1/2 hidden h-[42px] w-[26px] -translate-x-1/2 cursor-pointer justify-center rounded-[14px] border-2 border-white/30 pt-[7px] transition-colors hover:border-white/60 [@media(min-width:768px)_and_(min-height:860px)]:flex"
+        <Link
+          href="/"
+          aria-label="PSU REGISTER หน้าแรก"
+          className="motion-trigger absolute left-4 top-4 z-10 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-black tracking-wide text-white backdrop-blur-md lg:hidden"
         >
-          <span className="h-[9px] w-1 animate-scroll-hint rounded bg-white/75" />
-        </button>
+          <FlaskConical className="mi mi-wiggle h-3.5 w-3.5 text-cyan-300" />
+          PSU REGISTER
+        </Link>
+
+        <div className="mx-auto grid min-h-[80svh] w-full max-w-6xl grid-cols-1 items-center gap-2 px-5 pb-24 pt-16 md:min-h-[86svh] md:grid-cols-[1fr_1.05fr] md:gap-8 md:pb-28 md:pt-10 lg:pt-24">
+          {/* ข้อความ — สั้น กระชับ */}
+          <div className="order-2 text-center md:order-1 md:text-left">
+            <p className="mb-5 inline-flex animate-fade-down items-center gap-2 rounded-full border border-white/12 bg-white/[0.06] px-3.5 py-1.5 text-[0.8rem] font-semibold text-white/80 backdrop-blur-md">
+              <CalendarCheck className="mi mi-pulse mi-loop h-4 w-4 text-emerald-300" />
+              {loading
+                ? "กำลังโหลดกิจกรรม"
+                : counts.active > 0
+                  ? `เปิดรับสมัคร ${counts.active} กิจกรรม`
+                  : "ติดตามกิจกรรมใหม่เร็ว ๆ นี้"}
+            </p>
+
+            <h1
+              className="animate-[hero-title-in_0.9s_var(--ease-out-expo)_backwards] font-extrabold leading-[1.1] tracking-tight"
+              style={{ fontSize: "clamp(2.5rem, 6.2vw, 4.6rem)" }}
+            >
+              ค้นพบกิจกรรม
+              <br />
+              <span className="text-gradient-brand animate-gradient-x">ที่คุณชอบ</span>
+            </h1>
+
+            <p className="mx-auto mt-4 max-w-md animate-fade-up text-base text-white/65 [animation-delay:150ms] md:mx-0 md:text-lg">
+              ลงทะเบียนกิจกรรมคณะวิทยาศาสตร์ ม.อ. ในไม่กี่คลิก
+            </p>
+
+            <div className="mt-8 flex animate-fade-up justify-center [animation-delay:260ms] md:justify-start">
+              <Button
+                type="button"
+                onClick={scrollToActivities}
+                className="motion-trigger shine h-auto rounded-full bg-white px-8 py-3.5 text-base font-bold text-slate-900 shadow-[0_12px_32px_rgba(255,255,255,0.16)] hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_18px_44px_rgba(34,211,238,0.35)]"
+              >
+                ดูกิจกรรม
+                <ArrowDown className="mi mi-bounce h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* กราฟิกอะตอมจำลองตามฟิสิกส์ */}
+          <div className="relative order-1 mx-auto aspect-square w-[min(80vw,360px)] animate-[scale-in_1.1s_var(--ease-out-expo)_backwards] md:order-2 md:w-full md:max-w-[580px]">
+            <div
+              aria-hidden
+              className="absolute inset-[14%] rounded-full"
+              style={{ background: "radial-gradient(closest-side, rgba(56,189,248,0.18), transparent)" }}
+            />
+            <PhysicsAtom className="absolute inset-0" />
+          </div>
+        </div>
       </section>
       )}
 
       {/* หัวข้อหน้ารวมกิจกรรม */}
       {isActivitiesPage && (
         <div className="relative z-[2] isolate overflow-hidden border-b border-[var(--page-border)] bg-[var(--page-bg)] pb-6 pt-8 md:pb-10 md:pt-12">
-          <AuroraBackground />
+          <AuroraBackground grid={false} />
           <ScienceOrbit className="pointer-events-none absolute -right-6 -top-6 hidden h-48 w-48 animate-float opacity-70 md:block" />
           <div className="relative mx-auto w-full max-w-[1400px] px-4">
             <p className="mb-2 animate-fade-down text-sm font-semibold text-[var(--page-text-secondary)]">

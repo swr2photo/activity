@@ -1,8 +1,8 @@
 /**
- * Toast API compatible with previous notistack usage.
- * Prefer: enqueueSnackbar(msg, { variant: 'success' })
+ * API เดิม (notistack/sonner) — ตอนนี้ส่งไปที่ "แถบสถานะแจ้งเตือน" แทน toast ที่เด้งขึ้น
+ * ใช้ต่อได้เหมือนเดิม: enqueueSnackbar(msg, { variant: 'success' })
  */
-import { toast } from "sonner";
+import { dismiss, notify, type NoticeVariant } from "@/lib/notify";
 
 export type SnackbarVariant = "default" | "success" | "error" | "warning" | "info";
 
@@ -10,33 +10,22 @@ export type EnqueueOptions = {
   variant?: SnackbarVariant;
   autoHideDuration?: number;
   preventDuplicate?: boolean;
+  /** รายละเอียดบรรทัดที่สอง (ไม่บังคับ) */
+  description?: string;
 };
 
 export function enqueueSnackbar(message: string, options?: EnqueueOptions) {
-  const variant = options?.variant ?? "default";
-  const duration = options?.autoHideDuration ?? 4000;
-
-  switch (variant) {
-    case "success":
-      toast.success(message, { duration });
-      break;
-    case "error":
-      toast.error(message, { duration });
-      break;
-    case "warning":
-      toast.warning(message, { duration });
-      break;
-    case "info":
-      toast.info(message, { duration });
-      break;
-    default:
-      toast(message, { duration });
-  }
+  return notify({
+    title: message,
+    description: options?.description,
+    variant: (options?.variant ?? "default") as NoticeVariant,
+    duration: options?.autoHideDuration,
+    dedupeKey: options?.preventDuplicate ? message : undefined,
+  });
 }
 
 export function closeSnackbar(id?: string | number) {
-  if (id === undefined) toast.dismiss();
-  else toast.dismiss(id);
+  dismiss(id === undefined ? undefined : String(id));
 }
 
 /** Drop-in for `const { enqueueSnackbar } = useSnackbar()` */

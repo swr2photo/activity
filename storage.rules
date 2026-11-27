@@ -51,5 +51,11 @@ service firebase.storage {
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
     }
+
+    // 7. Migrated media moved from Firestore base64 to Storage
+    match /migrated/{col}/{docId}/{filename} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

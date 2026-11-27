@@ -57,19 +57,19 @@ export default function TeamSettingsHub({
     {
       id: 'admins',
       label: 'ทีมแอดมิน & คำเชิญ',
-      icon: <ShieldCheck className="h-4 w-4" />,
+      icon: <ShieldCheck className="mi mi-draw h-4 w-4" />,
       allowed: canManageAdmins,
     },
     {
       id: 'settings',
       label: 'ตั้งค่าระบบ & Maintenance',
-      icon: <Settings className="h-4 w-4" />,
+      icon: <Settings className="mi mi-spin h-4 w-4" />,
       allowed: canSystemSettings,
     },
     {
       id: 'logs',
       label: 'บันทึกการใช้งาน (Audit Logs)',
-      icon: <FileText className="h-4 w-4" />,
+      icon: <FileText className="mi mi-rise h-4 w-4" />,
       allowed: canViewLogs,
     },
   ];
@@ -119,8 +119,10 @@ export default function TeamSettingsHub({
               key={t.id}
               type="button"
               onClick={() => selectTab(t.id)}
+              data-state={isActive ? 'active' : undefined}
+              aria-pressed={isActive}
               className={cn(
-                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-[background-color,color,box-shadow,scale] duration-300 active:scale-95',
+                'motion-trigger flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-[background-color,color,box-shadow,scale] duration-300 active:scale-95',
                 isActive
                   ? 'bg-brand-gradient text-white shadow-[0_6px_16px_-6px_rgba(10,107,207,0.6)]'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'

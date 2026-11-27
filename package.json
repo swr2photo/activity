@@ -32,7 +32,6 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-easy-crop": "^6.2.2",
-    "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
@@ -54,6 +53,6 @@
     "build:thai-schools": "node scripts/build-thai-schools.js",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --test src/lib/surveyWindow.test.ts src/lib/dynamicQrToken.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/surveyWindow.test.ts src/lib/dynamicQrToken.test.ts src/lib/mediaMigrationCore.test.ts"
   }
 }

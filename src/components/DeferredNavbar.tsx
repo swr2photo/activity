@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const Navbar = dynamic(() => import("@/components/Navbar"), {
@@ -9,18 +10,22 @@ const Navbar = dynamic(() => import("@/components/Navbar"), {
 });
 
 function NavbarPlaceholder() {
+  // หน้าแรก: แถบบนโปร่งใสลอยเหนือ hero (ต้องตรงกับ Navbar จริง ไม่ให้กระพริบ/ไม่เกิด CLS)
+  const isHome = usePathname() === "/";
   return (
     <>
+      {!isHome && (
+        <div
+          aria-hidden="true"
+          className="fixed inset-x-0 top-0 z-50 hidden h-[4.25rem] border-b border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-card-solid)_86%,transparent)] backdrop-blur-[20px] lg:block"
+        />
+      )}
       <div
         aria-hidden="true"
-        className="fixed inset-x-0 top-0 z-50 hidden h-[4.25rem] border-b border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-card-solid)_88%,transparent)] backdrop-blur-[20px] lg:block"
-      />
-      <div
-        aria-hidden="true"
-        className="fixed inset-x-0 bottom-0 z-50 h-[74px] rounded-t-[1.35rem] border-t border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-card-solid)_88%,transparent)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[20px] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-50 h-[74px] rounded-t-[1.35rem] border-t border-[var(--page-border)] bg-[color-mix(in_srgb,var(--page-card-solid)_86%,transparent)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[20px] lg:hidden"
       />
       {/* สำรองพื้นที่ความสูงเดียวกับ Navbar จริง ป้องกัน CLS 68px บน Desktop */}
-      <div aria-hidden="true" className="hidden h-[4.25rem] shrink-0 lg:block" />
+      {!isHome && <div aria-hidden="true" className="hidden h-[4.25rem] shrink-0 lg:block" />}
     </>
   );
 }

@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { signOut } from 'firebase/auth';
+import { useTheme } from 'next-themes';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -18,7 +19,14 @@ import {
   PanelLeft,
   FlaskConical,
   Link2,
+  Search,
+  Globe,
+  SunMoon,
+  ClipboardList,
+  BarChart3,
 } from 'lucide-react';
+import NotificationStatusBar from '@/components/notifications/NotificationStatusBar';
+import AdminCommandPalette, { type PaletteCommand } from './AdminCommandPalette';
 
 import { adminAuth as auth } from '@/lib/firebaseAdminClient';
 import { cn } from '@/lib/utils';
@@ -87,33 +95,33 @@ const MENU_ITEMS: NavEntry[] = [
     id: 'dashboard',
     label: 'ภาพรวม',
     description: 'สถิติและกิจกรรมล่าสุด',
-    icon: <LayoutDashboard className="h-5 w-5" />,
+    icon: <LayoutDashboard className="mi mi-pop h-5 w-5" />,
   },
   {
     id: 'activities',
     label: 'กิจกรรม',
     description: 'สร้าง จัดการ และดูผู้เข้าร่วม',
-    icon: <CalendarDays className="h-5 w-5" />,
+    icon: <CalendarDays className="mi mi-flip h-5 w-5" />,
   },
   {
     id: 'short-links',
     label: 'ลิงก์ย่อ & Dynamic QR',
     description: 'ลิงก์สั้นและ QR ที่เปลี่ยนอัตโนมัติ',
-    icon: <Link2 className="h-5 w-5" />,
+    icon: <Link2 className="mi mi-wiggle h-5 w-5" />,
     permission: 'manage_activities',
   },
   {
     id: 'users',
     label: 'ผู้ใช้งาน',
     description: 'บัญชีผู้ใช้ในระบบ',
-    icon: <Users className="h-5 w-5" />,
+    icon: <Users className="mi mi-rise h-5 w-5" />,
     permission: 'manage_users',
   },
   {
     id: 'team-settings',
     label: 'ทีมแอดมิน & ตั้งค่า',
     description: 'สิทธิ์ ทีมงาน และประวัติระบบ',
-    icon: <Settings className="h-5 w-5" />,
+    icon: <Settings className="mi mi-spin h-5 w-5" />,
   },
 ];
 
@@ -172,7 +180,7 @@ function NavItem({
               }
             }}
             className={cn(
-              'relative mx-auto flex h-11 w-11 items-center justify-center rounded-xl transition-[background-color,color,box-shadow,scale] duration-300 active:scale-90',
+              'motion-trigger relative mx-auto flex h-11 w-11 items-center justify-center rounded-xl transition-[background-color,color,box-shadow,scale] duration-300 active:scale-90',
               highlighted
                 ? 'bg-brand-gradient text-white shadow-[0_8px_20px_-8px_rgba(6,182,212,0.8)]'
                 : 'text-slate-400 hover:bg-white/[0.07] hover:text-white'
@@ -196,7 +204,7 @@ function NavItem({
           else onNavigate(item.id);
         }}
         className={cn(
-          'group relative flex w-full items-center gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-sm font-semibold transition-[background-color,color] duration-300',
+          'motion-trigger group relative flex w-full items-center gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-sm font-semibold transition-[background-color,color] duration-300',
           depth > 0 ? 'ml-4 pl-4 text-[13px]' : '',
           highlighted
             ? 'bg-white/[0.08] text-white'
@@ -544,6 +552,90 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const sidebarWidth = sidebarCollapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
   const sectionTitle = SECTION_TITLES[activeSection] ?? { label: 'ระบบจัดการกิจกรรม' };
 
+  // ── แถบคำสั่งด่วน (Ctrl/⌘ + K) ──
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const { resolvedTheme, setTheme } = useTheme();
+  const commands: PaletteCommand[] = useMemo(() => {
+    const nav: PaletteCommand[] = visibleMenuItems.map((m) => ({
+      id: `nav:${m.id}`,
+      label: m.label,
+      hint: m.description,
+      group: 'ไปที่เมนู',
+      icon:
+        m.id === 'dashboard'
+          ? LayoutDashboard
+          : m.id === 'activities'
+            ? CalendarDays
+            : m.id === 'short-links'
+              ? Link2
+              : m.id === 'users'
+                ? Users
+                : Settings,
+      run: () => handleNavigate(m.id),
+    }));
+    const canActivities =
+      liveAdmin.role === 'super_admin' || hasPerm('manage_activities') || hasPerm('view_reports');
+    const extra: PaletteCommand[] = [
+      ...(canActivities
+        ? [
+            {
+              id: 'go:participants',
+              label: 'ตรวจรายชื่อผู้ลงทะเบียน',
+              hint: 'กิจกรรม › ผู้เข้าร่วม',
+              group: 'ทางลัด',
+              icon: ClipboardList,
+              keywords: 'participants attendance รายชื่อ',
+              run: () => onSectionChange('activity-list'),
+            },
+            {
+              id: 'go:surveys',
+              label: 'ผลแบบประเมิน',
+              hint: 'กิจกรรม › แบบประเมิน',
+              group: 'ทางลัด',
+              icon: BarChart3,
+              keywords: 'survey แบบสอบถาม',
+              run: () => onSectionChange('survey-results'),
+            },
+          ]
+        : []),
+      {
+        id: 'go:profile',
+        label: 'โปรไฟล์ของฉัน',
+        group: 'ทางลัด',
+        icon: UserCircle,
+        keywords: 'profile',
+        run: () => handleNavigate('profile'),
+      },
+      {
+        id: 'act:theme',
+        label: resolvedTheme === 'dark' ? 'เปลี่ยนเป็นธีมสว่าง' : 'เปลี่ยนเป็นธีมมืด',
+        group: 'คำสั่ง',
+        icon: SunMoon,
+        keywords: 'theme dark light ธีม',
+        run: () => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark'),
+      },
+      {
+        id: 'act:site',
+        label: 'เปิดหน้าเว็บผู้ใช้',
+        hint: 'หน้ารวมกิจกรรมสาธารณะ (แท็บใหม่)',
+        group: 'คำสั่ง',
+        icon: Globe,
+        keywords: 'website public',
+        run: () => window.open('/', '_blank', 'noopener'),
+      },
+      {
+        id: 'act:logout',
+        label: 'ออกจากระบบ',
+        group: 'คำสั่ง',
+        icon: LogOut,
+        keywords: 'logout sign out',
+        run: () => setLogoutDialog(true),
+      },
+    ];
+    return [...nav, ...extra];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleMenuItems, resolvedTheme, hasPerm, liveAdmin.role, isMobile, canSeeTeamSettings]);
+
   const sidebarProps: SidebarContentProps = {
     liveAdmin,
     menuItems: visibleMenuItems,
@@ -627,6 +719,25 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             </h1>
           </div>
 
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            className="motion-trigger hidden h-9 items-center gap-2 rounded-xl border border-border bg-background/70 pl-3 pr-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground md:flex"
+            aria-label="ค้นหาเมนูและคำสั่ง (Ctrl+K)"
+          >
+            <Search className="mi mi-pop h-4 w-4" />
+            <span className="pr-6">ค้นหาเมนู…</span>
+            <kbd className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold">Ctrl K</kbd>
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setPaletteOpen(true)}
+            className="motion-trigger text-slate-600 md:hidden dark:text-slate-300"
+            aria-label="ค้นหาเมนูและคำสั่ง"
+          >
+            <Search className="mi mi-pop h-5 w-5" />
+          </Button>
           <ThemeToggle appearance="plain" />
           <NotificationBell currentAdmin={liveAdmin} />
 
@@ -677,15 +788,28 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </header>
 
         <div className="h-14 shrink-0 sm:h-16" aria-hidden />
-        <main className="relative min-w-0 max-w-full flex-1 overflow-x-clip">
-          {/* เส้นกริดจาง ๆ ด้านบนเนื้อหา */}
+        <main className="relative min-w-0 max-w-full flex-1 overflow-x-clip pb-10">
+          {/* แสงไล่เฉดจาง ๆ ด้านบนเนื้อหา (ไม่มีกริด/จุด) */}
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-grid text-slate-900 opacity-[0.35] mask-fade-b dark:text-white dark:opacity-[0.25]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-80"
+            style={{
+              background:
+                'radial-gradient(60% 100% at 20% 0%, color-mix(in srgb, var(--brand-1) 9%, transparent), transparent 70%), radial-gradient(50% 90% at 85% 0%, color-mix(in srgb, var(--brand-2) 8%, transparent), transparent 70%)',
+            }}
           />
           <div className="relative">{children}</div>
         </main>
       </div>
+
+      {/* แถบสถานะแจ้งเตือนถาวรด้านล่าง (แทน popup) */}
+      <NotificationStatusBar
+        mode="docked"
+        className="transition-[left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+        style={{ left: isMobile ? 0 : sidebarWidth }}
+      />
+
+      <AdminCommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} commands={commands} />
 
       <Dialog open={logoutDialog} onOpenChange={setLogoutDialog}>
         <DialogContent className="sm:max-w-md">

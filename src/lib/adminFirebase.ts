@@ -19,6 +19,11 @@ import {
   limit as qLimit,
   deleteField,
   Timestamp,
+  documentId,
+  startAfter,
+  getCountFromServer,
+  type DocumentData,
+  type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
 // ✅ ใช้ Absolute Import เพื่อป้องกัน Path Error
@@ -327,7 +332,29 @@ export interface UnivUser {
 }
 
 // ดึงทั้งหมดจากคอลเลกชันหลัก (fallback ไป legacy ถ้าไม่มี)
-export const getAllActivities = async (): Promise<Activity[]> => {
+// ── cache กิจกรรมฝั่งแอดมิน ──────────────────────────────────────────────
+// หลายแผง (แดชบอร์ด/รายชื่อ/แบบประเมิน) เรียกชุดเดียวกันซ้ำ ๆ ขณะสลับเมนู
+// → เก็บผลไว้ 30 วินาที + รวมคำขอที่ซ้อนกันเป็นคำขอเดียว (in-flight dedupe)
+// และล้าง cache ทุกครั้งที่สร้าง/แก้/ลบกิจกรรม
+const ACTIVITY_CACHE_TTL_MS = 30_000;
+const activityCache = new Map<string, { at: number; promise: Promise<Activity[]> }>();
+
+export const invalidateActivitiesCache = () => activityCache.clear();
+
+const cachedActivities = (key: string, loader: () => Promise<Activity[]>): Promise<Activity[]> => {
+  const hit = activityCache.get(key);
+  if (hit && Date.now() - hit.at < ACTIVITY_CACHE_TTL_MS) return hit.promise.then((list) => list.slice());
+  const promise = loader().catch((err) => {
+    activityCache.delete(key);
+    throw err;
+  });
+  activityCache.set(key, { at: Date.now(), promise });
+  return promise.then((list) => list.slice());
+};
+
+export const getAllActivities = (): Promise<Activity[]> => cachedActivities("all", loadAllActivities);
+
+const loadAllActivities = async (): Promise<Activity[]> => {
   let snap = await getDocs(collection(db, PRIMARY_ACTIVITY_COLLECTION));
   if (snap.empty) {
     snap = await getDocs(collection(db, LEGACY_ACTIVITY_COLLECTION));
@@ -371,10 +398,12 @@ export const getAllActivities = async (): Promise<Activity[]> => {
   });
 };
 
-export const getActivitiesByDepartment = async (
-  department: AdminDepartment
-): Promise<Activity[]> => {
-  if (department === 'all') return getAllActivities();
+export const getActivitiesByDepartment = (department: AdminDepartment): Promise<Activity[]> =>
+  department === 'all'
+    ? getAllActivities()
+    : cachedActivities(`dept:${department}`, () => loadActivitiesByDepartment(department));
+
+const loadActivitiesByDepartment = async (department: AdminDepartment): Promise<Activity[]> => {
 
   // primary first
   let qy = query(
@@ -495,6 +524,8 @@ export const subscribeActivities = (
     : query(colRef, where('department', '==', department));
 
   const primaryUnsubscribe = onSnapshot(qy, (snap) => {
+    // มีการเปลี่ยนแปลงจากที่ใดก็ตาม (รวมถึงเขียนตรงจากแผงจัดการ) → ล้าง cache ให้แผงอื่นได้ข้อมูลใหม่
+    if (!snap.metadata.fromCache) invalidateActivitiesCache();
     if (snap.empty) {
       if (!legacyUnsubscribe) {
         const legacyCol = collection(db, LEGACY_ACTIVITY_COLLECTION);
@@ -699,6 +730,7 @@ export type UpdateActivityInput = Partial<CreateActivityInput> & {
 };
 
 export const createActivity = async (payload: CreateActivityInput) => {
+  invalidateActivitiesCache();
   const data = stripUndefined({
     ...payload,
     currentParticipants: 0,
@@ -748,6 +780,7 @@ export const createActivity = async (payload: CreateActivityInput) => {
 };
 
 export const updateActivity = async (activityId: string, patch: UpdateActivityInput) => {
+  invalidateActivitiesCache();
   const cleaned = stripUndefined({
     ...patch,
     updatedAt: serverTimestamp(),
@@ -1033,6 +1066,7 @@ export const restoreActivityVersion = async (
   versionId: string,
   admin: { uid?: string; email?: string } = {}
 ) => {
+  invalidateActivitiesCache();
   const version = await getActivityVersion(qrDocId, versionId);
   if (!version?.snapshot) throw new Error('VERSION_NOT_FOUND');
 
@@ -1096,6 +1130,7 @@ export const restoreActivityVersion = async (
 };
 
 export const deleteActivity = async (activityId: string) => {
+  invalidateActivitiesCache();
   await deleteDoc(doc(db, PRIMARY_ACTIVITY_COLLECTION, activityId));
 };
 
@@ -1154,6 +1189,7 @@ export const adjustParticipantsByActivityCode = async (
   activityCode: string,
   delta: number
 ): Promise<void> => {
+  invalidateActivitiesCache();
   // primary
   let q1 = query(collection(db, PRIMARY_ACTIVITY_COLLECTION), where('activityCode', '==', activityCode));
   let snap = await getDocs(q1);
@@ -1231,6 +1267,56 @@ const patchUserStatus = async (uid: string, patch: Record<string, any>) => {
 export const getAllUsers = async (): Promise<UnivUser[]> => {
   const snap = await getDocs(collection(db, 'universityUsers'));
   return snap.docs.map((d) => mapUnivUser(d));
+};
+
+/* ── โหลดผู้ใช้แบบแบ่งก้อน (ไม่ดึงทั้งคอลเลกชันในครั้งเดียว) ───────────────
+ * เรียงตาม document ID → ใช้ single-field index ที่มีอยู่แล้ว ไม่ต้องสร้าง composite index
+ * สังกัด/สถานะของผู้ใช้จับคู่แบบยืดหยุ่น (ชื่อคณะภาษาไทย, ค่าว่าง = ค่าเริ่มต้น)
+ * จึงกรองฝั่ง client หลังได้แต่ละก้อนมา
+ */
+export type UserCursor = QueryDocumentSnapshot<DocumentData> | null;
+export type UsersChunk = { users: UnivUser[]; cursor: UserCursor; done: boolean };
+export const USERS_CHUNK_SIZE = 150;
+
+export const getUsersChunk = async (cursor: UserCursor, size = USERS_CHUNK_SIZE): Promise<UsersChunk> => {
+  const base = collection(db, 'universityUsers');
+  const qy = cursor
+    ? query(base, orderBy(documentId()), startAfter(cursor), qLimit(size))
+    : query(base, orderBy(documentId()), qLimit(size));
+  const snap = await getDocs(qy);
+  return {
+    users: snap.docs.map((d) => mapUnivUser(d)),
+    cursor: snap.docs[snap.docs.length - 1] ?? cursor,
+    done: snap.docs.length < size,
+  };
+};
+
+/** จำนวนผู้ใช้ทั้งระบบ (นับฝั่งเซิร์ฟเวอร์ ไม่ดาวน์โหลดเอกสาร) */
+export const countAllUsers = async (): Promise<number> =>
+  (await getCountFromServer(collection(db, 'universityUsers'))).data().count;
+
+export const filterUsersForDepartment = (users: UnivUser[], department: AdminDepartment): UnivUser[] =>
+  department === 'all' ? users : users.filter((u) => userBelongsToAdminDept(u, department));
+
+/**
+ * ค้นหาผ่าน index โดยตรง (prefix) — รหัสนักศึกษา / อีเมล / ชื่อ
+ * ใช้ range query บนฟิลด์เดียว จึงไม่ต้องมี composite index
+ */
+export const searchUsersIndexed = async (term: string, max = 20): Promise<UnivUser[]> => {
+  const t = term.trim();
+  if (t.length < 2) return [];
+  const base = collection(db, 'universityUsers');
+  const lower = t.toLowerCase();
+  const title = lower[0].toUpperCase() + lower.slice(1);
+  const variants = Array.from(new Set([t, lower, title]));
+  const fields = /^[0-9]+$/.test(t) ? ['studentId'] : t.includes('@') ? ['email'] : ['email', 'firstName', 'lastName', 'studentId'];
+  const queries = fields.flatMap((f) =>
+    variants.map((v) => getDocs(query(base, where(f, '>=', v), where(f, '<=', `${v}\uf8ff`), qLimit(max))).catch(() => null))
+  );
+  const snaps = await Promise.all(queries);
+  const map = new Map<string, UnivUser>();
+  for (const s of snaps) s?.docs.forEach((d) => map.set(d.id, mapUnivUser(d)));
+  return Array.from(map.values());
 };
 
 export const getPendingUsers = async (): Promise<UnivUser[]> => {

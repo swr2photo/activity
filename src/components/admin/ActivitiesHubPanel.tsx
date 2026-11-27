@@ -62,25 +62,25 @@ export default function ActivitiesHubPanel({
     {
       id: 'manage',
       label: 'รายการ & สร้างกิจกรรม',
-      icon: <CalendarDays className="h-4 w-4" />,
+      icon: <CalendarDays className="mi mi-flip h-4 w-4" />,
       allowed: canManage,
     },
     {
       id: 'participants',
       label: 'ผู้ลงทะเบียน & เช็กอิน',
-      icon: <Users className="h-4 w-4" />,
+      icon: <Users className="mi mi-rise h-4 w-4" />,
       allowed: canViewReports,
     },
     {
       id: 'links',
       label: 'ลิงก์ย่อ & Dynamic QR',
-      icon: <Link2 className="h-4 w-4" />,
+      icon: <Link2 className="mi mi-wiggle h-4 w-4" />,
       allowed: canManage,
     },
     {
       id: 'surveys',
       label: 'ผลแบบประเมิน',
-      icon: <ClipboardCheck className="h-4 w-4" />,
+      icon: <ClipboardCheck className="mi mi-draw h-4 w-4" />,
       allowed: canViewReports,
     },
   ];
@@ -124,8 +124,10 @@ export default function ActivitiesHubPanel({
               key={t.id}
               type="button"
               onClick={() => selectTab(t.id)}
+              data-state={isActive ? 'active' : undefined}
+              aria-pressed={isActive}
               className={cn(
-                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-[background-color,color,box-shadow,scale] duration-300 active:scale-95',
+                'motion-trigger flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-[background-color,color,box-shadow,scale] duration-300 active:scale-95',
                 isActive
                   ? 'bg-brand-gradient text-white shadow-[0_6px_16px_-6px_rgba(10,107,207,0.6)]'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'

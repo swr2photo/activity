@@ -15,7 +15,7 @@ type AuroraBackgroundProps = {
 export default function AuroraBackground({
   className,
   variant = "subtle",
-  grid = true,
+  grid = false,
 }: AuroraBackgroundProps) {
   const strong = variant === "hero";
   return (

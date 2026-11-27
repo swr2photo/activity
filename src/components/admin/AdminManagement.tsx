@@ -23,8 +23,9 @@ import {
   createAdminUser,
   updateAdminUser,
   deleteAdminUser,
-  getAllUsers,
-  getUsersByDepartment,
+  getUsersChunk,
+  filterUsersForDepartment,
+  searchUsersIndexed,
   type UnivUser,
   getAdminInvitesByDepartment,
   type AdminInvite,
@@ -145,6 +146,7 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
   const [userOptions, setUserOptions] = useState<UnivUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<UnivUser | null>(null);
   const [userSearch, setUserSearch] = useState('');
+  const [searchingUsers, setSearchingUsers] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const isSuper = currentAdmin.role === 'super_admin';
@@ -216,13 +218,16 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
       department: (isSuper ? inviteDept : currentAdmin.department) as any,
       permissions: [], isActive: true,
     });
+    // เปิดกล่องทันที แล้วโหลดผู้ใช้ก้อนแรกเบื้องหลัง (ไม่ดึงทั้งคอลเลกชัน) — ค้นหาเพิ่มผ่าน index ตอนพิมพ์
+    setUserOptions([]);
+    setDialogOpen(true);
     try {
-      const options = isSuper ? await getAllUsers() : await getUsersByDepartment(currentAdmin.department as AdminDepartment);
-      setUserOptions(options);
+      const dept = (isSuper ? 'all' : currentAdmin.department) as AdminDepartment;
+      const first = await getUsersChunk(null, 200);
+      setUserOptions(filterUsersForDepartment(first.users, dept));
     } catch (e: any) {
       enqueueSnackbar(e?.message || 'โหลดผู้ใช้ไม่สำเร็จ', { variant: 'error' });
     }
-    setDialogOpen(true);
   }, [currentAdmin.department, enqueueSnackbar, inviteDept, isSuper]);
 
   const openInvite = useCallback(() => {
@@ -448,6 +453,36 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
     return admins.slice().sort((a, b) => roleRank(b.role as AdminRole) - roleRank(a.role as AdminRole));
   }, [admins]);
 
+  // ค้นหาผู้ใช้ผ่าน index (รหัส/อีเมล/ชื่อ) แล้วรวมเข้ารายการตัวเลือก
+  useEffect(() => {
+    const t = userSearch.trim();
+    if (!dialogOpen || t.length < 2) {
+      setSearchingUsers(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setSearchingUsers(true);
+      try {
+        const dept = (isSuper ? 'all' : currentAdmin.department) as AdminDepartment;
+        const found = filterUsersForDepartment(await searchUsersIndexed(t), dept);
+        if (cancelled || found.length === 0) return;
+        setUserOptions((prev) => {
+          const map = new Map(prev.map((u) => [u.uid, u] as const));
+          found.forEach((u) => map.set(u.uid, u));
+          return Array.from(map.values());
+        });
+      } catch {
+      } finally {
+        if (!cancelled) setSearchingUsers(false);
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [userSearch, dialogOpen, isSuper, currentAdmin.department]);
+
   const filteredUsers = useMemo(() => {
     const s = userSearch.trim().toLowerCase();
     if (!s) return userOptions.slice(0, 50);
@@ -672,14 +707,24 @@ const AdminManagement: React.FC<Props> = ({ currentAdmin }) => {
                     
                     {showDropdown && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-lg z-50 max-h-64 flex flex-col">
-                        <div className="p-2 border-b">
-                          <Input 
-                            autoFocus
-                            placeholder="พิมพ์ค้นหา..." 
-                            value={userSearch} 
-                            onChange={(e) => setUserSearch(e.target.value)}
-                            className="h-8"
-                          />
+                        <div className="p-2 border-b space-y-1">
+                          <div className="relative">
+                            <Input
+                              autoFocus
+                              placeholder="พิมพ์ชื่อ รหัส หรืออีเมลเพื่อค้นหา..."
+                              value={userSearch}
+                              onChange={(e) => setUserSearch(e.target.value)}
+                              className="h-8 pr-7"
+                            />
+                            {searchingUsers && (
+                              <RefreshCw className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                            )}
+                          </div>
+                          {userSearch.trim().length < 2 && (
+                            <p className="text-[11px] text-muted-foreground px-1">
+                              แสดงชุดแรก — พิมพ์อย่างน้อย 2 ตัวอักษรเพื่อค้นหาทั้งระบบ
+                            </p>
+                          )}
                         </div>
                         <div className="overflow-y-auto p-1">
                           {filteredUsers.length === 0 ? (

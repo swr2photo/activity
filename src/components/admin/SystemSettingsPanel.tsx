@@ -12,6 +12,7 @@ import {
   logAdminEvent,
 } from '../../lib/adminFirebase';
 import { PageHeader } from './shared/PageHeader';
+import MediaMigrationCard from './MediaMigrationCard';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -263,6 +264,10 @@ export default function SystemSettingsPanel({ currentAdmin }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      {currentAdmin.role === 'super_admin' && (
+        <MediaMigrationCard currentAdmin={currentAdmin} />
+      )}
     </div>
   );
 }

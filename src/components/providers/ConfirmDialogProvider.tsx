@@ -5,6 +5,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { AlertTriangle, Ban, HelpCircle, Info, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { notify, type NoticeVariant } from '@/lib/notify';
 
 export type ConfirmVariant = 'default' | 'destructive' | 'warning' | 'info';
 
@@ -162,13 +163,26 @@ export function useConfirm(): ConfirmFn {
   return ctx;
 }
 
-/** แจ้งเตือนแบบปุ่มเดียว (แทน alert) */
+const ALERT_TO_NOTICE: Record<ConfirmVariant, NoticeVariant> = {
+  default: 'info',
+  info: 'info',
+  warning: 'warning',
+  destructive: 'error',
+};
+
+/**
+ * แจ้งเตือนข้อความเดียว (แทน alert) — แสดงในแถบสถานะ ไม่เด้งกล่องบังหน้าจอ
+ * ยังคืน Promise เหมือนเดิม เพื่อให้โค้ดที่ await อยู่ทำงานต่อได้ทันที
+ */
 export function useAlertDialog() {
-  const confirm = useConfirm();
   return useCallback(
     async (title: string, description?: React.ReactNode, variant: ConfirmVariant = 'info') => {
-      await confirm({ title, description, alertOnly: true, variant, confirmText: 'ตกลง' });
+      notify({
+        title,
+        description: typeof description === 'string' ? description : undefined,
+        variant: ALERT_TO_NOTICE[variant],
+      });
     },
-    [confirm]
+    []
   );
 }

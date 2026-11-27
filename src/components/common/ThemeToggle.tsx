@@ -95,9 +95,9 @@ export default function ThemeToggle({
           size="icon"
           title="สลับธีม"
           aria-label="สลับธีม"
-          className={cn("h-9 w-9 text-muted-foreground", className)}
+          className={cn("motion-trigger h-9 w-9 text-muted-foreground", className)}
         >
-          <CurrentIcon className="h-4 w-4" />
+          <CurrentIcon className="mi mi-spin h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
