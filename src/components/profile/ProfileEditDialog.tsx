@@ -98,13 +98,13 @@ function FreeSoloField({
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
+    const onDocPointerDown = (e: PointerEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) {
         setOpenMenu(false);
       }
     };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('pointerdown', onDocPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocPointerDown);
   }, []);
 
   const filteredOptions = useMemo(() => {
@@ -145,13 +145,13 @@ function FreeSoloField({
           </span>
         )}
         {openMenu && filteredOptions.length > 0 && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+          <div className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-56 overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg">
             {filteredOptions.map((o) => (
               <button
                 key={o}
                 type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
                   onChange(o);
                   setOpenMenu(false);
                 }}
