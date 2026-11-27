@@ -86,6 +86,7 @@ import {
   type Activity,
   type ActivityFile,
   type SurveyQuestion,
+  type SurveySection,
   type ActivityVersionMeta,
   type ActivityVersionDiffRow,
 } from '../../lib/adminFirebase';
@@ -97,6 +98,7 @@ import {
 import { DEPARTMENT_LABELS, type AdminProfile, type AdminDepartment } from '../../types/admin';
 import { QuillEditor } from './QuillEditor';
 import { ActivityTable } from './qr/ActivityTable';
+import SurveyBuilder from './SurveyBuilder';
 
 import {
   addDoc,
@@ -518,6 +520,9 @@ type CreateForm = {
   // แบบประเมิน (Survey)
   surveyConfig: {
     enabled: boolean;
+    title?: string;
+    description?: string;
+    sections?: SurveySection[];
     openAt: Dayjs | null;
     closeAt: Dayjs | null;
     sessionEligibility: 'any' | 'all' | 'specific';
@@ -582,12 +587,29 @@ const defaultForm: CreateForm = {
 
 /** แปลง surveyConfig จากฟอร์ม → บันทึก Firestore */
 const serializeSurveyConfig = (cfg: CreateForm['surveyConfig']) => {
+  const cleanQuestion = (q: SurveyQuestion) => {
+    const outQ: Record<string, any> = {};
+    for (const [k, v] of Object.entries(q)) {
+      if (v !== undefined) outQ[k] = v;
+    }
+    return outQ;
+  };
   const out: Record<string, any> = {
     enabled: !!cfg.enabled,
-    questions: cfg.questions || [],
+    questions: (cfg.questions || []).map(cleanQuestion),
     sessionEligibility: cfg.sessionEligibility || 'any',
     requiredSessionIds: cfg.requiredSessionIds || [],
   };
+  if (cfg.title?.trim()) out.title = cfg.title.trim();
+  if (cfg.description?.trim()) out.description = cfg.description.trim();
+  if (Array.isArray(cfg.sections) && cfg.sections.length > 0) {
+    out.sections = cfg.sections.map((s, idx) => ({
+      id: s.id,
+      label: s.label,
+      ...(s.description ? { description: s.description } : {}),
+      order: typeof s.order === 'number' ? s.order : idx,
+    }));
+  }
   if (cfg.openAt) out.openAt = cfg.openAt.toDate();
   if (cfg.closeAt) out.closeAt = cfg.closeAt.toDate();
   if (cfg.forceOpenUntil != null) out.forceOpenUntil = cfg.forceOpenUntil;
@@ -2028,6 +2050,9 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
           if (!closeAt) closeAt = endFallback.add(1, 'day');
           return {
             enabled: !!raw.enabled,
+            title: raw.title || '',
+            description: raw.description || '',
+            sections: Array.isArray(raw.sections) ? raw.sections : undefined,
             openAt,
             closeAt,
             sessionEligibility: raw.sessionEligibility || 'any',
@@ -2714,212 +2739,23 @@ const QRCodeAdminPanel: React.FC<QRCodeAdminPanelProps> = ({ currentAdmin }) => 
               )}
             </div>
 
-            {form.surveyConfig.questions.map((q, i) => (
-              <Card key={q.id} className="border-border">
-                <CardContent className="py-3 px-4">
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                    <div className="md:col-span-6 flex flex-col gap-1.5">
-                      <Label className="text-xs">คำถาม</Label>
-                      <Input
-                        value={q.question}
-                        onChange={(e) => {
-                          const newQs = [...form.surveyConfig.questions];
-                          newQs[i].question = e.target.value;
-                          updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                        }}
-                      />
-                    </div>
-                    <div className="md:col-span-3 flex flex-col gap-1.5">
-                      <Label className="text-xs">ประเภท</Label>
-                      <Select
-                        value={q.type}
-                        onValueChange={(v) => {
-                          const newQs = [...form.surveyConfig.questions];
-                          newQs[i].type = v as any;
-                          updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="text">ข้อความ</SelectItem>
-                          <SelectItem value="choice">ตัวเลือก</SelectItem>
-                          <SelectItem value="rating">ให้ดาว (1-5)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="flex items-center gap-2 cursor-pointer text-sm">
-                        <Switch
-                          checked={q.required || false}
-                          onCheckedChange={(checked) => {
-                            const newQs = [...form.surveyConfig.questions];
-                            newQs[i].required = checked;
-                            updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                          }}
-                        />
-                        <span>จำเป็น</span>
-                      </label>
-                    </div>
-                    <div className="md:col-span-1 flex justify-end">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="text-destructive"
-                        onClick={() => {
-                          const newQs = form.surveyConfig.questions.filter((_, idx) => idx !== i);
-                          updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                        }}
-                      >
-                        <DeleteIcon className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    {/* Options for Text validation type */}
-                    {q.type === 'text' && (
-                      <div className="md:col-span-12">
-                        <div className="p-3 bg-muted/50 rounded-lg border border-dashed border-border">
-                          <span className="block mb-2 text-xs font-bold text-muted-foreground">
-                            เงื่อนไขความถูกต้องของคำตอบ (Validation)
-                          </span>
-                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                            <div className="sm:col-span-3 flex flex-col gap-1.5">
-                              <Label className="text-xs">ประเภทข้อมูล</Label>
-                              <Select
-                                value={q.validationType || 'any'}
-                                onValueChange={(v) => {
-                                  const newQs = [...form.surveyConfig.questions];
-                                  newQs[i] = { ...newQs[i], validationType: v as any };
-                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                                }}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="any">ทั่วไป (ใดๆ)</SelectItem>
-                                  <SelectItem value="number">ตัวเลขเท่านั้น</SelectItem>
-                                  <SelectItem value="thai">ภาษาไทยเท่านั้น</SelectItem>
-                                  <SelectItem value="english">ภาษาอังกฤษเท่านั้น</SelectItem>
-                                  <SelectItem value="email">รูปแบบอีเมล</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="sm:col-span-3 flex flex-col gap-1.5">
-                              <Label className="text-xs">มีคำขึ้นต้น (Prefix)</Label>
-                              <Input
-                                value={q.prefix || ''}
-                                onChange={(e) => {
-                                  const newQs = [...form.surveyConfig.questions];
-                                  newQs[i] = { ...newQs[i], prefix: e.target.value };
-                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                                }}
-                                placeholder="เช่น 6 หรือ 08"
-                              />
-                            </div>
-                            <div className="sm:col-span-3 flex flex-col gap-1.5">
-                              <Label className="text-xs">มีคำลงท้าย (Postfix)</Label>
-                              <Input
-                                value={q.postfix || ''}
-                                onChange={(e) => {
-                                  const newQs = [...form.surveyConfig.questions];
-                                  newQs[i] = { ...newQs[i], postfix: e.target.value };
-                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                                }}
-                                placeholder="เช่น .txt"
-                              />
-                            </div>
-                            <div className="sm:col-span-3">
-                              <label className="flex items-center gap-2 cursor-pointer text-sm">
-                                <Switch
-                                  checked={q.allowSpaces !== false}
-                                  disabled={q.validationType === 'email' || q.validationType === 'number'}
-                                  onCheckedChange={(checked) => {
-                                    const newQs = [...form.surveyConfig.questions];
-                                    newQs[i] = { ...newQs[i], allowSpaces: checked };
-                                    updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                                  }}
-                                />
-                                <span>อนุญาตเว้นวรรค</span>
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Options for Choice type */}
-                    {q.type === 'choice' && (
-                      <div className="md:col-span-12">
-                        <div className="flex flex-col gap-2">
-                          {(q.options || []).map((opt, optIdx) => (
-                            <div key={optIdx} className="flex items-end gap-2">
-                              <div className="flex-1 flex flex-col gap-1.5">
-                                <Label className="text-xs">{`ตัวเลือกที่ ${optIdx + 1}`}</Label>
-                                <Input
-                                  value={opt}
-                                  onChange={(e) => {
-                                    const newQs = [...form.surveyConfig.questions];
-                                    const newOpts = [...(newQs[i].options || [])];
-                                    newOpts[optIdx] = e.target.value;
-                                    newQs[i].options = newOpts;
-                                    updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                                  }}
-                                />
-                              </div>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="text-destructive"
-                                onClick={() => {
-                                  const newQs = [...form.surveyConfig.questions];
-                                  const newOpts = [...(newQs[i].options || [])];
-                                  newOpts.splice(optIdx, 1);
-                                  newQs[i].options = newOpts;
-                                  updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                                }}
-                              >
-                                <DeleteIcon className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-2 self-start"
-                            onClick={() => {
-                              const newQs = [...form.surveyConfig.questions];
-                              const newOpts = [...(newQs[i].options || [])];
-                              newOpts.push('');
-                              newQs[i].options = newOpts;
-                              updateForm('surveyConfig', { ...form.surveyConfig, questions: newQs } as any);
-                            }}
-                          >
-                            <AddIcon className="h-4 w-4" /> เพิ่มตัวเลือก
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-            <Button
-              variant="outline"
-              className="gap-2 self-start"
-              onClick={() => {
+            <SurveyBuilder
+              value={{
+                title: form.surveyConfig.title,
+                description: form.surveyConfig.description,
+                sections: form.surveyConfig.sections,
+                questions: form.surveyConfig.questions,
+              }}
+              onChange={(next) =>
                 updateForm('surveyConfig', {
                   ...form.surveyConfig,
-                  questions: [
-                    ...form.surveyConfig.questions,
-                    { id: Date.now().toString(), type: 'text', question: '', required: false }
-                  ]
-                } as any);
-              }}
-            >
-              <AddIcon className="h-4 w-4" /> เพิ่มคำถาม
-            </Button>
+                  title: next.title,
+                  description: next.description,
+                  sections: next.sections,
+                  questions: next.questions,
+                } as any)
+              }
+            />
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   base64Bytes,
   buildDownloadUrl,
+  classifyStorageError,
   findDataUrls,
   parseDataUrl,
   replaceDataUrls,
@@ -106,5 +107,22 @@ describe('mediaMigrationCore', () => {
       url,
       'https://firebasestorage.googleapis.com/v0/b/my-bucket.appspot.com/o/migrated%2FactivityQRCodes%2Fabc%2FbannerUrl_123.jpg?alt=media&token=tok-1'
     );
+  });
+
+  it('ignores generated qrUrl/qrCode fields by default and classifies storage billing errors', () => {
+    const found = findDataUrls({
+      qrUrl: sampleDataUrl,
+      qrCode: sampleDataUrl,
+      bannerUrl: sampleDataUrl,
+    });
+    assert.equal(found.length, 1);
+    assert.equal(found[0].field, 'bannerUrl');
+
+    assert.equal(
+      classifyStorageError('The billing account for the owning project is disabled in state closed').kind,
+      'billing_disabled'
+    );
+    assert.equal(classifyStorageError('storage/quota-exceeded').kind, 'quota_exceeded');
+    assert.equal(classifyStorageError('403 Forbidden permission denied').kind, 'permission_denied');
   });
 });

@@ -28,7 +28,8 @@ export async function POST(req: NextRequest) {
     const cursor = typeof body.cursor === 'string' && body.cursor.trim() ? body.cursor.trim() : null;
     const batchSize = Math.max(1, Math.min(30, Math.floor(Number(body.batchSize) || 15)));
     const result = await migrateMediaBatch(cursor, batchSize);
-    return NextResponse.json(result, { status: result.storageError ? 503 : 200 });
+    // คืน 200 พร้อม storageError ใน JSON เพื่อให้หน้าจอแสดงคำแนะนำอย่างชัดเจนโดยไม่เกิด error แดง 503 ใน Console
+    return NextResponse.json(result, { status: 200 });
   } catch (err: any) {
     const status = err instanceof ApiAuthError ? err.status : 500;
     return NextResponse.json({ error: err?.message || 'migration failed' }, { status });

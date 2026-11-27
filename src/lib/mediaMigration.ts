@@ -1,28 +1,35 @@
 /**
  * ย้ายไฟล์ที่เก็บเป็น base64 (data: URL) ในเอกสาร Firestore ไปไว้ใน Firebase Storage
  *
- * ทำไม: ตอน Storage ใช้ไม่ได้ (โควตา/billing) ระบบอัปโหลดจะ fallback เป็น data URL ใส่ในเอกสารตรง ๆ
- * → เอกสารกิจกรรมบวมหลายร้อย KB ทุก query ฝั่งแอดมินต้องดาวน์โหลดก้อนนี้ซ้ำ
- *   และหน้ารวมกิจกรรมสาธารณะต้องตัดแบนเนอร์ทิ้ง (ไม่แสดงรูป)
- *
- * ครอบคลุม: ทุกฟิลด์ที่เป็น string ขึ้นต้น "data:" (bannerUrl, dynamicQrBgUrl, adImageUrl,
- * files[].url, sessions[].files[].url ฯลฯ) และ <img src="data:..."> ที่ฝังใน HTML (เช่น description)
+ * ครอบคลุม: bannerUrl, dynamicQrBgUrl, adImageUrl, files[].url, sessions[].files[].url
+ * และ <img src="data:..."> ที่ฝังใน HTML (เช่น description)
+ * (ยกเว้น qrUrl/qrCode ซึ่งเป็น QR PNG ขนาดเล็กที่สร้างขึ้นอัตโนมัติ)
  *
  * ใช้ได้เฉพาะฝั่งเซิร์ฟเวอร์ (firebase-admin)
  */
 import { randomUUID, createHash } from 'crypto';
 import { getAdminBucket, getAdminDb } from '@/lib/firebaseAdmin';
 import {
+  DEFAULT_IGNORED_MEDIA_FIELDS,
   MIME_EXT,
   buildDownloadUrl,
+  classifyStorageError,
   findDataUrls,
   parseDataUrl,
   replaceDataUrls,
   type FoundMedia,
+  type StorageErrorKind,
   type Uploader,
 } from '@/lib/mediaMigrationCore';
 
-export { findDataUrls, parseDataUrl, replaceDataUrls, type FoundMedia };
+export {
+  classifyStorageError,
+  findDataUrls,
+  parseDataUrl,
+  replaceDataUrls,
+  type FoundMedia,
+  type StorageErrorKind,
+};
 
 export const MEDIA_COLLECTIONS = ['activityQRCodes', 'activities', 'customShortLinks'] as const;
 
@@ -40,6 +47,15 @@ export type ScanCollectionStat = {
   bytes: number;
 };
 
+export type StorageHealthStatus = {
+  ok: boolean;
+  bucket?: string;
+  projectId?: string;
+  error?: string;
+  errorKind?: StorageErrorKind;
+  errorMessageTh?: string;
+};
+
 export type ScanResult = {
   docs: number;
   docsWithMedia: number;
@@ -47,7 +63,47 @@ export type ScanResult = {
   bytes: number;
   byField: Record<string, ScanBucketStat>;
   byCollection: Record<string, ScanCollectionStat>;
+  storageStatus: StorageHealthStatus;
 };
+
+/** ตรวจสอบความพร้อมของ Firebase Storage Bucket (เช็ค Billing / สิทธิ์ / การตั้งค่า) */
+export async function checkStorageHealth(): Promise<StorageHealthStatus> {
+  const projectId =
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    'webapp-78231';
+
+  let bucket: ReturnType<typeof getAdminBucket>;
+  try {
+    bucket = getAdminBucket();
+  } catch (err: any) {
+    const raw = String(err?.message || err).slice(0, 300);
+    const classified = classifyStorageError(raw);
+    return {
+      ok: false,
+      projectId,
+      error: raw,
+      errorKind: classified.kind,
+      errorMessageTh: classified.messageTh,
+    };
+  }
+
+  try {
+    await bucket.getMetadata();
+    return { ok: true, bucket: bucket.name, projectId };
+  } catch (err: any) {
+    const raw = String(err?.message || err).slice(0, 300);
+    const classified = classifyStorageError(raw);
+    return {
+      ok: false,
+      bucket: bucket.name,
+      projectId,
+      error: raw,
+      errorKind: classified.kind,
+      errorMessageTh: classified.messageTh,
+    };
+  }
+}
 
 /**
  * สำรวจว่ามี data URL ค้างอยู่เท่าไร (อ่านอย่างเดียว)
@@ -55,6 +111,7 @@ export type ScanResult = {
  */
 export async function scanMedia(): Promise<ScanResult> {
   const db = getAdminDb();
+  const storageStatusPromise = checkStorageHealth();
   const res: ScanResult = {
     docs: 0,
     docsWithMedia: 0,
@@ -62,6 +119,7 @@ export async function scanMedia(): Promise<ScanResult> {
     bytes: 0,
     byField: {},
     byCollection: {},
+    storageStatus: { ok: false },
   };
 
   for (const col of MEDIA_COLLECTIONS) {
@@ -78,7 +136,7 @@ export async function scanMedia(): Promise<ScanResult> {
       for (const d of snap.docs) {
         res.docs++;
         colStat.docs++;
-        const found = findDataUrls(d.data());
+        const found = findDataUrls(d.data(), '', DEFAULT_IGNORED_MEDIA_FIELDS);
         if (found.length) {
           res.docsWithMedia++;
           colStat.docsWithMedia++;
@@ -98,6 +156,8 @@ export async function scanMedia(): Promise<ScanResult> {
       if (snap.size < SCAN_CHUNK_SIZE) break;
     }
   }
+
+  res.storageStatus = await storageStatusPromise;
   return res;
 }
 
@@ -110,6 +170,8 @@ export type MigrateResult = {
   errors: { doc: string; error: string }[];
   /** ข้อผิดพลาดของ Storage เอง (เช่น billing/โควตา) — หยุดทั้งชุด */
   storageError?: string;
+  storageErrorKind?: StorageErrorKind;
+  storageErrorMessageTh?: string;
   nextCursor: string | null;
   done: boolean;
 };
@@ -140,7 +202,11 @@ export async function migrateMediaBatch(
   try {
     bucket = getAdminBucket();
   } catch (err: any) {
-    result.storageError = String(err?.message || err).slice(0, 300);
+    const raw = String(err?.message || err).slice(0, 300);
+    const classified = classifyStorageError(raw);
+    result.storageError = raw;
+    result.storageErrorKind = classified.kind;
+    result.storageErrorMessageTh = classified.messageTh;
     return result;
   }
 
@@ -160,9 +226,10 @@ export async function migrateMediaBatch(
 
     for (const d of snap.docs) {
       const data = d.data();
-      const fields = Array.from(new Set(findDataUrls(data).map((f) => f.field)));
+      const fields = Array.from(
+        new Set(findDataUrls(data, '', DEFAULT_IGNORED_MEDIA_FIELDS).map((f) => f.field))
+      );
       if (fields.length > 0) {
-        // แคชต่อเอกสารเผื่อ data URL เดียวกันซ้ำหลายตำแหน่งในเอกสารเดียว
         const dedupeCache = new Map<string, { url: string; path: string; bytes: number }>();
         const allUploadedPaths = new Set<string>();
         const fieldMeta = new Map<string, { paths: Set<string>; items: number; bytes: number }>();
@@ -216,7 +283,6 @@ export async function migrateMediaBatch(
             patch[field] = await replaceDataUrls(data[field], uploadForField, field);
           }
 
-          // เขียนกลับเฉพาะฟิลด์ที่ยังเป็นค่าเดิม (กันทับการแก้ไขที่เกิดระหว่างย้าย)
           const appliedFields = await db.runTransaction(async (tx) => {
             const cur = await tx.get(d.ref);
             if (!cur.exists) return [] as string[];
@@ -246,22 +312,23 @@ export async function migrateMediaBatch(
           if (appliedFields.length > 0) result.migratedDocs++;
           if (appliedFields.length < fields.length) {
             result.skipped += fields.length - appliedFields.length;
-            // ลบไฟล์ของฟิลด์ที่ถูกข้าม (หากไม่มีฟิลด์อื่นที่เขียนสำเร็จใช้งานร่วม)
             const orphanPaths = Array.from(allUploadedPaths).filter((p) => !appliedPathSet.has(p));
             if (orphanPaths.length) {
               await Promise.all(orphanPaths.map((p) => bucket.file(p).delete().catch(() => {})));
             }
           }
         } catch (err: any) {
-          // ไม่สำเร็จ → ลบไฟล์ที่อัปโหลดไปแล้วของเอกสารนี้ ไม่ให้มีไฟล์กำพร้า
           if (allUploadedPaths.size) {
             await Promise.all(
               Array.from(allUploadedPaths).map((p) => bucket.file(p).delete().catch(() => {}))
             );
           }
           if (err instanceof StorageUploadError) {
-            // Storage ใช้ไม่ได้ (billing/โควตา/สิทธิ์) → หยุดทั้งชุด รอบหน้าเริ่มที่เอกสารนี้ใหม่
-            result.storageError = err.message.slice(0, 300);
+            const raw = err.message.slice(0, 300);
+            const classified = classifyStorageError(raw);
+            result.storageError = raw;
+            result.storageErrorKind = classified.kind;
+            result.storageErrorMessageTh = classified.messageTh;
             result.nextCursor = `${colName}/${afterId}`;
             return result;
           }
@@ -276,7 +343,6 @@ export async function migrateMediaBatch(
     }
 
     if (snap.size < want) {
-      // collection นี้หมดแล้ว → ไปต่อ collection ถัดไป
       colIndex++;
       afterId = '';
     }

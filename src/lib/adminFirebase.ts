@@ -203,34 +203,14 @@ export const deleteAdminUser = async (uid: string) => {
 /* =========================
  * Activities
  * ========================= */
-export interface SurveyQuestion {
-  id: string;
-  type: 'text' | 'choice' | 'rating';
-  question: string;
-  options?: string[]; // สำหรับ type 'choice'
-  required?: boolean;
-  validationType?: 'any' | 'number' | 'thai' | 'english' | 'email';
-  allowSpaces?: boolean;
-  prefix?: string;
-  postfix?: string;
-}
-
-export interface SurveyConfig {
-  enabled: boolean;
-  questions: SurveyQuestion[];
-  /** วันเวลาเปิดแบบประเมิน */
-  openAt?: any;
-  /** วันเวลาปิดแบบประเมิน */
-  closeAt?: any;
-  /** @deprecated ใช้ openAt/closeAt — คงไว้เพื่อกิจกรรมเก่า */
-  surveyOpenMinutes?: number;
-  sessionEligibility?: 'any' | 'all' | 'specific'; // เงื่อนไขว่าต้องเช็กอิน session ไหนบ้าง (default: 'any')
-  requiredSessionIds?: string[];       // ใช้เมื่อ sessionEligibility = 'specific'
-  /** แอดมินบังคับเปิดทั้งกิจกรรมถึงเวลานี้ */
-  forceOpenUntil?: any;
-  /** แอดมินเปิดให้รายบุคคล: map uid → deadline */
-  userForceOpenUntil?: Record<string, any>;
-}
+export type {
+  SurveyQuestion,
+  SurveyConfig,
+  SurveySection,
+  SurveyQuestionType,
+  SurveyLikertPresentation,
+} from './surveyModel';
+import type { SurveyConfig } from './surveyModel';
 
 export interface ActivityFile {
   id: string;

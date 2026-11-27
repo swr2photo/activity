@@ -3,11 +3,36 @@
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  ClipboardCheck, RefreshCw, Download, Search, X, ChevronDown,
-  Users, MessageSquareText, Star, BarChart3, FileText,
-  Trash2, RotateCcw, Clock,
+  ClipboardCheck,
+  RefreshCw,
+  Download,
+  Search,
+  X,
+  ChevronDown,
+  Users,
+  MessageSquareText,
+  Star,
+  BarChart3,
+  FileText,
+  Trash2,
+  RotateCcw,
+  Clock,
+  CheckSquare,
+  Square,
+  User,
+  SlidersHorizontal,
 } from 'lucide-react';
-import { collection, deleteDoc, doc, documentId, getDocs, query, where, writeBatch, Timestamp } from 'firebase/firestore';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  documentId,
+  getDocs,
+  query,
+  where,
+  writeBatch,
+  Timestamp,
+} from 'firebase/firestore';
 import { adminDb as db } from '@/lib/firebaseAdminClient';
 import { ROLE_PERMISSIONS, type AdminProfile } from '@/types/admin';
 import {
@@ -17,13 +42,29 @@ import {
   logAdminEvent,
   updateActivity,
 } from '@/lib/adminFirebase';
+import {
+  SURVEY_INPUT_LABELS,
+  formatAnswerForDisplay,
+  getChoiceOptions,
+  getLikertConfig,
+  getLikertOptions,
+  normalizeQuestionType,
+  type SurveyAnswerValue,
+} from '@/lib/surveyModel';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import { CustomSelect } from '@/components/ui/custom-select';
 import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
-import { forceOpenUntilFromHours, getSurveyWindowStatus, surveyStatusLabelTh } from '@/lib/surveyWindow';
+import {
+  forceOpenUntilFromHours,
+  getSurveyWindowStatus,
+  surveyStatusLabelTh,
+} from '@/lib/surveyWindow';
 
 /* ============================= Types ============================= */
 
@@ -31,7 +72,8 @@ type SurveyResponse = {
   id: string;
   activityCode: string;
   userId: string;
-  answers: Record<string, string>;
+  answers: Record<string, SurveyAnswerValue>;
+  otherAnswers?: Record<string, string>;
   timestamp: Date;
 };
 
@@ -56,6 +98,8 @@ interface Props {
   currentAdmin: AdminProfile;
 }
 
+const PAGE_SIZE = 25;
+
 /* ============================= Helpers ============================= */
 
 const toDateSafe = (v: any): Date => {
@@ -68,6 +112,12 @@ const toDateSafe = (v: any): Date => {
 const displayName = (p?: RespondentProfile) => {
   if (!p) return '';
   return `${p.firstName || ''} ${p.lastName || ''}`.trim();
+};
+
+const csvCell = (v: unknown) => {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
 };
 
 /* ============================= Component ============================= */
@@ -93,8 +143,13 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   const [error, setError] = useState('');
   const [actionMsg, setActionMsg] = useState('');
 
+  const [viewTab, setViewTab] = useState<'analytics' | 'responses' | 'access'>('analytics');
   const [searchText, setSearchText] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [detailTabs, setDetailTabs] = useState<Record<string, 'answers' | 'profile'>>({});
+  const [page, setPage] = useState(1);
+
   const [extendHours, setExtendHours] = useState(24);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [grantBusyId, setGrantBusyId] = useState<string | null>(null);
@@ -118,7 +173,9 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         if (!cancelled) setActivitiesLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [currentAdmin.department]);
 
   const selectedActivity = useMemo(
@@ -148,40 +205,45 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     if (!selectedActivityCode) return;
     setLoading(true);
     setError('');
-    setExpandedId(null);
+    setExpandedIds(new Set());
+    setSelectedIds([]);
+    setPage(1);
     try {
       const code = selectedActivityCode;
-      // ดึง surveyResponses และ activityRecords พร้อมกันแบบขนาน
       const [snap, recSnap] = await Promise.all([
         getDocs(query(collection(db, 'surveyResponses'), where('activityCode', '==', code))),
-        getDocs(query(collection(db, 'activityRecords'), where('activityCode', '==', code))).catch(() => null),
+        getDocs(query(collection(db, 'activityRecords'), where('activityCode', '==', code))).catch(
+          () => null
+        ),
       ]);
 
       const profileMap: Record<string, RespondentProfile> = {};
 
-      const rows: SurveyResponse[] = snap.docs.map((d) => {
-        const data: any = d.data();
-        const uid = String(data.userId || '');
-        if (uid && (data.studentId || data.firstName)) {
-          profileMap[uid] = {
-            studentId: data.studentId,
-            firstName: data.firstName,
-            lastName: data.lastName,
-            department: data.department,
-            email: data.email,
+      const rows: SurveyResponse[] = snap.docs
+        .map((d) => {
+          const data: any = d.data();
+          const uid = String(data.userId || '');
+          if (uid && (data.studentId || data.firstName)) {
+            profileMap[uid] = {
+              studentId: data.studentId,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              department: data.department,
+              email: data.email,
+            };
+          }
+          return {
+            id: d.id,
+            activityCode: data.activityCode || '',
+            userId: uid,
+            answers: data.answers || {},
+            otherAnswers: data.otherAnswers || undefined,
+            timestamp: toDateSafe(data.timestamp),
           };
-        }
-        return {
-          id: d.id,
-          activityCode: data.activityCode || '',
-          userId: uid,
-          answers: data.answers || {},
-          timestamp: toDateSafe(data.timestamp),
-        };
-      }).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        })
+        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setResponses(rows);
 
-      // ดึงโปรไฟล์และรายชื่อผู้ยังไม่ทำแบบประเมินจาก activityRecords ที่โหลดมาแล้ว (0 reads เพิ่ม!)
       if (recSnap) {
         const responded = new Set(rows.map((r) => r.userId).filter(Boolean));
         const uniqueStudents = new Set<string>();
@@ -222,8 +284,9 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         setPendingUsers([]);
       }
 
-      // เฉพาะ uid ที่ยังไม่มีโปรไฟล์ทั้งใน surveyResponses และ activityRecords -> batch query ด้วย documentId() ทีละ 30
-      const missingUids = Array.from(new Set(rows.map((r) => r.userId).filter((uid) => uid && !profileMap[uid])));
+      const missingUids = Array.from(
+        new Set(rows.map((r) => r.userId).filter((uid) => uid && !profileMap[uid]))
+      );
       if (missingUids.length > 0) {
         const chunks: string[][] = [];
         for (let i = 0; i < missingUids.length; i += 30) {
@@ -231,7 +294,9 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         }
         const batchSnaps = await Promise.all(
           chunks.map((chunk) =>
-            getDocs(query(collection(db, 'universityUsers'), where(documentId(), 'in', chunk))).catch(() => null)
+            getDocs(
+              query(collection(db, 'universityUsers'), where(documentId(), 'in', chunk))
+            ).catch(() => null)
           )
         );
         batchSnaps.forEach((bSnap) => {
@@ -266,36 +331,140 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     setError('');
   }, [selectedId]);
 
-  /* ---------- สรุปรายคำถาม ---------- */
+  useEffect(() => {
+    setPage(1);
+  }, [searchText, selectedId]);
+
+  /* ---------- สรุปรายคำถาม (รองรับครบ 13 ประเภท) ---------- */
   const questionStats = useMemo(() => {
     return questions.map((q) => {
-      const values = responses
-        .map((r) => (r.answers[q.id] ?? '').toString().trim())
-        .filter((v) => v !== '');
+      const canonical = normalizeQuestionType(q.type);
+      const answeredRows = responses
+        .map((r) => ({ raw: r.answers[q.id], other: r.otherAnswers?.[q.id] }))
+        .filter((x) => {
+          if (x.raw === undefined || x.raw === null) return false;
+          if (Array.isArray(x.raw)) return x.raw.length > 0;
+          return String(x.raw).trim() !== '';
+        });
 
-      if (q.type === 'rating') {
-        const nums = values.map(Number).filter((n) => !isNaN(n));
+      if (canonical === 'likert') {
+        const cfg = getLikertConfig(q);
+        const opts = getLikertOptions(q);
+        const nums = answeredRows
+          .map((x) => Number(Array.isArray(x.raw) ? x.raw[0] : x.raw))
+          .filter((n) => !Number.isNaN(n));
         const avg = nums.length ? nums.reduce((s, n) => s + n, 0) / nums.length : 0;
-        const dist = [1, 2, 3, 4, 5].map((star) => ({
-          label: String(star),
-          count: nums.filter((n) => n === star).length,
+        const maxScale = cfg.startFrom + cfg.levels - 1;
+        const dist = opts.map((o) => ({
+          key: o.value,
+          label: `${o.value} · ${o.label}`,
+          count: nums.filter((n) => String(n) === o.value).length,
         }));
-        return { q, answered: values.length, avg, dist, texts: [] as string[] };
+        return {
+          q,
+          canonical,
+          answered: answeredRows.length,
+          avg,
+          maxScale,
+          dist,
+          numberSummary: null as { min: number; avg: number; max: number } | null,
+          texts: [] as string[],
+          otherTexts: [] as string[],
+        };
       }
 
-      if (q.type === 'choice') {
-        const opts = q.options || [];
-        const counts = new Map<string, number>();
-        opts.forEach((o) => counts.set(o, 0));
-        values.forEach((v) => counts.set(v, (counts.get(v) || 0) + 1));
-        const dist = Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
-        return { q, answered: values.length, avg: null, dist, texts: [] as string[] };
+      if (
+        canonical === 'single_select' ||
+        canonical === 'dropdown' ||
+        canonical === 'multiple_select'
+      ) {
+        const opts = getChoiceOptions(q);
+        const counts = new Map<string, { label: string; count: number }>();
+        opts.forEach((o) => counts.set(o.value, { label: o.label, count: 0 }));
+        const otherTexts: string[] = [];
+
+        for (const row of answeredRows) {
+          const vals = Array.isArray(row.raw) ? row.raw : [String(row.raw)];
+          for (const v of vals) {
+            const key = String(v).trim();
+            if (!key) continue;
+            const cur = counts.get(key) ?? {
+              label: key === 'other' ? 'อื่น ๆ (โปรดระบุ)' : key === 'none' ? 'ไม่มี' : key,
+              count: 0,
+            };
+            cur.count++;
+            counts.set(key, cur);
+          }
+          if (row.other?.trim()) otherTexts.push(row.other.trim());
+        }
+
+        const dist = Array.from(counts.entries()).map(([key, info]) => ({
+          key,
+          label: info.label,
+          count: info.count,
+        }));
+        return {
+          q,
+          canonical,
+          answered: answeredRows.length,
+          avg: null,
+          maxScale: null,
+          dist,
+          numberSummary: null,
+          texts: [] as string[],
+          otherTexts,
+        };
       }
 
-      // text
-      return { q, answered: values.length, avg: null, dist: null, texts: values };
+      if (canonical === 'number') {
+        const nums = answeredRows
+          .map((x) => Number(Array.isArray(x.raw) ? x.raw[0] : x.raw))
+          .filter((n) => !Number.isNaN(n));
+        const numberSummary =
+          nums.length > 0
+            ? {
+                min: Math.min(...nums),
+                avg: nums.reduce((s, n) => s + n, 0) / nums.length,
+                max: Math.max(...nums),
+              }
+            : null;
+        return {
+          q,
+          canonical,
+          answered: answeredRows.length,
+          avg: null,
+          maxScale: null,
+          dist: null,
+          numberSummary,
+          texts: nums.map(String),
+          otherTexts: [] as string[],
+        };
+      }
+
+      const texts = answeredRows
+        .map((x) => formatAnswerForDisplay(q, x.raw, x.other))
+        .filter(Boolean);
+      return {
+        q,
+        canonical,
+        answered: answeredRows.length,
+        avg: null,
+        maxScale: null,
+        dist: null,
+        numberSummary: null,
+        texts,
+        otherTexts: [] as string[],
+      };
     });
   }, [questions, responses]);
+
+  const overallLikertAvg = useMemo(() => {
+    const likerts = questionStats.filter((s) => s.canonical === 'likert' && s.answered > 0 && s.avg != null);
+    if (likerts.length === 0) return null;
+    const sum = likerts.reduce((acc, item) => acc + (item.avg || 0), 0);
+    const maxScale = likerts[0].maxScale ?? 5;
+    return { avg: sum / likerts.length, maxScale };
+  }, [questionStats]);
 
   /* ---------- ค้นหารายคน ---------- */
   const filteredResponses = useMemo(() => {
@@ -307,20 +476,59 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         (p?.studentId || '').toLowerCase().includes(s) ||
         (p?.firstName || '').toLowerCase().includes(s) ||
         (p?.lastName || '').toLowerCase().includes(s) ||
+        (p?.department || '').toLowerCase().includes(s) ||
         (p?.email || '').toLowerCase().includes(s) ||
-        Object.values(r.answers).some((v) => String(v).toLowerCase().includes(s))
+        Object.values(r.answers).some((v) =>
+          (Array.isArray(v) ? v.join(' ') : String(v)).toLowerCase().includes(s)
+        )
       );
     });
   }, [responses, profiles, searchText]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredResponses.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedResponses = useMemo(
+    () => filteredResponses.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredResponses, safePage]
+  );
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filteredResponses.length && filteredResponses.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredResponses.map((r) => r.id));
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   /* ---------- Export CSV ---------- */
   const exportCSV = () => {
     if (!selectedActivity) return;
+    const targetRows =
+      selectedIds.length > 0
+        ? filteredResponses.filter((r) => selectedIds.includes(r.id))
+        : filteredResponses;
     const headers = [
-      'วันที่/เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ', 'นามสกุล', 'สังกัด',
+      'วันที่/เวลา',
+      'รหัสผู้เข้าร่วม',
+      'ชื่อ',
+      'นามสกุล',
+      'สังกัด',
       ...questions.map((q, i) => `${i + 1}. ${q.question}`),
     ];
-    const body = filteredResponses.map((r) => {
+    const body = targetRows.map((r) => {
       const p = profiles[r.userId] || {};
       return [
         r.timestamp.toLocaleString('th-TH'),
@@ -328,28 +536,25 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         p.firstName || '',
         p.lastName || '',
         p.department || '',
-        ...questions.map((q) => r.answers[q.id] ?? ''),
+        ...questions.map((q) => formatAnswerForDisplay(q, r.answers[q.id], r.otherAnswers?.[q.id])),
       ];
     });
-    const csv = [headers, ...body]
-      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n');
+    const csv = [headers, ...body].map((row) => row.map(csvCell).join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = url;
     a.download = `survey_${selectedActivity.activityCode}_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
+    URL.revokeObjectURL(url);
   };
 
-  /* ---------- ลบคำตอบรายคน / ให้ทำใหม่ ---------- */
+  /* ---------- Actions: ขยายเวลา / เปิดสิทธิ์รายบุคคล / ลบคำตอบ ---------- */
   const applyForceOpen = async (hours: number) => {
     if (!selectedActivity) return null;
     const until = forceOpenUntilFromHours(hours);
     const prev = (selectedActivity.surveyConfig || { enabled: true, questions: [] }) as any;
-    const nextConfig = {
-      ...prev,
-      forceOpenUntil: Timestamp.fromDate(until),
-    };
+    const nextConfig = { ...prev, forceOpenUntil: Timestamp.fromDate(until) };
     await updateActivity(selectedActivity.id, { surveyConfig: nextConfig } as any);
     setActivities((list) =>
       list.map((a) => (a.id === selectedActivity.id ? { ...a, surveyConfig: nextConfig } : a))
@@ -357,17 +562,13 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     return until;
   };
 
-  /** เปิดสิทธิ์ทำแบบประเมินเฉพาะบุคคล (ไม่กระทบคนอื่น) */
   const applyUserForceOpen = async (userId: string, hours: number) => {
     if (!selectedActivity || !userId) return null;
     const until = forceOpenUntilFromHours(hours);
     const prev = (selectedActivity.surveyConfig || { enabled: true, questions: [] }) as any;
     const map = { ...(prev.userForceOpenUntil || {}) };
     map[userId] = Timestamp.fromDate(until);
-    const nextConfig = {
-      ...prev,
-      userForceOpenUntil: map,
-    };
+    const nextConfig = { ...prev, userForceOpenUntil: map };
     await updateActivity(selectedActivity.id, { surveyConfig: nextConfig } as any);
     setActivities((list) =>
       list.map((a) => (a.id === selectedActivity.id ? { ...a, surveyConfig: nextConfig } : a))
@@ -380,7 +581,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     const hours = extendHours;
     const ok = await confirm({
       title: 'ขยายเวลาทำแบบประเมิน?',
-      description: `จะเปิดแบบประเมินของ «${selectedActivity.activityName}» เพิ่มอีก ${hours} ชั่วโมง จากตอนนี้ ผู้ที่ยังไม่ได้ทำหรือถูกให้ทำใหม่จะเข้าทำได้`,
+      description: `จะเปิดแบบประเมินของ «${selectedActivity.activityName}» เพิ่มอีก ${hours} ชั่วโมง จากตอนนี้`,
       confirmText: `ขยาย ${hours} ชม.`,
       cancelText: 'ยกเลิก',
       variant: 'warning',
@@ -401,11 +602,8 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         },
         { uid: currentAdmin.uid, email: currentAdmin.email }
       );
-      setActionMsg(
-        `ขยายเวลาแล้ว — เปิดถึง ${until?.toLocaleString('th-TH') || '-'}`
-      );
+      setActionMsg(`ขยายเวลาแล้ว — เปิดถึง ${until?.toLocaleString('th-TH') || '-'}`);
     } catch (e: any) {
-      console.error(e);
       setError(e?.message || 'ขยายเวลาไม่สำเร็จ');
     } finally {
       setBulkBusy(false);
@@ -419,7 +617,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     const ok = await confirm({
       title: 'ให้ผู้ใช้ทำแบบประเมินใหม่?',
       description: needExtend
-        ? `จะลบคำตอบของ «${who}» และเปิดสิทธิ์ให้เฉพาะคนนี้ทำได้อีก ${extendHours} ชั่วโมง (ไม่เปิดให้ทุกคน)`
+        ? `จะลบคำตอบของ «${who}» และเปิดสิทธิ์ให้เฉพาะคนนี้ทำได้อีก ${extendHours} ชั่วโมง`
         : `จะลบคำตอบของ «${who}» ออกจากระบบ ผู้ใช้จะสามารถส่งแบบประเมินกิจกรรมนี้อีกครั้งได้`,
       confirmText: needExtend ? 'ลบและเปิดสิทธิ์รายบุคคล' : 'ลบแล้วให้ทำใหม่',
       cancelText: 'ยกเลิก',
@@ -433,12 +631,10 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
     try {
       await deleteDoc(doc(db, 'surveyResponses', r.id));
       setResponses((prev) => prev.filter((x) => x.id !== r.id));
-      if (expandedId === r.id) setExpandedId(null);
+      setSelectedIds((prev) => prev.filter((x) => x !== r.id));
 
       let until: Date | null = null;
-      if (needExtend) {
-        until = await applyUserForceOpen(r.userId, extendHours);
-      }
+      if (needExtend) until = await applyUserForceOpen(r.userId, extendHours);
 
       await logAdminEvent(
         'SURVEY_RESPONSE_RESET',
@@ -461,7 +657,6 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
       );
       await fetchResponses();
     } catch (e: any) {
-      console.error(e);
       setError(e?.message || 'ลบคำตอบไม่สำเร็จ');
     } finally {
       setDeletingId(null);
@@ -495,11 +690,8 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         },
         { uid: currentAdmin.uid, email: currentAdmin.email }
       );
-      setActionMsg(
-        `เปิดสิทธิ์ให้ ${whoLabel} แล้ว — ถึง ${until?.toLocaleString('th-TH') || '-'}`
-      );
+      setActionMsg(`เปิดสิทธิ์ให้ ${whoLabel} แล้ว — ถึง ${until?.toLocaleString('th-TH') || '-'}`);
     } catch (e: any) {
-      console.error(e);
       setError(e?.message || 'เปิดสิทธิ์รายบุคคลไม่สำเร็จ');
     } finally {
       setGrantBusyId(null);
@@ -522,19 +714,16 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
       }
       const docSnap = snap.docs[0];
       const d: any = docSnap.data();
-      const who =
-        `${d.firstName || ''} ${d.lastName || ''}`.trim() || d.email || sid;
+      const who = `${d.firstName || ''} ${d.lastName || ''}`.trim() || d.email || sid;
       await grantUserSurveyAccess(docSnap.id, who);
       setManualStudentId('');
     } catch (e: any) {
-      console.error(e);
       setError(e?.message || 'ค้นหาผู้ใช้ไม่สำเร็จ');
     } finally {
       setGrantBusyId(null);
     }
   };
 
-  /* ---------- ลบคำตอบทั้งหมดของกิจกรรม ---------- */
   const resetAllResponses = async () => {
     if (!selectedActivity || responses.length === 0) return;
     const needExtend = !surveyWindowStatus.open;
@@ -542,7 +731,7 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
       title: 'ลบคำตอบแบบประเมินทั้งหมด?',
       description: needExtend
         ? `จะลบคำตอบ ${responses.length} รายการ และขยายเวลาทำแบบประเมินอีก ${extendHours} ชั่วโมง การลบย้อนกลับไม่ได้`
-        : `จะลบคำตอบ ${responses.length} รายการของกิจกรรม «${selectedActivity.activityName}» ผู้ที่เคยตอบแล้วจะถูกให้ทำใหม่ทั้งหมด การกระทำนี้ย้อนกลับไม่ได้`,
+        : `จะลบคำตอบ ${responses.length} รายการของกิจกรรม «${selectedActivity.activityName}» การกระทำนี้ย้อนกลับไม่ได้`,
       confirmText: needExtend ? 'ลบทั้งหมดและขยายเวลา' : 'ลบทั้งหมด',
       cancelText: 'ยกเลิก',
       variant: 'destructive',
@@ -561,12 +750,11 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
         await batch.commit();
       }
       setResponses([]);
-      setExpandedId(null);
+      setExpandedIds(new Set());
+      setSelectedIds([]);
 
       let until: Date | null = null;
-      if (needExtend) {
-        until = await applyForceOpen(extendHours);
-      }
+      if (needExtend) until = await applyForceOpen(extendHours);
 
       await logAdminEvent(
         'SURVEY_RESPONSES_RESET_ALL',
@@ -586,7 +774,6 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
           : `ลบคำตอบทั้งหมด ${ids.length} รายการแล้ว — ผู้ใช้สามารถทำแบบประเมินใหม่ได้`
       );
     } catch (e: any) {
-      console.error(e);
       setError(e?.message || 'ลบคำตอบทั้งหมดไม่สำเร็จ');
       await fetchResponses();
     } finally {
@@ -602,520 +789,826 @@ const SurveyResultsPanel: React.FC<Props> = ({ currentAdmin }) => {
   /* ============================= Render ============================= */
 
   return (
-    <div className="space-y-6 w-full min-w-0 max-w-full overflow-x-hidden">
+    <div className="space-y-5 w-full min-w-0 max-w-full overflow-x-hidden">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          <ClipboardCheck className="h-6 w-6 text-primary" />
-          ผลแบบประเมินกิจกรรม
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          ดูจำนวนผู้ทำแบบประเมิน สรุปคำตอบรายข้อ รายละเอียดรายคน และลบคำตอบเพื่อให้ผู้ใช้ทำใหม่ได้
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <ClipboardCheck className="h-6 w-6 text-primary" />
+            ผลแบบประเมินกิจกรรม
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            วิเคราะห์สรุปผลรายข้อ ดูคำตอบรายบุคคล ส่งออก CSV และจัดการสิทธิ์การทำแบบประเมิน
+          </p>
+        </div>
       </div>
 
-      {/* Activity picker */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-            <div className="flex-1">
-              <label className="text-xs font-semibold text-slate-600 mb-1 block">เลือกกิจกรรม (เฉพาะที่มีแบบประเมิน)</label>
-              <select
-                title="เลือกกิจกรรม"
-                value={selectedId}
-                onChange={(e) => setSelectedId(e.target.value)}
-                disabled={activitiesLoading || activities.length === 0}
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              >
-                {activities.length === 0 && <option value="">— ไม่มีกิจกรรมที่ตั้งแบบประเมินไว้ —</option>}
-                {activities.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.activityName} ({a.activityCode})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={fetchResponses} disabled={loading || bulkBusy || !selectedActivity} className="gap-1.5">
-                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-                รีเฟรช
-              </Button>
-              <Button
-                size="sm"
-                onClick={exportCSV}
-                disabled={filteredResponses.length === 0 || bulkBusy}
-                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-              >
-                <Download className="h-4 w-4" />
-                ส่งออก CSV
-              </Button>
-              {canMutateSurvey && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={resetAllResponses}
-                  disabled={responses.length === 0 || loading || bulkBusy || !selectedActivity}
-                  className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                >
-                  <RotateCcw className={cn('h-4 w-4', bulkBusy && 'animate-spin')} />
-                  ลบทั้งหมด / ให้ทำใหม่
-                </Button>
-              )}
-            </div>
+      {/* Top Filter & Activity Selector Card (D:\01-web ResponsesView Card Style) */}
+      <div className="rounded-2xl border border-border/80 bg-card p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground block">
+              เลือกกิจกรรม (เฉพาะที่มีแบบประเมิน)
+            </label>
+            <CustomSelect
+              value={selectedId}
+              disabled={activitiesLoading || activities.length === 0}
+              placeholder="— ไม่มีกิจกรรมที่ตั้งแบบประเมินไว้ —"
+              searchable={activities.length > 5}
+              searchPlaceholder="ค้นหาชื่อหรือรหัสกิจกรรม..."
+              onChange={(val) => setSelectedId(val)}
+              options={activities.map((a) => ({
+                value: a.id,
+                label: a.activityName,
+                description: a.activityCode,
+                badge: `${a.surveyConfig?.questions?.length ?? 0} ข้อ`,
+              }))}
+            />
           </div>
 
-          {selectedActivity && (
-            <div className="mt-4 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-3">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <Clock className="h-4 w-4 text-slate-500 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800">
-                      สถานะแบบประเมิน:{' '}
-                      <span className={cn(
-                        surveyWindowStatus.open ? 'text-emerald-700' : 'text-amber-700'
-                      )}>
-                        {surveyStatusLabelTh(surveyWindowStatus)}
-                      </span>
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {surveyWindowStatus.openTime && surveyWindowStatus.closeTime
-                        ? `เปิด ${surveyWindowStatus.openTime.toLocaleString('th-TH')} – ปิด ${surveyWindowStatus.closeTime.toLocaleString('th-TH')}`
-                        : surveyWindowStatus.closeTime
-                          ? `ปิดตามกำหนด ${surveyWindowStatus.closeTime.toLocaleString('th-TH')}`
-                          : 'ยังไม่ได้ตั้งวันเวลาเปิด–ปิด'}
-                      {surveyWindowStatus.forceOpenUntil
-                        ? ` · เปิดพิเศษทั้งกิจกรรมถึง ${surveyWindowStatus.forceOpenUntil.toLocaleString('th-TH')}`
-                        : ''}
-                    </p>
-                  </div>
-                </div>
-                {canMutateSurvey && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="text-xs text-slate-600 flex items-center gap-1.5">
-                    ขยาย/เปิดสิทธิ์
-                    <input
-                      type="number"
-                      min={1}
-                      max={336}
-                      value={extendHours}
-                      onChange={(e) => setExtendHours(Math.max(1, Math.min(336, Number(e.target.value) || 24)))}
-                      className="w-16 px-2 py-1 rounded-md border border-slate-200 bg-white text-sm"
-                      title="จำนวนชั่วโมง"
-                    />
-                    ชม.
-                  </label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!selectedActivity || bulkBusy}
-                    onClick={extendSurveyWindow}
-                    className="gap-1.5"
-                  >
-                    <Clock className="h-4 w-4" />
-                    ขยายทั้งกิจกรรม
-                  </Button>
-                </div>
-                )}
-              </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchResponses}
+              disabled={loading || bulkBusy || !selectedActivity}
+              className="h-10 rounded-xl gap-1.5"
+            >
+              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+              รีเฟรช
+            </Button>
+            <Button
+              size="sm"
+              onClick={exportCSV}
+              disabled={filteredResponses.length === 0 || bulkBusy}
+              className="h-10 rounded-xl gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <Download className="h-4 w-4" />
+              <span>ส่งออก CSV</span>
+              {selectedIds.length > 0 && (
+                <span className="rounded-full bg-white/25 px-1.5 py-0.5 text-[10px]">
+                  {selectedIds.length}
+                </span>
+              )}
+            </Button>
+            {canMutateSurvey && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetAllResponses}
+                disabled={responses.length === 0 || loading || bulkBusy || !selectedActivity}
+                className="h-10 rounded-xl gap-1.5 border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+              >
+                <RotateCcw className={cn('h-4 w-4', bulkBusy && 'animate-spin')} />
+                ลบทั้งหมด
+              </Button>
+            )}
+          </div>
+        </div>
 
-              {/* เปิดสิทธิ์รายบุคคล */}
-              <div className="rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-3 space-y-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">เปิดแบบประเมินให้รายบุคคล</p>
-                  <p className="text-xs text-muted-foreground">
-                    สำหรับผู้ที่ไม่ได้ทำภายในเวลา — เปิดสิทธิ์เฉพาะคนนั้นโดยไม่กระทบผู้อื่น
-                  </p>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                  <input
-                    type="text"
-                    placeholder="รหัสผู้เข้าร่วม เช่น 6710210317"
-                    value={manualStudentId}
-                    onChange={(e) => setManualStudentId(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-mono"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!manualStudentId.trim() || bulkBusy || grantBusyId === 'manual'}
-                    onClick={grantByStudentId}
-                    className="gap-1.5"
-                  >
-                    <Users className="h-4 w-4" />
-                    เปิดสิทธิ์ตามรหัส
-                  </Button>
-                </div>
-                {!loading && pendingUsers.length > 0 && (
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                    <p className="text-xs font-semibold text-slate-600">
-                      ลงทะเบียนแล้วแต่ยังไม่ทำแบบประเมิน ({pendingUsers.length})
-                    </p>
-                    {pendingUsers.slice(0, 40).map((u) => {
-                      const who =
-                        `${u.firstName || ''} ${u.lastName || ''}`.trim() ||
-                        u.studentId ||
-                        u.email ||
-                        u.userId;
-                      const busy = grantBusyId === u.userId;
-                      const alreadyGranted = !!(selectedActivity.surveyConfig as any)?.userForceOpenUntil?.[u.userId];
-                      return (
-                        <div
-                          key={u.userId}
-                          className="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-100 px-2.5 py-1.5"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-800 truncate">{who}</p>
-                            <p className="text-xs text-muted-foreground font-mono">
-                              {u.studentId || '-'}
-                              {alreadyGranted ? ' · มีสิทธิ์พิเศษแล้ว' : ''}
-                            </p>
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={busy || bulkBusy}
-                            onClick={() => grantUserSurveyAccess(u.userId, who)}
-                            className="h-8 shrink-0 gap-1"
-                          >
-                            <Clock className={cn('h-3.5 w-3.5', busy && 'animate-spin')} />
-                            เปิดสิทธิ์
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+        {/* Status Pill Strip */}
+        {selectedActivity && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 bg-muted/30 px-3.5 py-2.5 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <Clock className="size-4 text-primary shrink-0" />
+              <span className="font-semibold text-foreground">
+                สถานะ:{' '}
+                <span className={surveyWindowStatus.open ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
+                  {surveyStatusLabelTh(surveyWindowStatus)}
+                </span>
+              </span>
+              <span className="text-muted-foreground hidden sm:inline">·</span>
+              <span className="text-muted-foreground truncate">
+                {surveyWindowStatus.openTime && surveyWindowStatus.closeTime
+                  ? `${surveyWindowStatus.openTime.toLocaleString('th-TH')} – ${surveyWindowStatus.closeTime.toLocaleString('th-TH')}`
+                  : surveyWindowStatus.closeTime
+                    ? `ปิด ${surveyWindowStatus.closeTime.toLocaleString('th-TH')}`
+                    : 'ยังไม่ได้ตั้งช่วงเวลา'}
+              </span>
             </div>
-          )}
+            {pendingUsers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setViewTab('access')}
+                className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 transition-colors cursor-pointer"
+              >
+                ยังไม่ทำแบบประเมิน {pendingUsers.length} คน
+              </button>
+            )}
+          </div>
+        )}
 
-          {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
-          {actionMsg && <p className="text-sm text-emerald-700 mt-3">{actionMsg}</p>}
-        </CardContent>
-      </Card>
+        {error && <p className="text-sm text-destructive font-medium">{error}</p>}
+        {actionMsg && <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">{actionMsg}</p>}
+      </div>
 
       {activitiesLoading ? (
         <div className="flex items-center justify-center py-16">
           <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       ) : !selectedActivity ? (
-        <Card>
+        <Card className="rounded-2xl">
           <CardContent className="text-center py-16 text-muted-foreground">
             <ClipboardCheck className="h-12 w-12 mx-auto mb-3 opacity-30" />
-            <p className="font-semibold">ยังไม่มีกิจกรรมที่ตั้งแบบประเมินไว้</p>
-            <p className="text-sm mt-1">เปิดใช้แบบประเมินได้ในหน้าต่างแก้ไขกิจกรรม</p>
+            <p className="font-semibold text-foreground">ยังไม่มีกิจกรรมที่ตั้งแบบประเมินไว้</p>
+            <p className="text-sm mt-1">เปิดใช้และออกแบบแบบประเมินได้ในหน้าต่างสร้าง/แก้ไขกิจกรรม</p>
           </CardContent>
         </Card>
       ) : (
         <>
-          {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Tactile Stat Cards (D:\01-web style) */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <StatCard
               label="ทำแบบประเมินแล้ว"
-              value={loading ? '…' : responses.length.toLocaleString()}
-              icon={<ClipboardCheck className="h-6 w-6 text-blue-600" />}
-              iconBg="bg-blue-100"
+              value={loading ? '…' : responses.length.toLocaleString('th-TH')}
+              icon={<ClipboardCheck className="h-5 w-5 text-primary" />}
+              iconBg="bg-primary/10"
             />
             <StatCard
               label="ผู้เช็คอิน (ไม่ซ้ำคน)"
-              value={loading ? '…' : checkinCount != null ? checkinCount.toLocaleString() : '-'}
-              icon={<Users className="h-6 w-6 text-green-600" />}
-              iconBg="bg-green-100"
+              value={loading ? '…' : checkinCount != null ? checkinCount.toLocaleString('th-TH') : '-'}
+              icon={<Users className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />}
+              iconBg="bg-emerald-500/10"
             />
             <StatCard
               label="อัตราการตอบ"
               value={loading ? '…' : responseRate != null ? `${responseRate}%` : '-'}
-              icon={<BarChart3 className="h-6 w-6 text-purple-600" />}
-              iconBg="bg-purple-100"
+              icon={<BarChart3 className="h-5 w-5 text-violet-600 dark:text-violet-400" />}
+              iconBg="bg-violet-500/10"
+              extra={responseRate != null ? <Progress value={Math.min(100, responseRate)} className="mt-2 h-1.5" /> : null}
             />
             <StatCard
-              label="จำนวนคำถาม"
-              value={questions.length.toLocaleString()}
-              icon={<MessageSquareText className="h-6 w-6 text-amber-600" />}
-              iconBg="bg-amber-100"
+              label={overallLikertAvg ? 'คะแนนเฉลี่ยรวม' : 'จำนวนคำถาม'}
+              value={
+                overallLikertAvg
+                  ? `${overallLikertAvg.avg.toFixed(2)} / ${overallLikertAvg.maxScale}`
+                  : questions.length.toLocaleString('th-TH')
+              }
+              icon={<Star className="h-5 w-5 text-amber-500" />}
+              iconBg="bg-amber-500/10"
+              sublabel={overallLikertAvg ? `${questions.length} คำถามทั้งหมด` : undefined}
             />
           </div>
 
-          {/* สรุปรายคำถาม */}
-          <Card>
-            <CardContent className="pt-6 space-y-6">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-primary" />
-                สรุปคำตอบรายข้อ
-              </h2>
+          {/* Segmented View Switcher (D:\01-web style) */}
+          <div className="flex items-center gap-1 overflow-x-auto rounded-2xl border border-border/70 bg-muted/40 p-1.5 no-scrollbar">
+            {(
+              [
+                ['analytics', `สรุปผลรายข้อ (${questions.length})`, BarChart3],
+                ['responses', `คำตอบรายคน (${responses.length})`, FileText],
+                ['access', `เวลา & เปิดสิทธิ์รายบุคคล (${pendingUsers.length})`, SlidersHorizontal],
+              ] as const
+            ).map(([key, label, IconComp]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setViewTab(key)}
+                className={cn(
+                  'flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs sm:text-sm font-medium transition-all shrink-0 cursor-pointer',
+                  viewTab === key
+                    ? 'bg-card text-primary shadow-xs font-semibold ring-1 ring-border'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <IconComp className="size-4" />
+                {label}
+              </button>
+            ))}
+          </div>
 
+          {/* VIEW 1: Analytics Summary */}
+          {viewTab === 'analytics' && (
+            <div className="space-y-4">
               {loading ? (
-                <div className="flex items-center justify-center py-10">
+                <div className="rounded-2xl border border-border bg-card flex items-center justify-center py-14">
                   <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : responses.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4">ยังไม่มีผู้ทำแบบประเมินกิจกรรมนี้</p>
+                <div className="rounded-2xl border border-border bg-card p-12 text-center text-muted-foreground">
+                  <BarChart3 className="mx-auto size-10 opacity-30 mb-3" />
+                  <p className="font-semibold text-foreground">ยังไม่มีผู้ทำแบบประเมินกิจกรรมนี้</p>
+                </div>
               ) : (
-                questionStats.map(({ q, answered, avg, dist, texts }, qi) => (
-                  <div key={q.id} className="rounded-xl border border-slate-100 p-4 space-y-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="font-semibold text-slate-800">
-                        {qi + 1}. {q.question}
-                      </p>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {q.type === 'rating' && avg != null && (
-                          <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-0 gap-1">
-                            <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
-                            เฉลี่ย {avg.toFixed(2)} / 5
-                          </Badge>
-                        )}
-                        <Badge variant="secondary" className="text-xs">
-                          ตอบ {answered}/{responses.length} คน
-                        </Badge>
-                      </div>
-                    </div>
-
-                    {/* rating / choice → distribution bars */}
-                    {dist && (
-                      <div className="space-y-1.5">
-                        {dist.map(({ label, count }) => {
-                          const pct = answered > 0 ? Math.round((count / answered) * 100) : 0;
-                          return (
-                            <div key={label} className="flex items-center gap-3">
-                              <span className={cn(
-                                'text-xs text-slate-600 shrink-0 truncate',
-                                q.type === 'rating' ? 'w-10 font-mono' : 'w-40'
-                              )}>
-                                {q.type === 'rating' ? `★ ${label}` : label}
-                              </span>
-                              <div className="flex-1 h-5 rounded-md bg-slate-100 overflow-hidden">
-                                <div
-                                  className={cn(
-                                    'h-full rounded-md transition-all',
-                                    q.type === 'rating' ? 'bg-amber-400' : 'bg-blue-500'
-                                  )}
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                              <span className="text-xs text-slate-500 w-20 shrink-0 text-right font-mono">
-                                {count} คน ({pct}%)
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* text → list answers */}
-                    {texts && texts.length > 0 && (
-                      <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                        {texts.map((t, i) => (
-                          <div key={i} className="text-sm text-slate-700 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
-                            {t}
+                questionStats.map(
+                  ({ q, canonical, answered, avg, maxScale, dist, numberSummary, texts, otherTexts }, qi) => (
+                    <div
+                      key={q.id}
+                      className="rounded-2xl border border-border/80 bg-card p-4 sm:p-5 shadow-[0_4px_0_rgba(15,23,42,0.05)] dark:shadow-[0_4px_0_rgba(0,0,0,0.3)] space-y-3.5"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary">
+                            {String(qi + 1).padStart(2, '0')}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-foreground leading-snug">{q.question}</p>
+                            <span className="text-[11px] text-muted-foreground">
+                              {SURVEY_INPUT_LABELS[canonical]}
+                              {q.required ? ' · บังคับตอบ' : ''}
+                            </span>
                           </div>
-                        ))}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {avg != null && maxScale != null && (
+                            <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-0 gap-1">
+                              <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
+                              เฉลี่ย {avg.toFixed(2)} / {maxScale}
+                            </Badge>
+                          )}
+                          <Badge variant="secondary" className="text-xs">
+                            ตอบ {answered}/{responses.length} คน
+                          </Badge>
+                        </div>
                       </div>
-                    )}
-                    {q.type === 'text' && texts && texts.length === 0 && (
-                      <p className="text-sm text-muted-foreground">ไม่มีผู้ตอบข้อนี้</p>
-                    )}
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
 
-          {/* รายละเอียดรายคน */}
-          <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-primary" />
-                  คำตอบรายคน ({filteredResponses.length})
-                </h2>
-                <div className="flex flex-col sm:flex-row gap-2 sm:items-center w-full sm:w-auto">
-                  <div className="relative w-full sm:w-80 max-w-full">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <input
+                      {/* Distribution Bars (Likert / Choice / Dropdown / Multi-select) */}
+                      {dist && (
+                        <div className="space-y-2">
+                          {dist.map(({ key, label, count }) => {
+                            const pct = answered > 0 ? Math.round((count / answered) * 100) : 0;
+                            return (
+                              <div key={key} className="space-y-1">
+                                <div className="flex items-center justify-between gap-2 text-xs">
+                                  <span className="text-foreground font-medium truncate">{label}</span>
+                                  <span className="text-muted-foreground font-mono shrink-0">
+                                    {count} คน ({pct}%)
+                                  </span>
+                                </div>
+                                <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className={cn(
+                                      'h-full rounded-full transition-all duration-300',
+                                      canonical === 'likert' ? 'bg-amber-400' : 'bg-primary'
+                                    )}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {otherTexts.length > 0 && (
+                            <div className="mt-3 rounded-xl border border-border/70 bg-muted/30 p-3 space-y-1.5">
+                              <p className="text-xs font-semibold text-muted-foreground">
+                                คำตอบที่ระบุเพิ่มเติม (&ldquo;อื่น ๆ&rdquo;) ({otherTexts.length})
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {otherTexts.map((t, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs text-foreground"
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Number Summary */}
+                      {numberSummary && (
+                        <div className="grid grid-cols-3 gap-2.5">
+                          <div className="rounded-xl border border-border bg-muted/30 p-3 text-center">
+                            <p className="text-[11px] text-muted-foreground">ต่ำสุด</p>
+                            <p className="text-lg font-bold font-mono">{numberSummary.min}</p>
+                          </div>
+                          <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 text-center">
+                            <p className="text-[11px] text-primary">ค่าเฉลี่ย</p>
+                            <p className="text-lg font-bold font-mono text-primary">
+                              {numberSummary.avg.toFixed(2)}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-border bg-muted/30 p-3 text-center">
+                            <p className="text-[11px] text-muted-foreground">สูงสุด</p>
+                            <p className="text-lg font-bold font-mono">{numberSummary.max}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Open Text / Date / Time / etc. */}
+                      {!dist && !numberSummary && (
+                        texts.length > 0 ? (
+                          <div className="space-y-1.5 max-h-60 overflow-y-auto overscroll-contain pr-1">
+                            {texts.map((t, i) => (
+                              <div
+                                key={i}
+                                className="text-sm text-foreground bg-muted/30 border border-border/70 rounded-xl px-3.5 py-2 whitespace-pre-wrap"
+                              >
+                                {t}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">ยังไม่มีผู้ตอบข้อนี้</p>
+                        )
+                      )}
+                    </div>
+                  )
+                )
+              )}
+            </div>
+          )}
+
+          {/* VIEW 2: Individual Responses (D:\01-web ResponsesView Card Layout) */}
+          {viewTab === 'responses' && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
                       type="text"
-                      placeholder="ค้นหา ชื่อ, รหัสผู้เข้าร่วม, คำตอบ..."
+                      placeholder="ค้นหา ชื่อ, รหัสผู้เข้าร่วม, สังกัด, คำตอบ..."
                       value={searchText}
                       onChange={(e) => setSearchText(e.target.value)}
-                      className="w-full pl-10 pr-9 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      className="pl-9 pr-8 h-9 rounded-xl text-sm"
                     />
                     {searchText && (
                       <button
-                        title="ล้างคำค้นหา"
+                        type="button"
                         onClick={() => setSearchText('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-slate-600"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        title="ล้างคำค้นหา"
                       >
-                        <X className="h-4 w-4" />
+                        <X className="size-4" />
                       </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs">
+                    <button
+                      type="button"
+                      onClick={toggleSelectAll}
+                      className="inline-flex items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      {selectedIds.length === filteredResponses.length &&
+                      filteredResponses.length > 0 ? (
+                        <CheckSquare className="size-4 text-primary" />
+                      ) : (
+                        <Square className="size-4 text-muted-foreground/60" />
+                      )}
+                      <span>
+                        {selectedIds.length === filteredResponses.length &&
+                        filteredResponses.length > 0
+                          ? 'ยกเลิกเลือกทั้งหมด'
+                          : `เลือกทั้งหมด (${filteredResponses.length})`}
+                      </span>
+                    </button>
+                    {selectedIds.length > 0 && (
+                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-semibold text-primary">
+                        เลือกแล้ว {selectedIds.length} รายการ
+                      </span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <p className="text-xs text-muted-foreground">
-                กด «ให้ทำใหม่» เพื่อลบคำตอบรายคน — ผู้ใช้จะกลับไปสถานะยังไม่ทำแบบประเมินและส่งได้อีกครั้ง
-              </p>
+              <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
+                <span>
+                  พบ <strong className="text-foreground">{filteredResponses.length}</strong> จากทั้งหมด{' '}
+                  {responses.length} รายการ (หน้า {safePage}/{totalPages})
+                </span>
+                <span>กด &ldquo;ให้ทำใหม่&rdquo; เพื่อลบคำตอบรายบุคคลให้ผู้เข้าร่วมส่งอีกครั้ง</span>
+              </div>
 
               {loading ? (
-                <div className="flex items-center justify-center py-10">
+                <div className="rounded-2xl border border-border bg-card flex items-center justify-center py-14">
                   <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
-              ) : filteredResponses.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">ไม่พบข้อมูล</p>
+              ) : pagedResponses.length === 0 ? (
+                <div className="rounded-2xl border border-border bg-card p-12 text-center">
+                  <Users className="mx-auto size-10 text-muted-foreground/40 mb-3" />
+                  <h4 className="font-semibold text-foreground">ไม่พบรายการคำตอบ</h4>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    ลองปรับคำค้นหาหรือตรวจสอบกิจกรรมอื่น
+                  </p>
+                </div>
               ) : (
-                <div className="overflow-x-auto max-w-full">
-                  <table className="w-full min-w-[640px]">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/50">
-                        {['#', 'วันที่/เวลา', 'รหัสผู้เข้าร่วม', 'ชื่อ-นามสกุล', 'สังกัด', 'จัดการ'].map((h, i) => (
-                          <th key={i} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredResponses.map((r, idx) => {
-                        const p = profiles[r.userId];
-                        const expanded = expandedId === r.id;
-                        const busy = deletingId === r.id;
-                        return (
-                          <React.Fragment key={r.id}>
-                            <tr
-                              className="hover:bg-slate-50/80 transition-colors cursor-pointer"
-                              onClick={() => setExpandedId(expanded ? null : r.id)}
+                <div className="space-y-3">
+                  {pagedResponses.map((r) => {
+                    const p = profiles[r.userId];
+                    const isSelected = selectedIds.includes(r.id);
+                    const isExpanded = expandedIds.has(r.id);
+                    const activeSubTab = detailTabs[r.id] || 'answers';
+                    const busy = deletingId === r.id;
+
+                    // คำนวณคะแนนเฉลี่ย Likert ของคำตอบรายนี้ (ถ้ามี)
+                    const likertVals = questions
+                      .filter((q) => normalizeQuestionType(q.type) === 'likert')
+                      .map((q) => Number(r.answers[q.id]))
+                      .filter((n) => !Number.isNaN(n) && n > 0);
+                    const avgPerson =
+                      likertVals.length > 0
+                        ? likertVals.reduce((s, n) => s + n, 0) / likertVals.length
+                        : null;
+
+                    return (
+                      <div
+                        key={r.id}
+                        className={cn(
+                          'rounded-2xl border bg-card transition-all shadow-xs',
+                          isSelected
+                            ? 'border-primary/50 ring-1 ring-primary/20'
+                            : 'border-border/80 hover:border-border'
+                        )}
+                      >
+                        <div className="p-4 sm:p-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleSelect(r.id)}
+                              className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"
+                              aria-label={`เลือกรายการ ${displayName(p) || r.id}`}
                             >
-                              <td className="px-3 py-3 text-sm text-slate-400 font-mono">{idx + 1}</td>
-                              <td className="px-3 py-3 whitespace-nowrap">
-                                <div className="text-sm font-semibold text-slate-800">
-                                  {r.timestamp.toLocaleDateString('th-TH')}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {r.timestamp.toLocaleTimeString('th-TH')}
-                                </div>
-                              </td>
-                              <td className="px-3 py-3 text-sm font-mono font-bold text-slate-800">
-                                {p?.studentId || '-'}
-                              </td>
-                              <td className="px-3 py-3 text-sm text-slate-700">
-                                {displayName(p) || <span className="text-slate-400">ไม่พบข้อมูลผู้ใช้</span>}
-                                {p?.email && <div className="text-xs text-muted-foreground">{p.email}</div>}
-                              </td>
-                              <td className="px-3 py-3">
-                                <Badge variant="secondary" className="text-xs font-medium">
-                                  {p?.department || '-'}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                                <div className="inline-flex items-center gap-1.5">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={busy || bulkBusy}
-                                    onClick={() => resetOneResponse(r)}
-                                    className="h-8 gap-1 border-amber-200 text-amber-800 hover:bg-amber-50"
-                                    title="ลบคำตอบนี้แล้วให้ผู้ใช้ทำใหม่"
-                                  >
-                                    <RotateCcw className={cn('h-3.5 w-3.5', busy && 'animate-spin')} />
-                                    ให้ทำใหม่
-                                  </Button>
-                                  <ChevronDown className={cn('h-4 w-4 text-slate-400 transition-transform', expanded && 'rotate-180')} />
-                                </div>
-                              </td>
-                            </tr>
-                            {expanded && (
-                              <tr className="bg-slate-50/60">
-                                <td colSpan={6} className="px-4 py-4">
-                                  <div className="space-y-3 max-w-3xl">
-                                    <div className="flex flex-wrap gap-2 mb-2">
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={busy || bulkBusy}
-                                        onClick={() => resetOneResponse(r)}
-                                        className="gap-1.5 border-rose-200 text-rose-700 hover:bg-rose-50"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                        ลบคำตอบนี้ / ให้ทำใหม่
-                                      </Button>
-                                    </div>
+                              {isSelected ? (
+                                <CheckSquare className="size-5 text-primary" />
+                              ) : (
+                                <Square className="size-5 opacity-50 hover:opacity-100" />
+                              )}
+                            </button>
+
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="font-bold text-foreground text-sm sm:text-base truncate">
+                                  {displayName(p) || 'ไม่พบข้อมูลชื่อผู้ใช้'}
+                                </h4>
+                                {p?.studentId && (
+                                  <span className="rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-mono font-medium">
+                                    {p.studentId}
+                                  </span>
+                                )}
+                                {avgPerson !== null && (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                                    <Star className="size-3 fill-amber-500 text-amber-500" />
+                                    เฉลี่ย {avgPerson.toFixed(1)}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5">
+                                <span>{p?.department || 'ไม่ระบุสังกัด'}</span>
+                                <span>·</span>
+                                <span>{r.timestamp.toLocaleString('th-TH')}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs gap-1 rounded-xl"
+                              onClick={() => toggleExpand(r.id)}
+                            >
+                              <span>{isExpanded ? 'ย่อ' : 'ดูรายละเอียด'}</span>
+                              <ChevronDown
+                                className={cn(
+                                  'size-3.5 transition-transform duration-200',
+                                  isExpanded && 'rotate-180'
+                                )}
+                              />
+                            </Button>
+                            {canMutateSurvey && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={busy || bulkBusy}
+                                onClick={() => resetOneResponse(r)}
+                                className="h-8 text-xs gap-1 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 rounded-xl"
+                                title="ลบคำตอบนี้แล้วให้ผู้ใช้ทำใหม่"
+                              >
+                                <RotateCcw className={cn('size-3.5', busy && 'animate-spin')} />
+                                <span className="hidden sm:inline">ให้ทำใหม่</span>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Expanded Panel (D:\01-web Sub-Tabs + Styled Table) */}
+                        {isExpanded && (
+                          <div className="border-t border-border/70 bg-muted/20 p-4 sm:p-5 rounded-b-2xl space-y-4 animate-in fade-in-0 duration-150">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-2">
+                              <div className="flex gap-4 text-xs font-semibold">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDetailTabs((prev) => ({ ...prev, [r.id]: 'answers' }))
+                                  }
+                                  className={cn(
+                                    'flex items-center gap-1.5 pb-1 border-b-2 transition-colors cursor-pointer',
+                                    activeSubTab === 'answers'
+                                      ? 'border-primary text-primary'
+                                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                                  )}
+                                >
+                                  <FileText className="size-3.5" />
+                                  คำตอบแบบประเมิน ({questions.length} ข้อ)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDetailTabs((prev) => ({ ...prev, [r.id]: 'profile' }))
+                                  }
+                                  className={cn(
+                                    'flex items-center gap-1.5 pb-1 border-b-2 transition-colors cursor-pointer',
+                                    activeSubTab === 'profile'
+                                      ? 'border-primary text-primary'
+                                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                                  )}
+                                >
+                                  <User className="size-3.5" />
+                                  ข้อมูลผู้ตอบ
+                                </button>
+                              </div>
+                              {canMutateSurvey && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={busy || bulkBusy}
+                                  onClick={() => resetOneResponse(r)}
+                                  className="h-7 text-xs gap-1.5 border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                >
+                                  <Trash2 className="size-3" />
+                                  ลบคำตอบนี้ / ให้ทำใหม่
+                                </Button>
+                              )}
+                            </div>
+
+                            {activeSubTab === 'answers' && (
+                              <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-xs">
+                                <table className="w-full text-left text-xs">
+                                  <thead className="bg-muted/50 border-b border-border text-[11px] font-semibold text-muted-foreground">
+                                    <tr>
+                                      <th className="p-3 w-1/2">ข้อคำถาม</th>
+                                      <th className="p-3">คำตอบ</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-border/60">
                                     {questions.map((q, qi) => {
-                                      const ans = (r.answers[q.id] ?? '').toString().trim();
+                                      const formatted = formatAnswerForDisplay(
+                                        q,
+                                        r.answers[q.id],
+                                        r.otherAnswers?.[q.id]
+                                      );
                                       return (
-                                        <div key={q.id}>
-                                          <p className="text-xs font-semibold text-slate-500 mb-0.5">
+                                        <tr key={q.id} className="hover:bg-muted/20">
+                                          <td className="p-3 font-medium text-foreground align-top">
                                             {qi + 1}. {q.question}
-                                          </p>
-                                          {ans ? (
-                                            q.type === 'rating' ? (
-                                              <div className="flex items-center gap-0.5">
-                                                {[1, 2, 3, 4, 5].map((s) => (
-                                                  <Star
-                                                    key={s}
-                                                    className={cn(
-                                                      'h-4 w-4',
-                                                      s <= Number(ans)
-                                                        ? 'fill-amber-400 text-amber-400'
-                                                        : 'text-slate-300'
-                                                    )}
-                                                  />
-                                                ))}
-                                                <span className="text-sm text-slate-700 ml-1.5 font-semibold">{ans}/5</span>
-                                              </div>
+                                          </td>
+                                          <td className="p-3 text-foreground align-top whitespace-pre-wrap">
+                                            {formatted ? (
+                                              <span className="font-semibold">{formatted}</span>
                                             ) : (
-                                              <p className="text-sm text-slate-800 bg-white border border-slate-100 rounded-lg px-3 py-1.5 whitespace-pre-wrap">
-                                                {ans}
-                                              </p>
-                                            )
-                                          ) : (
-                                            <p className="text-sm text-slate-400 italic">— ไม่ได้ตอบ —</p>
-                                          )}
-                                        </div>
+                                              <span className="text-muted-foreground italic">
+                                                — ไม่ได้ตอบ —
+                                              </span>
+                                            )}
+                                          </td>
+                                        </tr>
                                       );
                                     })}
-                                  </div>
-                                </td>
-                              </tr>
+                                  </tbody>
+                                </table>
+                              </div>
                             )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+
+                            {activeSubTab === 'profile' && (
+                              <div className="rounded-xl border border-border bg-card p-4 grid gap-3 sm:grid-cols-2 text-xs">
+                                <div>
+                                  <p className="text-muted-foreground">ชื่อ-นามสกุล</p>
+                                  <p className="font-semibold text-foreground">
+                                    {displayName(p) || '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">รหัสผู้เข้าร่วม</p>
+                                  <p className="font-mono font-semibold text-foreground">
+                                    {p?.studentId || '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">อีเมล</p>
+                                  <p className="font-medium text-foreground break-all">
+                                    {p?.email || '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">สังกัด</p>
+                                  <p className="font-medium text-foreground">
+                                    {p?.department || '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Response ID</p>
+                                  <p className="font-mono text-muted-foreground break-all">{r.id}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">เวลาที่ส่ง</p>
+                                  <p className="font-medium text-foreground">
+                                    {r.timestamp.toLocaleString('th-TH')}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-            </CardContent>
-          </Card>
+
+              {/* Pagination Footer */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-3 border-t border-border">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="h-8 text-xs rounded-lg"
+                  >
+                    ก่อนหน้า
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    หน้า {safePage} จากทั้งหมด {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    className="h-8 text-xs rounded-lg"
+                  >
+                    ถัดไป
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* VIEW 3: Window Extension & Individual Access */}
+          {viewTab === 'access' && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-border/80 bg-card p-4 sm:p-5 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-foreground flex items-center gap-2">
+                      <Clock className="size-4 text-primary" />
+                      ขยายเวลาทำแบบประเมินทั้งกิจกรรม
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {surveyWindowStatus.forceOpenUntil
+                        ? `เปิดพิเศษถึง ${surveyWindowStatus.forceOpenUntil.toLocaleString('th-TH')}`
+                        : 'ใช้เมื่อต้องการเปิดรับคำตอบเพิ่มหลังหมดเวลา'}
+                    </p>
+                  </div>
+                  {canMutateSurvey && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        จำนวน
+                        <input
+                          type="number"
+                          min={1}
+                          max={336}
+                          value={extendHours}
+                          onChange={(e) =>
+                            setExtendHours(Math.max(1, Math.min(336, Number(e.target.value) || 24)))
+                          }
+                          className="w-16 px-2 py-1.5 rounded-lg border border-input bg-background text-sm text-center font-mono"
+                          title="จำนวนชั่วโมง"
+                        />
+                        ชม.
+                      </label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!selectedActivity || bulkBusy}
+                        onClick={extendSurveyWindow}
+                        className="gap-1.5 rounded-xl"
+                      >
+                        <Clock className="h-4 w-4" />
+                        ขยายทั้งกิจกรรม
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 sm:p-5 space-y-4">
+                <div>
+                  <h3 className="font-bold text-foreground">เปิดแบบประเมินให้รายบุคคล</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    อนุญาตเฉพาะรายบุคคลตามจำนวนชั่วโมงที่ตั้งไว้ด้านบน ({extendHours} ชม.) โดยไม่กระทบผู้อื่น
+                  </p>
+                </div>
+
+                {canMutateSurvey && (
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    <Input
+                      type="text"
+                      placeholder="รหัสผู้เข้าร่วม เช่น 6710210317"
+                      value={manualStudentId}
+                      onChange={(e) => setManualStudentId(e.target.value)}
+                      className="flex-1 rounded-xl font-mono bg-background"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!manualStudentId.trim() || bulkBusy || grantBusyId === 'manual'}
+                      onClick={grantByStudentId}
+                      className="h-10 gap-1.5 rounded-xl"
+                    >
+                      <Users className="h-4 w-4" />
+                      เปิดสิทธิ์ตามรหัส
+                    </Button>
+                  </div>
+                )}
+
+                {!loading && pendingUsers.length > 0 ? (
+                  <div className="space-y-2 max-h-80 overflow-y-auto overscroll-contain pr-1">
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      ลงทะเบียนแล้วแต่ยังไม่ทำแบบประเมิน ({pendingUsers.length} คน)
+                    </p>
+                    {pendingUsers.slice(0, 60).map((u) => {
+                      const who =
+                        `${u.firstName || ''} ${u.lastName || ''}`.trim() ||
+                        u.studentId ||
+                        u.email ||
+                        u.userId;
+                      const busy = grantBusyId === u.userId;
+                      const alreadyGranted = !!(selectedActivity.surveyConfig as any)
+                        ?.userForceOpenUntil?.[u.userId];
+                      return (
+                        <div
+                          key={u.userId}
+                          className="flex items-center justify-between gap-2 rounded-xl bg-card border border-border/80 px-3.5 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{who}</p>
+                            <p className="text-xs text-muted-foreground font-mono">
+                              {u.studentId || '-'}
+                              {alreadyGranted ? ' · มีสิทธิ์พิเศษแล้ว' : ''}
+                            </p>
+                          </div>
+                          {canMutateSurvey && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={busy || bulkBusy}
+                              onClick={() => grantUserSurveyAccess(u.userId, who)}
+                              className="h-8 shrink-0 gap-1 rounded-lg"
+                            >
+                              <Clock className={cn('h-3.5 w-3.5', busy && 'animate-spin')} />
+                              เปิดสิทธิ์
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    ผู้ลงทะเบียนทุกคนทำแบบประเมินครบแล้ว หรือยังไม่มีข้อมูลการเช็คอิน
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
   );
 };
 
-/* ---------- small stat card ---------- */
+/* ---------- Tactile Stat Card (D:\01-web style) ---------- */
 const StatCard: React.FC<{
   label: string;
   value: string;
   icon: React.ReactNode;
   iconBg: string;
-}> = ({ label, value, icon, iconBg }) => (
-  <Card>
-    <CardContent className="pt-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground font-medium">{label}</p>
-          <p className="text-3xl font-bold text-slate-900">{value}</p>
-        </div>
-        <div className={cn('h-12 w-12 rounded-xl flex items-center justify-center', iconBg)}>
-          {icon}
-        </div>
+  sublabel?: string;
+  extra?: React.ReactNode;
+}> = ({ label, value, icon, iconBg, sublabel, extra }) => (
+  <div className="rounded-2xl border border-border/80 bg-card p-4 sm:p-5 shadow-[0_4px_0_rgba(15,23,42,0.05)] dark:shadow-[0_4px_0_rgba(0,0,0,0.3)]">
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground font-medium">{label}</p>
+        <p className="mt-1 text-2xl sm:text-3xl font-bold text-foreground tabular-nums truncate">
+          {value}
+        </p>
+        {sublabel && <p className="mt-0.5 text-[11px] text-muted-foreground">{sublabel}</p>}
       </div>
-    </CardContent>
-  </Card>
+      <div className={cn('h-10 w-10 shrink-0 rounded-xl flex items-center justify-center', iconBg)}>
+        {icon}
+      </div>
+    </div>
+    {extra}
+  </div>
 );
 
 export default SurveyResultsPanel;

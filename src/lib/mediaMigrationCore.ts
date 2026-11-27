@@ -19,6 +19,9 @@ export const MIME_EXT: Record<string, string> = {
   'application/pdf': 'pdf',
 };
 
+/** ฟิลด์ QR ที่ระบบสร้างเป็น PNG ขนาดเล็กไว้ใช้งาน ไม่ใช่รูปอัปโหลดที่ควรย้ายไป Storage */
+export const DEFAULT_IGNORED_MEDIA_FIELDS: ReadonlySet<string> = new Set(['qrUrl', 'qrCode']);
+
 export type FoundMedia = {
   field: string;
   path: string;
@@ -27,6 +30,56 @@ export type FoundMedia = {
 };
 
 export type Uploader = (dataUrl: string, mime: string, hint: string) => Promise<string>;
+
+export type StorageErrorKind =
+  | 'billing_disabled'
+  | 'quota_exceeded'
+  | 'permission_denied'
+  | 'not_configured'
+  | 'unknown';
+
+/** แยกประเภทข้อผิดพลาดของ Firebase Storage เพื่อแสดงคำแนะนำที่ตรงจุด */
+export function classifyStorageError(message: string): {
+  kind: StorageErrorKind;
+  messageTh: string;
+} {
+  const m = String(message || '').toLowerCase();
+  if (
+    m.includes('billing account') ||
+    m.includes('billing') && (m.includes('disabled') || m.includes('closed') || m.includes('delinquent'))
+  ) {
+    return {
+      kind: 'billing_disabled',
+      messageTh:
+        'บัญชี Billing ของโปรเจกต์ Google Cloud ถูกปิดอยู่ (state closed) จึงไม่สามารถเขียนไฟล์ขึ้น Firebase Storage ได้ กรุณาเปิดใช้งานหรือเชื่อมบัญชี Billing (Blaze plan) ก่อนแล้วค่อยกดตรวจสอบอีกครั้ง',
+    };
+  }
+  if (m.includes('quota') || m.includes('429') || m.includes('exceeded')) {
+    return {
+      kind: 'quota_exceeded',
+      messageTh:
+        'โควตา Firebase Storage เต็มชั่วคราว กรุณารอรีเซ็ตโควตาหรือเพิ่มแผนการใช้งานแล้วลองใหม่อีกครั้ง',
+    };
+  }
+  if (m.includes('not configured') || m.includes('bucket') && m.includes('not found') || m.includes('404')) {
+    return {
+      kind: 'not_configured',
+      messageTh:
+        'ยังไม่ได้ตั้งค่าหรือไม่พบ Firebase Storage Bucket (ตรวจสอบตัวแปร NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET และเปิดใช้งาน Storage ใน Firebase Console)',
+    };
+  }
+  if (m.includes('permission') || m.includes('403') || m.includes('unauthorized') || m.includes('forbidden')) {
+    return {
+      kind: 'permission_denied',
+      messageTh:
+        'Service Account ไม่มีสิทธิ์เข้าถึง Firebase Storage Bucket กรุณาตรวจสอบสิทธิ์ IAM (Storage Object Admin)',
+    };
+  }
+  return {
+    kind: 'unknown',
+    messageTh: 'Firebase Storage ยังไม่พร้อมใช้งานในขณะนี้ กรุณาตรวจสอบการตั้งค่าแล้วลองใหม่อีกครั้ง',
+  };
+}
 
 /** ตรวจว่าเป็น plain object เท่านั้น (ไม่แตะ Timestamp, GeoPoint, Date, Buffer ฯลฯ) */
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -56,15 +109,21 @@ export function parseDataUrl(dataUrl: string): { mime: string; buffer: Buffer } 
 }
 
 /** สำรวจค่าใด ๆ แบบลึก แล้วคืนรายการ data URL ที่พบ (ไม่แก้ไขข้อมูลเดิม) */
-export function findDataUrls(value: unknown, path = ''): FoundMedia[] {
+export function findDataUrls(
+  value: unknown,
+  path = '',
+  ignoredFields: ReadonlySet<string> = DEFAULT_IGNORED_MEDIA_FIELDS
+): FoundMedia[] {
   const out: FoundMedia[] = [];
   const visit = (v: unknown, p: string) => {
+    const topField = p.split(/[.[]/)[0];
+    if (topField && ignoredFields.has(topField)) return;
     if (typeof v === 'string') {
       const trimmed = v.trim();
       const m = trimmed.match(DATA_URL_RE);
       if (m) {
         out.push({
-          field: p.split(/[.[]/)[0],
+          field: topField,
           path: p,
           mime: m[1].toLowerCase(),
           bytes: base64Bytes(m[2]),
@@ -75,7 +134,7 @@ export function findDataUrls(value: unknown, path = ''): FoundMedia[] {
         for (const im of v.matchAll(INLINE_DATA_URL_RE)) {
           const b64Part = im[2].split('base64,')[1] || '';
           out.push({
-            field: p.split(/[.[]/)[0],
+            field: topField,
             path: `${p}<inline>`,
             mime: im[3].toLowerCase(),
             bytes: base64Bytes(b64Part),

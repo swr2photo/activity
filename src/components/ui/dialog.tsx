@@ -33,7 +33,7 @@ const DialogContent = React.forwardRef<
     const el = target as HTMLElement | null;
     return Boolean(
       el?.closest?.(
-        '.ant-popover, .ant-color-picker, .ant-select-dropdown, .ant-picker-dropdown, .ant-tooltip'
+        '.ant-popover, .ant-color-picker, .ant-select-dropdown, .ant-picker-dropdown, .ant-tooltip, [data-custom-select-menu]'
       )
     );
   };

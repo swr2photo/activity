@@ -53,6 +53,6 @@
     "build:thai-schools": "node scripts/build-thai-schools.js",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --test src/lib/surveyWindow.test.ts src/lib/dynamicQrToken.test.ts src/lib/mediaMigrationCore.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/surveyWindow.test.ts src/lib/dynamicQrToken.test.ts src/lib/mediaMigrationCore.test.ts src/lib/surveyModel.test.ts"
   }
 }

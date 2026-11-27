@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Database,
+  ExternalLink,
   HardDrive,
   Pause,
   Play,
@@ -14,7 +15,7 @@ import {
 } from 'lucide-react';
 
 import type { AdminProfile } from '@/types/admin';
-import type { MigrateResult, ScanResult } from '@/lib/mediaMigration';
+import type { MigrateResult, ScanResult, StorageErrorKind } from '@/lib/mediaMigration';
 import { adminAuth as auth } from '@/lib/firebaseAdminClient';
 import { invalidateActivitiesCache, logAdminEvent } from '@/lib/adminFirebase';
 import { useConfirm } from '@/components/providers/ConfirmDialogProvider';
@@ -82,7 +83,11 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
   const [paused, setPaused] = useState(false);
   const [finished, setFinished] = useState(false);
   const [resumeCursor, setResumeCursor] = useState<string | null>(null);
-  const [storageError, setStorageError] = useState('');
+  const [storageError, setStorageError] = useState<{
+    raw: string;
+    kind?: StorageErrorKind;
+    messageTh?: string;
+  } | null>(null);
   const [totals, setTotals] = useState<MigrationTotals>(EMPTY_TOTALS);
 
   const pauseRef = useRef(false);
@@ -106,17 +111,25 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
       if (!res.ok) throw new Error(json?.error || `ตรวจสอบไม่สำเร็จ (${res.status})`);
       const result = json as ScanResult;
       setScan(result);
+      if (result.storageStatus && !result.storageStatus.ok) {
+        setStorageError({
+          raw: result.storageStatus.error || '',
+          kind: result.storageStatus.errorKind,
+          messageTh: result.storageStatus.errorMessageTh,
+        });
+      } else {
+        setStorageError(null);
+      }
       if (result.items === 0) {
         setResumeCursor(null);
         setPaused(false);
-        setStorageError('');
       }
       if (!silent) {
         const items = result.items;
         enqueueSnackbar(
           items > 0
-            ? `พบไฟล์ base64 ค้างอยู่ ${items.toLocaleString('th-TH')} รายการ`
-            : 'ไม่พบไฟล์ base64 ค้างใน Firestore',
+            ? `พบไฟล์อัปโหลด base64 ค้างอยู่ ${items.toLocaleString('th-TH')} รายการ`
+            : 'ไม่พบไฟล์อัปโหลด base64 ค้างใน Firestore',
           { variant: items > 0 ? 'info' : 'success' }
         );
       }
@@ -138,10 +151,10 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
         description: (
           <>
             ระบบจะอัปโหลดรูปแบนเนอร์ พื้นหลัง QR รูปในรายละเอียด และไฟล์แนบที่เก็บเป็น base64 ใน Firestore
-            ขึ้นไปยัง Firebase Storage แล้วเปลี่ยนเป็น URL อัตโนมัติทีละชุด
+            ขึ้นไปยัง Firebase Storage แล้วเปลี่ยนเป็น URL อัตโนมัติทีละชุด (ไม่แตะต้องรหัส QR ของกิจกรรม)
             <br />
             <br />
-            หาก Firebase Storage ยังไม่พร้อมใช้งาน (เช่น โควตาเต็มหรือยังไม่เปิด Billing) ระบบจะหยุดทันทีโดยไม่แก้ข้อมูลเดิม
+            หาก Firebase Storage ยังไม่พร้อมใช้งาน ระบบจะหยุดทันทีโดยไม่แก้ข้อมูลเดิม
           </>
         ),
         confirmText: 'เริ่มย้ายไฟล์',
@@ -154,7 +167,7 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
     setRunning(true);
     setPaused(false);
     setFinished(false);
-    setStorageError('');
+    setStorageError(null);
 
     let cursor: string | null = resume ? resumeCursor : null;
     let acc: MigrationTotals = resume
@@ -198,7 +211,11 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
         setResumeCursor(cursor);
 
         if (data.storageError) {
-          setStorageError(data.storageError);
+          setStorageError({
+            raw: data.storageError,
+            kind: data.storageErrorKind,
+            messageTh: data.storageErrorMessageTh,
+          });
           setPaused(true);
           enqueueSnackbar('Firebase Storage ยังไม่พร้อมใช้งาน — หยุดการย้ายชั่วคราวแล้ว', {
             variant: 'warning',
@@ -241,7 +258,7 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
       }
     } catch (err: any) {
       const msg = err?.message || 'เกิดข้อผิดพลาดระหว่างย้ายไฟล์';
-      setStorageError(msg);
+      setStorageError({ raw: msg });
       setPaused(true);
       enqueueSnackbar(msg, { variant: 'error' });
     } finally {
@@ -256,6 +273,8 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
         ? 100
         : 0;
 
+  const storageBlocked = Boolean(scan?.storageStatus && !scan.storageStatus.ok);
+  const projectId = scan?.storageStatus?.projectId || 'webapp-78231';
   const fieldEntries = scan ? Object.entries(scan.byField) : [];
   const collectionEntries = scan ? Object.entries(scan.byCollection || {}) : [];
 
@@ -270,10 +289,18 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
               <Badge variant="secondary" className="text-[11px]">
                 เฉพาะ Super Admin
               </Badge>
+              {scan?.storageStatus && (
+                <Badge
+                  variant={scan.storageStatus.ok ? 'success' : 'warning'}
+                  className="text-[11px]"
+                >
+                  {scan.storageStatus.ok ? 'Storage พร้อมใช้งาน' : 'Storage ยังไม่พร้อม'}
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
-              เมื่อโควตา Storage กลับมาใช้งานได้ สามารถย้ายแบนเนอร์ พื้นหลัง Dynamic QR รูปในรายละเอียด และไฟล์แนบที่เก็บเป็น
-              base64 ใน Firestore ขึ้น Storage เพื่อลดขนาดเอกสารและเพิ่มความเร็วในการโหลด
+              ตรวจสอบและย้ายแบนเนอร์ พื้นหลัง Dynamic QR รูปในรายละเอียด และไฟล์แนบที่เก็บเป็น base64 ใน Firestore
+              ขึ้น Firebase Storage เพื่อลดขนาดเอกสาร (ไม่รวมรูป QR โค้ดขนาดเล็กที่ระบบสร้างอัตโนมัติ)
             </p>
           </div>
 
@@ -308,7 +335,7 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
             ) : resumeCursor ? (
               <Button
                 size="sm"
-                disabled={scanning}
+                disabled={scanning || storageBlocked}
                 onClick={() => void startOrResumeMigration(true)}
                 className="gap-1.5"
               >
@@ -318,7 +345,7 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
             ) : (
               <Button
                 size="sm"
-                disabled={scanning || !scan || scan.items === 0}
+                disabled={scanning || !scan || scan.items === 0 || storageBlocked}
                 onClick={() => void startOrResumeMigration(false)}
                 className="gap-1.5"
               >
@@ -338,12 +365,37 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
         {storageError && (
           <Alert variant="warning">
             <AlertTriangle className="h-4 w-4" />
-            <AlertDescription className="space-y-1">
-              <p className="font-medium">หยุดการย้ายเนื่องจาก Firebase Storage ยังไม่พร้อมใช้งาน</p>
-              <p className="text-xs break-all opacity-90">{storageError}</p>
-              <p className="text-xs">
-                ข้อมูลใน Firestore ยังคงเดิมไม่เสียหาย เมื่อโควตาหรือสิทธิ์ Storage พร้อมแล้วสามารถกด &quot;ทำต่อจากจุดเดิม&quot; ได้ทันที
+            <AlertDescription className="space-y-2">
+              <p className="font-semibold">
+                {storageError.kind === 'billing_disabled'
+                  ? 'Firebase Storage ถูกปิดอยู่ (GCP Billing Account อยู่ในสถานะปิด)'
+                  : 'Firebase Storage ยังไม่พร้อมใช้งาน'}
               </p>
+              {storageError.messageTh && (
+                <p className="text-xs leading-relaxed">{storageError.messageTh}</p>
+              )}
+              {storageError.raw && (
+                <p className="rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1.5 font-mono text-[11px] break-all opacity-85">
+                  {storageError.raw}
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {storageError.kind === 'billing_disabled' && (
+                  <Button asChild size="sm" variant="outline" className="h-7 text-xs gap-1.5">
+                    <a
+                      href={`https://console.cloud.google.com/billing/linkedaccount?project=${encodeURIComponent(projectId)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      เปิดหน้าตั้งค่า Billing ({projectId})
+                    </a>
+                  </Button>
+                )}
+                <span className="text-[11px] opacity-80">
+                  ข้อมูลใน Firestore ยังคงปลอดภัยไม่เสียหาย — เมื่อเปิด Billing/Storage แล้วกด &quot;ตรวจสอบอีกครั้ง&quot;
+                </span>
+              </div>
             </AlertDescription>
           </Alert>
         )}
@@ -377,7 +429,7 @@ export default function MediaMigrationCard({ currentAdmin }: Props) {
             {scan.items === 0 ? (
               <div className="flex items-center gap-2 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span>ไม่พบไฟล์ base64 ค้างในเอกสาร Firestore — รูปภาพทั้งหมดอยู่ใน Storage แล้ว</span>
+                <span>ไม่พบไฟล์อัปโหลด base64 ค้างในเอกสาร Firestore — ระบบสะอาดพร้อมใช้งานแล้ว</span>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
